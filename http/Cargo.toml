@@ -1,0 +1,22 @@
+[package]
+name = "http"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+wit-bindgen-rt = { version = "0.24.0", features = ["bitflags"] }
+reqwest = { version = "0.12.2", features = ["multipart", "blocking"] }
+
+[lib]
+crate-type = ["cdylib"]
+
+[package.metadata.component]
+package = "quelle:http"
+
+[package.metadata.component.target]
+path = "../wit/http"
+world = "http"
+
+[package.metadata.component.dependencies]
