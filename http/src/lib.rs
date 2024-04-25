@@ -1,7 +1,7 @@
-use bindings::exports::quelle::http::main;
-
 #[allow(warnings)]
 mod bindings;
+
+use bindings::exports::quelle::http::main;
 
 pub struct Reqwest;
 
@@ -14,6 +14,12 @@ pub struct ReqwestClient {
 }
 
 impl main::GuestClient for ReqwestClient {
+    fn new() -> Self {
+        Self {
+            client: reqwest::blocking::Client::new(),
+        }
+    }
+
     fn request(&self, request: main::Request) -> Result<main::Response, main::ResponseError> {
         let mut builder = self.client.request(request.method.into(), request.url);
 

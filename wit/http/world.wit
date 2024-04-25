@@ -57,6 +57,7 @@ interface main {
     }
 
     resource client {
+        constructor();
         request: func(request: request) -> result<response, response-error>;
     }
 }

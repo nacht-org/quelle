@@ -354,6 +354,14 @@ pub mod exports {
 
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
+                pub unsafe fn _export_constructor_client_cabi<T: GuestClient>() -> i32 {
+                    #[cfg(target_arch = "wasm32")]
+                    _rt::run_ctors_once();
+                    let result0 = Client::new(T::new());
+                    (result0).take_handle() as i32
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
                 pub unsafe fn _export_method_client_request_cabi<T: GuestClient>(
                     arg0: *mut u8,
                     arg1: i32,
@@ -460,38 +468,38 @@ pub mod exports {
                                                                         );
 
                                                                         DataPart{
-                                  data: _rt::Vec::from_raw_parts(l9.cast(), len11, len11),
-                                  name: match l12 {
-                                    0 => None,
-                                    1 => {
-                                      let e = {
-                                        let l13 = *base.add(24).cast::<*mut u8>();
-                                        let l14 = *base.add(28).cast::<usize>();
-                                        let len15 = l14;
-                                        let bytes15 = _rt::Vec::from_raw_parts(l13.cast(), len15, len15);
+                                data: _rt::Vec::from_raw_parts(l9.cast(), len11, len11),
+                                name: match l12 {
+                                  0 => None,
+                                  1 => {
+                                    let e = {
+                                      let l13 = *base.add(24).cast::<*mut u8>();
+                                      let l14 = *base.add(28).cast::<usize>();
+                                      let len15 = l14;
+                                      let bytes15 = _rt::Vec::from_raw_parts(l13.cast(), len15, len15);
 
-                                        _rt::string_lift(bytes15)
-                                      };
-                                      Some(e)
-                                    }
-                                    _ => _rt::invalid_enum_discriminant(),
-                                  },
-                                  content_type: match l16 {
-                                    0 => None,
-                                    1 => {
-                                      let e = {
-                                        let l17 = *base.add(36).cast::<*mut u8>();
-                                        let l18 = *base.add(40).cast::<usize>();
-                                        let len19 = l18;
-                                        let bytes19 = _rt::Vec::from_raw_parts(l17.cast(), len19, len19);
+                                      _rt::string_lift(bytes15)
+                                    };
+                                    Some(e)
+                                  }
+                                  _ => _rt::invalid_enum_discriminant(),
+                                },
+                                content_type: match l16 {
+                                  0 => None,
+                                  1 => {
+                                    let e = {
+                                      let l17 = *base.add(36).cast::<*mut u8>();
+                                      let l18 = *base.add(40).cast::<usize>();
+                                      let len19 = l18;
+                                      let bytes19 = _rt::Vec::from_raw_parts(l17.cast(), len19, len19);
 
-                                        _rt::string_lift(bytes19)
-                                      };
-                                      Some(e)
-                                    }
-                                    _ => _rt::invalid_enum_discriminant(),
-                                  },
-                                }
+                                      _rt::string_lift(bytes19)
+                                    };
+                                    Some(e)
+                                  }
+                                  _ => _rt::invalid_enum_discriminant(),
+                                },
+                              }
                                                                     };
                                                                     FormPart::Data(e20)
                                                                 }
@@ -839,35 +847,40 @@ pub mod exports {
                         }
                     }
 
+                    fn new() -> Self;
                     fn request(&self, request: Request) -> Result<Response, ResponseError>;
                 }
                 #[doc(hidden)]
 
                 macro_rules! __export_quelle_http_main_0_1_0_cabi{
-            ($ty:ident with_types_in $($path_to_types:tt)*) => (const _: () = {
+          ($ty:ident with_types_in $($path_to_types:tt)*) => (const _: () = {
 
-              #[export_name = "quelle:http/main@0.1.0#[method]client.request"]
-              unsafe extern "C" fn export_method_client_request(arg0: *mut u8,arg1: i32,arg2: *mut u8,arg3: usize,arg4: i32,arg5: *mut u8,arg6: usize,arg7: i32,arg8: i32,arg9: *mut u8,arg10: usize,arg11: i32,arg12: *mut u8,arg13: usize,) -> *mut u8 {
-                $($path_to_types)*::_export_method_client_request_cabi::<<$ty as $($path_to_types)*::Guest>::Client>(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13)
+            #[export_name = "quelle:http/main@0.1.0#[constructor]client"]
+            unsafe extern "C" fn export_constructor_client() -> i32 {
+              $($path_to_types)*::_export_constructor_client_cabi::<<$ty as $($path_to_types)*::Guest>::Client>()
+            }
+            #[export_name = "quelle:http/main@0.1.0#[method]client.request"]
+            unsafe extern "C" fn export_method_client_request(arg0: *mut u8,arg1: i32,arg2: *mut u8,arg3: usize,arg4: i32,arg5: *mut u8,arg6: usize,arg7: i32,arg8: i32,arg9: *mut u8,arg10: usize,arg11: i32,arg12: *mut u8,arg13: usize,) -> *mut u8 {
+              $($path_to_types)*::_export_method_client_request_cabi::<<$ty as $($path_to_types)*::Guest>::Client>(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13)
+            }
+            #[export_name = "cabi_post_quelle:http/main@0.1.0#[method]client.request"]
+            unsafe extern "C" fn _post_return_method_client_request(arg0: *mut u8,) {
+              $($path_to_types)*::__post_return_method_client_request::<<$ty as $($path_to_types)*::Guest>::Client>(arg0)
+            }
+
+            const _: () = {
+              #[doc(hidden)]
+              #[export_name = "quelle:http/main@0.1.0#[dtor]client"]
+              #[allow(non_snake_case)]
+              unsafe extern "C" fn dtor(rep: *mut u8) {
+                $($path_to_types)*::Client::dtor::<
+                <$ty as $($path_to_types)*::Guest>::Client
+                >(rep)
               }
-              #[export_name = "cabi_post_quelle:http/main@0.1.0#[method]client.request"]
-              unsafe extern "C" fn _post_return_method_client_request(arg0: *mut u8,) {
-                $($path_to_types)*::__post_return_method_client_request::<<$ty as $($path_to_types)*::Guest>::Client>(arg0)
-              }
+            };
 
-              const _: () = {
-                #[doc(hidden)]
-                #[export_name = "quelle:http/main@0.1.0#[dtor]client"]
-                #[allow(non_snake_case)]
-                unsafe extern "C" fn dtor(rep: *mut u8) {
-                  $($path_to_types)*::Client::dtor::<
-                  <$ty as $($path_to_types)*::Guest>::Client
-                  >(rep)
-                }
-              };
-
-            };);
-          }
+          };);
+        }
                 #[doc(hidden)]
                 pub(crate) use __export_quelle_http_main_0_1_0_cabi;
                 #[repr(align(4))]
@@ -1095,34 +1108,35 @@ mod _rt {
 #[doc(hidden)]
 
 macro_rules! __export_http_impl {
-    ($ty:ident) => (self::export!($ty with_types_in self););
-    ($ty:ident with_types_in $($path_to_types_root:tt)*) => (
-    $($path_to_types_root)*::exports::quelle::http::main::__export_quelle_http_main_0_1_0_cabi!($ty with_types_in $($path_to_types_root)*::exports::quelle::http::main);
-    )
-  }
+  ($ty:ident) => (self::export!($ty with_types_in self););
+  ($ty:ident with_types_in $($path_to_types_root:tt)*) => (
+  $($path_to_types_root)*::exports::quelle::http::main::__export_quelle_http_main_0_1_0_cabi!($ty with_types_in $($path_to_types_root)*::exports::quelle::http::main);
+  )
+}
 #[doc(inline)]
 pub(crate) use __export_http_impl as export;
 
 #[cfg(target_arch = "wasm32")]
 #[link_section = "component-type:wit-bindgen:0.24.0:http:encoded world"]
 #[doc(hidden)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 723] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xd8\x04\x01A\x02\x01\
-A\x02\x01B\x20\x01m\x07\x03get\x04post\x03put\x06delete\x05patch\x04head\x07opti\
-ons\x04\0\x06method\x03\0\0\x01p}\x01ks\x01r\x03\x04data\x02\x04name\x03\x0ccont\
-ent-type\x03\x04\0\x09data-part\x03\0\x04\x01q\x02\x04text\x01s\0\x04data\x01\x05\
-\0\x04\0\x09form-part\x03\0\x06\x01o\x02s\x07\x01p\x08\x01q\x01\x04form\x01\x09\0\
-\x04\0\x0crequest-body\x03\0\x0a\x01k\x02\x01k\x0b\x01r\x05\x06method\x01\x03url\
-s\x06params\x0c\x04data\x0d\x07headers\x0c\x04\0\x07request\x03\0\x0e\x01o\x02ss\
-\x01p\x10\x01k\x11\x01r\x03\x06status{\x04data\x0c\x07headers\x12\x04\0\x08respo\
-nse\x03\0\x13\x01m\x06\x0cbad-response\x10connection-error\x12connection-timeout\
-\x0freceive-timeout\x11request-cancelled\x0csend-timeout\x04\0\x13response-error\
--kind\x03\0\x15\x01k{\x01k\x14\x01r\x04\x06status\x17\x04kind\x16\x08response\x18\
-\x07messages\x04\0\x0eresponse-error\x03\0\x19\x04\0\x06client\x03\x01\x01h\x1b\x01\
-j\x01\x14\x01\x1a\x01@\x02\x04self\x1c\x07request\x0f\0\x1d\x04\0\x16[method]cli\
-ent.request\x01\x1e\x04\x01\x16quelle:http/main@0.1.0\x05\0\x04\x01\x16quelle:ht\
-tp/http@0.1.0\x04\0\x0b\x0a\x01\0\x04http\x03\0\0\0G\x09producers\x01\x0cprocess\
-ed-by\x02\x0dwit-component\x070.202.0\x10wit-bindgen-rust\x060.24.0";
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 755] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xf8\x04\x01A\x02\x01\
+A\x02\x01B#\x01m\x07\x03get\x04post\x03put\x06delete\x05patch\x04head\x07options\
+\x04\0\x06method\x03\0\0\x01p}\x01ks\x01r\x03\x04data\x02\x04name\x03\x0ccontent\
+-type\x03\x04\0\x09data-part\x03\0\x04\x01q\x02\x04text\x01s\0\x04data\x01\x05\0\
+\x04\0\x09form-part\x03\0\x06\x01o\x02s\x07\x01p\x08\x01q\x01\x04form\x01\x09\0\x04\
+\0\x0crequest-body\x03\0\x0a\x01k\x02\x01k\x0b\x01r\x05\x06method\x01\x03urls\x06\
+params\x0c\x04data\x0d\x07headers\x0c\x04\0\x07request\x03\0\x0e\x01o\x02ss\x01p\
+\x10\x01k\x11\x01r\x03\x06status{\x04data\x0c\x07headers\x12\x04\0\x08response\x03\
+\0\x13\x01m\x06\x0cbad-response\x10connection-error\x12connection-timeout\x0frec\
+eive-timeout\x11request-cancelled\x0csend-timeout\x04\0\x13response-error-kind\x03\
+\0\x15\x01k{\x01k\x14\x01r\x04\x06status\x17\x04kind\x16\x08response\x18\x07mess\
+ages\x04\0\x0eresponse-error\x03\0\x19\x04\0\x06client\x03\x01\x01i\x1b\x01@\0\0\
+\x1c\x04\0\x13[constructor]client\x01\x1d\x01h\x1b\x01j\x01\x14\x01\x1a\x01@\x02\
+\x04self\x1e\x07request\x0f\0\x1f\x04\0\x16[method]client.request\x01\x20\x04\x01\
+\x16quelle:http/main@0.1.0\x05\0\x04\x01\x16quelle:http/http@0.1.0\x04\0\x0b\x0a\
+\x01\0\x04http\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x07\
+0.202.0\x10wit-bindgen-rust\x060.24.0";
 
 #[inline(never)]
 #[doc(hidden)]
