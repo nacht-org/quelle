@@ -485,6 +485,7 @@ dependencies = [
 name = "engine"
 version = "0.1.0"
 dependencies = [
+ "quelle_http",
  "wasmtime",
 ]
 
@@ -1451,11 +1452,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "quelle_core"
+version = "0.1.0"
+dependencies = [
+ "wasmtime",
+]
+
+[[package]]
 name = "quelle_http"
 version = "0.1.0"
 dependencies = [
  "reqwest",
- "wit-bindgen-rt",
+ "wasmtime",
 ]
 
 [[package]]

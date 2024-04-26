@@ -1,7 +1,7 @@
 package quelle:extension@0.1.0;
 
-use quelle:core/source@0.1.0;
 use quelle:core/novel@0.1.0;
+use quelle:core/source@0.1.0;
 
 interface meta {
     use source.{source-meta};
@@ -23,5 +23,5 @@ interface instance {
 world extension {
     export meta;
     export instance;
-    import quelle:http/main@0.1.0;
+    import quelle:http/outgoing@0.1.0;
 }

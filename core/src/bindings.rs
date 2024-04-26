@@ -1,4 +1,4 @@
 wasmtime::component::bindgen!({
     path: "wit",
-    world: "quelle:http/http",
+    world: "quelle:core/core",
 });

@@ -18,9 +18,9 @@ crate-type = ["cdylib"]
 package = "quelle:extension"
 
 [package.metadata.component.target]
-path = "../wit/extension"
+path = "../wit"
 world = "extension"
 
 [package.metadata.component.target.dependencies]
-"quelle:core" = { path = "../wit/core" }
-"quelle:http" = { path = "../wit/http" }
+"quelle:core" = { path = "../core/wit" }
+"quelle:http" = { path = "../http/wit" }

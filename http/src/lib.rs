@@ -1,109 +1,104 @@
 #[allow(warnings)]
 mod bindings;
 
-use bindings::exports::quelle::http::main;
+// pub struct ReqwestClient {
+//     client: reqwest::blocking::Client,
+// }
 
-pub struct Reqwest;
+// impl ReqwestClient {
+//     fn new() -> Self {
+//         Self {
+//             client: reqwest::blocking::Client::new(),
+//         }
+//     }
 
-impl main::Guest for Reqwest {
-    type Client = ReqwestClient;
-}
+//     fn request(
+//         &self,
+//         request: outgoing::Request,
+//     ) -> Result<outgoing::Response, outgoing::ResponseError> {
+//         let mut builder = self.client.request(request.method.into(), request.url);
 
-pub struct ReqwestClient {
-    client: reqwest::blocking::Client,
-}
+//         if let Some(params) = request.params {
+//             builder = builder.query(&params);
+//         }
 
-impl main::GuestClient for ReqwestClient {
-    fn new() -> Self {
-        Self {
-            client: reqwest::blocking::Client::new(),
-        }
-    }
+//         if let Some(body) = request.data {
+//             match body {
+//                 outgoing::RequestBody::Form(data) => {
+//                     let multipart = create_multipart(data);
+//                     builder = builder.multipart(multipart);
+//                 }
+//             };
+//         }
 
-    fn request(&self, request: main::Request) -> Result<main::Response, main::ResponseError> {
-        let mut builder = self.client.request(request.method.into(), request.url);
+//         builder.send().map(Into::into).map_err(Into::into)
+//     }
+// }
 
-        if let Some(params) = request.params {
-            builder = builder.query(&params);
-        }
+// fn create_multipart(data: Vec<(String, outgoing::FormPart)>) -> reqwest::blocking::multipart::Form {
+//     let mut form = reqwest::blocking::multipart::Form::new();
+//     for (name, part) in data {
+//         match part {
+//             outgoing::FormPart::Text(value) => form = form.text(name, value),
+//             outgoing::FormPart::Data(data) => {
+//                 let mut part = reqwest::blocking::multipart::Part::bytes(data.data);
 
-        if let Some(body) = request.data {
-            match body {
-                main::RequestBody::Form(data) => {
-                    let multipart = create_multipart(data);
-                    builder = builder.multipart(multipart);
-                }
-            };
-        }
+//                 if let Some(name) = data.name {
+//                     part = part.file_name(name);
+//                 }
 
-        builder.send().map(Into::into).map_err(Into::into)
-    }
-}
+//                 if let Some(content_type) = data.content_type {
+//                     part = part.mime_str(&content_type).unwrap();
+//                 }
 
-fn create_multipart(data: Vec<(String, main::FormPart)>) -> reqwest::blocking::multipart::Form {
-    let mut form = reqwest::blocking::multipart::Form::new();
-    for (name, part) in data {
-        match part {
-            main::FormPart::Text(value) => form = form.text(name, value),
-            main::FormPart::Data(data) => {
-                let mut part = reqwest::blocking::multipart::Part::bytes(data.data);
+//                 form = form.part(name, part);
+//             }
+//         };
+//     }
 
-                if let Some(name) = data.name {
-                    part = part.file_name(name);
-                }
+//     form
+// }
 
-                if let Some(content_type) = data.content_type {
-                    part = part.mime_str(&content_type).unwrap();
-                }
+// impl From<outgoing::Method> for reqwest::Method {
+//     fn from(value: outgoing::Method) -> Self {
+//         match value {
+//             outgoing::Method::Get => reqwest::Method::GET,
+//             outgoing::Method::Post => reqwest::Method::POST,
+//             outgoing::Method::Put => reqwest::Method::PUT,
+//             outgoing::Method::Delete => reqwest::Method::DELETE,
+//             outgoing::Method::Patch => reqwest::Method::PATCH,
+//             outgoing::Method::Head => reqwest::Method::HEAD,
+//             outgoing::Method::Options => reqwest::Method::OPTIONS,
+//         }
+//     }
+// }
 
-                form = form.part(name, part);
-            }
-        };
-    }
+// impl From<reqwest::blocking::Response> for outgoing::Response {
+//     fn from(value: reqwest::blocking::Response) -> Self {
+//         let status = value.status().as_u16();
+//         let headers = value
+//             .headers()
+//             .into_iter()
+//             .map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string()))
+//             .collect::<Vec<_>>();
 
-    form
-}
+//         let data = value.bytes().unwrap().to_vec();
 
-impl From<main::Method> for reqwest::Method {
-    fn from(value: main::Method) -> Self {
-        match value {
-            main::Method::Get => reqwest::Method::GET,
-            main::Method::Post => reqwest::Method::POST,
-            main::Method::Put => reqwest::Method::PUT,
-            main::Method::Delete => reqwest::Method::DELETE,
-            main::Method::Patch => reqwest::Method::PATCH,
-            main::Method::Head => reqwest::Method::HEAD,
-            main::Method::Options => reqwest::Method::OPTIONS,
-        }
-    }
-}
+//         outgoing::Response {
+//             status,
+//             headers: Some(headers),
+//             data: Some(data),
+//         }
+//     }
+// }
 
-impl From<reqwest::blocking::Response> for main::Response {
-    fn from(value: reqwest::blocking::Response) -> Self {
-        let status = value.status().as_u16();
-        let headers = value
-            .headers()
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string()))
-            .collect::<Vec<_>>();
-
-        let data = value.bytes().unwrap().to_vec();
-
-        main::Response {
-            status,
-            headers: Some(headers),
-            data: Some(data),
-        }
-    }
-}
-
-impl From<reqwest::Error> for main::ResponseError {
-    fn from(value: reqwest::Error) -> Self {
-        main::ResponseError {
-            kind: main::ResponseErrorKind::BadResponse,
-            status: value.status().map(|v| v.as_u16()),
-            response: None,
-            message: value.to_string(),
-        }
-    }
-}
+// impl From<reqwest::Error> for outgoing::ResponseError {
+//     fn from(value: reqwest::Error) -> Self {
+//         outgoing::ResponseError {
+//             kind: outgoing::ResponseErrorKind::BadResponse,
+//             status: value.status().map(|v| v.as_u16()),
+//             response: None,
+//             message: value.to_string(),
+//         }
+//     }
+// }

@@ -79,7 +79,7 @@ interface novel {
     }
 }
 
-world quelle {
-    export novel;
+world core {
     export source;
+    export novel;
 }

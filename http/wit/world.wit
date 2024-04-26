@@ -1,6 +1,6 @@
 package quelle:http@0.1.0;
 
-interface main {
+interface outgoing {
     enum method {
         get,
         post,
@@ -63,5 +63,5 @@ interface main {
 }
 
 world http {
-    export main;
+    export outgoing;
 }

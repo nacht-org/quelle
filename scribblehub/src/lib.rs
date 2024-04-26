@@ -9,7 +9,7 @@ use bindings::{
             novel::{Chapter, ChapterContent, Novel, NovelStatus, Volume},
             source::{ReadingDirection, SourceMeta},
         },
-        http::main::{Client, FormPart, Method, Request, RequestBody},
+        http::outgoing::{Client, FormPart, Method, Request, RequestBody},
     },
 };
 use chrono::NaiveDateTime;

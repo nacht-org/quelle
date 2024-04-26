@@ -266,7 +266,7 @@ pub mod quelle {
     #[allow(dead_code)]
     pub mod http {
         #[allow(dead_code, clippy::all)]
-        pub mod main {
+        pub mod outgoing {
             #[used]
             #[doc(hidden)]
             #[cfg(target_arch = "wasm32")]
@@ -504,7 +504,7 @@ pub mod quelle {
 
                     #[cfg(target_arch = "wasm32")]
                     {
-                        #[link(wasm_import_module = "quelle:http/main@0.1.0")]
+                        #[link(wasm_import_module = "quelle:http/outgoing@0.1.0")]
                         extern "C" {
                             #[link_name = "[resource-drop]client"]
                             fn drop(_: u32);
@@ -520,7 +520,7 @@ pub mod quelle {
                 pub fn new() -> Self {
                     unsafe {
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "quelle:http/main@0.1.0")]
+                        #[link(wasm_import_module = "quelle:http/outgoing@0.1.0")]
                         extern "C" {
                             #[link_name = "[constructor]client"]
                             fn wit_import() -> i32;
@@ -679,7 +679,7 @@ pub mod quelle {
                         };
                         let ptr16 = ret_area.0.as_mut_ptr().cast::<u8>();
                         #[cfg(target_arch = "wasm32")]
-                        #[link(wasm_import_module = "quelle:http/main@0.1.0")]
+                        #[link(wasm_import_module = "quelle:http/outgoing@0.1.0")]
                         extern "C" {
                             #[link_name = "[method]client.request"]
                             fn wit_import(
@@ -2247,8 +2247,8 @@ pub(crate) use __export_extension_impl as export;
 #[cfg(target_arch = "wasm32")]
 #[link_section = "component-type:wit-bindgen:0.24.0:extension:encoded world"]
 #[doc(hidden)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1759] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xdf\x0c\x01A\x02\x01\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1763] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xe3\x0c\x01A\x02\x01\
 A\x0d\x01B#\x01m\x07\x03get\x04post\x03put\x06delete\x05patch\x04head\x07options\
 \x04\0\x06method\x03\0\0\x01p}\x01ks\x01r\x03\x04data\x02\x04name\x03\x0ccontent\
 -type\x03\x04\0\x09data-part\x03\0\x04\x01q\x02\x04text\x01s\0\x04data\x01\x05\0\
@@ -2262,32 +2262,32 @@ eive-timeout\x11request-cancelled\x0csend-timeout\x04\0\x13response-error-kind\x
 ages\x04\0\x0eresponse-error\x03\0\x19\x04\0\x06client\x03\x01\x01i\x1b\x01@\0\0\
 \x1c\x04\0\x13[constructor]client\x01\x1d\x01h\x1b\x01j\x01\x14\x01\x1a\x01@\x02\
 \x04self\x1e\x07request\x0f\0\x1f\x04\0\x16[method]client.request\x01\x20\x03\x01\
-\x16quelle:http/main@0.1.0\x05\0\x01B\x09\x01m\x02\x03ltr\x03rtl\x04\0\x11readin\
-g-direction\x03\0\0\x01m\x01\x0afanfiction\x04\0\x0bsource-attr\x03\0\x02\x01ps\x01\
-p\x01\x01p\x03\x01r\x07\x02ids\x04names\x05langs\x04\x07versions\x09base-urls\x04\
-\x03rds\x05\x05attrs\x06\x04\0\x0bsource-meta\x03\0\x07\x03\x01\x18quelle:core/s\
-ource@0.1.0\x05\x01\x01B\x17\x01m\x06\x07ongoing\x06hiatus\x09completed\x04stub\x07\
-dropped\x07unknown\x04\0\x0cnovel-status\x03\0\0\x01ks\x01r\x03\x05titles\x05cov\
-er\x02\x03urls\x04\0\x0bbasic-novel\x03\0\x03\x01r\x04\x05titles\x05indexz\x03ur\
-ls\x0aupdated-at\x02\x04\0\x07chapter\x03\0\x05\x01p\x06\x01r\x03\x04names\x05in\
-dexz\x08chapters\x07\x04\0\x06volume\x03\0\x08\x01m\x02\x02dc\x03opf\x04\0\x09na\
-mespace\x03\0\x0a\x01o\x02ss\x01p\x0c\x01r\x04\x04names\x05values\x02ns\x0b\x06o\
-thers\x0d\x04\0\x08metadata\x03\0\x0e\x01ps\x01p\x09\x01p\x0f\x01r\x09\x03urls\x07\
-authors\x10\x05titles\x05cover\x02\x0bdescription\x10\x07volumes\x11\x08metadata\
-\x12\x06status\x01\x05langs\x10\x04\0\x05novel\x03\0\x13\x01r\x01\x04datas\x04\0\
-\x0fchapter-content\x03\0\x15\x03\x01\x17quelle:core/novel@0.1.0\x05\x02\x02\x03\
-\0\x01\x0bsource-meta\x01B\x07\x02\x03\x02\x01\x03\x04\0\x0bsource-meta\x03\0\0\x01\
-@\0\0\x01\x04\0\x0eextension-info\x01\x02\x01j\0\x01s\x01@\0\0\x03\x04\0\x05setu\
-p\x01\x04\x04\x01\x1bquelle:extension/meta@0.1.0\x05\x04\x02\x03\0\x02\x05novel\x02\
-\x03\0\x02\x0fchapter-content\x01B\x0f\x02\x03\x02\x01\x05\x04\0\x05novel\x03\0\0\
-\x02\x03\x02\x01\x06\x04\0\x0fchapter-content\x03\0\x02\x04\0\x06source\x03\x01\x01\
-i\x04\x01@\0\0\x05\x04\0\x13[constructor]source\x01\x06\x01h\x04\x01j\x01\x01\x01\
-s\x01@\x02\x04self\x07\x03urls\0\x08\x04\0\x19[method]source.novel-info\x01\x09\x01\
-j\x01\x03\x01s\x01@\x02\x04self\x07\x03urls\0\x0a\x04\0\x1e[method]source.chapte\
-r-content\x01\x0b\x04\x01\x1fquelle:extension/instance@0.1.0\x05\x07\x04\x01\x20\
-quelle:extension/extension@0.1.0\x04\0\x0b\x0f\x01\0\x09extension\x03\0\0\0G\x09\
-producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.202.0\x10wit-bindgen-rus\
-t\x060.24.0";
+\x1aquelle:http/outgoing@0.1.0\x05\0\x01B\x09\x01m\x02\x03ltr\x03rtl\x04\0\x11re\
+ading-direction\x03\0\0\x01m\x01\x0afanfiction\x04\0\x0bsource-attr\x03\0\x02\x01\
+ps\x01p\x01\x01p\x03\x01r\x07\x02ids\x04names\x05langs\x04\x07versions\x09base-u\
+rls\x04\x03rds\x05\x05attrs\x06\x04\0\x0bsource-meta\x03\0\x07\x03\x01\x18quelle\
+:core/source@0.1.0\x05\x01\x01B\x17\x01m\x06\x07ongoing\x06hiatus\x09completed\x04\
+stub\x07dropped\x07unknown\x04\0\x0cnovel-status\x03\0\0\x01ks\x01r\x03\x05title\
+s\x05cover\x02\x03urls\x04\0\x0bbasic-novel\x03\0\x03\x01r\x04\x05titles\x05inde\
+xz\x03urls\x0aupdated-at\x02\x04\0\x07chapter\x03\0\x05\x01p\x06\x01r\x03\x04nam\
+es\x05indexz\x08chapters\x07\x04\0\x06volume\x03\0\x08\x01m\x02\x02dc\x03opf\x04\
+\0\x09namespace\x03\0\x0a\x01o\x02ss\x01p\x0c\x01r\x04\x04names\x05values\x02ns\x0b\
+\x06others\x0d\x04\0\x08metadata\x03\0\x0e\x01ps\x01p\x09\x01p\x0f\x01r\x09\x03u\
+rls\x07authors\x10\x05titles\x05cover\x02\x0bdescription\x10\x07volumes\x11\x08m\
+etadata\x12\x06status\x01\x05langs\x10\x04\0\x05novel\x03\0\x13\x01r\x01\x04data\
+s\x04\0\x0fchapter-content\x03\0\x15\x03\x01\x17quelle:core/novel@0.1.0\x05\x02\x02\
+\x03\0\x01\x0bsource-meta\x01B\x07\x02\x03\x02\x01\x03\x04\0\x0bsource-meta\x03\0\
+\0\x01@\0\0\x01\x04\0\x0eextension-info\x01\x02\x01j\0\x01s\x01@\0\0\x03\x04\0\x05\
+setup\x01\x04\x04\x01\x1bquelle:extension/meta@0.1.0\x05\x04\x02\x03\0\x02\x05no\
+vel\x02\x03\0\x02\x0fchapter-content\x01B\x0f\x02\x03\x02\x01\x05\x04\0\x05novel\
+\x03\0\0\x02\x03\x02\x01\x06\x04\0\x0fchapter-content\x03\0\x02\x04\0\x06source\x03\
+\x01\x01i\x04\x01@\0\0\x05\x04\0\x13[constructor]source\x01\x06\x01h\x04\x01j\x01\
+\x01\x01s\x01@\x02\x04self\x07\x03urls\0\x08\x04\0\x19[method]source.novel-info\x01\
+\x09\x01j\x01\x03\x01s\x01@\x02\x04self\x07\x03urls\0\x0a\x04\0\x1e[method]sourc\
+e.chapter-content\x01\x0b\x04\x01\x1fquelle:extension/instance@0.1.0\x05\x07\x04\
+\x01\x20quelle:extension/extension@0.1.0\x04\0\x0b\x0f\x01\0\x09extension\x03\0\0\
+\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.202.0\x10wit-bind\
+gen-rust\x060.24.0";
 
 #[inline(never)]
 #[doc(hidden)]
