@@ -129,20 +129,6 @@ where
     }
 }
 
-pub trait Transpose {
-    type Output;
-    fn transpose(self) -> Self::Output;
-}
-
-impl<T, E> Transpose for Option<Result<T, E>> {
-    type Output = Result<Option<T>, E>;
-
-    #[inline]
-    fn transpose(self) -> Self::Output {
-        self.map_or(Ok(None), |r| r.map(Some))
-    }
-}
-
 pub trait CleanText {
     fn clean_text(&self) -> String;
 }

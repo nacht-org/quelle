@@ -1,104 +1,150 @@
-#[allow(warnings)]
-mod bindings;
+use bindings::quelle::http::outgoing;
+use wasmtime::component::ResourceTable;
 
-// pub struct ReqwestClient {
-//     client: reqwest::blocking::Client,
-// }
+pub mod bindings {
+    #![allow(missing_docs)]
+    wasmtime::component::bindgen!({
+        path: "../wit/deps/http",
+        with: {
+            "quelle:http/outgoing/client": super::HostClient,
+        }
+    });
+}
 
-// impl ReqwestClient {
-//     fn new() -> Self {
-//         Self {
-//             client: reqwest::blocking::Client::new(),
-//         }
-//     }
+pub struct Http {
+    table: ResourceTable,
+}
 
-//     fn request(
-//         &self,
-//         request: outgoing::Request,
-//     ) -> Result<outgoing::Response, outgoing::ResponseError> {
-//         let mut builder = self.client.request(request.method.into(), request.url);
+impl Http {
+    pub fn new() -> Self {
+        Self {
+            table: ResourceTable::new(),
+        }
+    }
+}
 
-//         if let Some(params) = request.params {
-//             builder = builder.query(&params);
-//         }
+impl outgoing::Host for Http {}
 
-//         if let Some(body) = request.data {
-//             match body {
-//                 outgoing::RequestBody::Form(data) => {
-//                     let multipart = create_multipart(data);
-//                     builder = builder.multipart(multipart);
-//                 }
-//             };
-//         }
+impl outgoing::HostClient for Http {
+    fn new(&mut self) -> wasmtime::component::Resource<outgoing::Client> {
+        self.table.push(outgoing::Client::new()).unwrap()
+    }
 
-//         builder.send().map(Into::into).map_err(Into::into)
-//     }
-// }
+    fn request(
+        &mut self,
+        self_: wasmtime::component::Resource<outgoing::Client>,
+        request: outgoing::Request,
+    ) -> Result<outgoing::Response, outgoing::ResponseError> {
+        self.table.get_mut(&self_).unwrap().request(request)
+    }
 
-// fn create_multipart(data: Vec<(String, outgoing::FormPart)>) -> reqwest::blocking::multipart::Form {
-//     let mut form = reqwest::blocking::multipart::Form::new();
-//     for (name, part) in data {
-//         match part {
-//             outgoing::FormPart::Text(value) => form = form.text(name, value),
-//             outgoing::FormPart::Data(data) => {
-//                 let mut part = reqwest::blocking::multipart::Part::bytes(data.data);
+    fn drop(
+        &mut self,
+        rep: wasmtime::component::Resource<outgoing::Client>,
+    ) -> wasmtime::Result<()> {
+        let _ = self.table.delete(rep)?;
+        Ok(())
+    }
+}
 
-//                 if let Some(name) = data.name {
-//                     part = part.file_name(name);
-//                 }
+pub struct HostClient {
+    client: reqwest::blocking::Client,
+}
 
-//                 if let Some(content_type) = data.content_type {
-//                     part = part.mime_str(&content_type).unwrap();
-//                 }
+impl HostClient {
+    fn new() -> Self {
+        Self {
+            client: reqwest::blocking::Client::new(),
+        }
+    }
 
-//                 form = form.part(name, part);
-//             }
-//         };
-//     }
+    fn request(
+        &self,
+        request: outgoing::Request,
+    ) -> Result<outgoing::Response, outgoing::ResponseError> {
+        let mut builder = self.client.request(request.method.into(), request.url);
 
-//     form
-// }
+        if let Some(params) = request.params {
+            builder = builder.query(&params);
+        }
 
-// impl From<outgoing::Method> for reqwest::Method {
-//     fn from(value: outgoing::Method) -> Self {
-//         match value {
-//             outgoing::Method::Get => reqwest::Method::GET,
-//             outgoing::Method::Post => reqwest::Method::POST,
-//             outgoing::Method::Put => reqwest::Method::PUT,
-//             outgoing::Method::Delete => reqwest::Method::DELETE,
-//             outgoing::Method::Patch => reqwest::Method::PATCH,
-//             outgoing::Method::Head => reqwest::Method::HEAD,
-//             outgoing::Method::Options => reqwest::Method::OPTIONS,
-//         }
-//     }
-// }
+        if let Some(body) = request.data {
+            match body {
+                outgoing::RequestBody::Form(data) => {
+                    let multipart = create_multipart(data);
+                    builder = builder.multipart(multipart);
+                }
+            };
+        }
 
-// impl From<reqwest::blocking::Response> for outgoing::Response {
-//     fn from(value: reqwest::blocking::Response) -> Self {
-//         let status = value.status().as_u16();
-//         let headers = value
-//             .headers()
-//             .into_iter()
-//             .map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string()))
-//             .collect::<Vec<_>>();
+        builder.send().map(Into::into).map_err(Into::into)
+    }
+}
 
-//         let data = value.bytes().unwrap().to_vec();
+fn create_multipart(data: Vec<(String, outgoing::FormPart)>) -> reqwest::blocking::multipart::Form {
+    let mut form = reqwest::blocking::multipart::Form::new();
+    for (name, part) in data {
+        match part {
+            outgoing::FormPart::Text(value) => form = form.text(name, value),
+            outgoing::FormPart::Data(data) => {
+                let mut part = reqwest::blocking::multipart::Part::bytes(data.data);
 
-//         outgoing::Response {
-//             status,
-//             headers: Some(headers),
-//             data: Some(data),
-//         }
-//     }
-// }
+                if let Some(name) = data.name {
+                    part = part.file_name(name);
+                }
 
-// impl From<reqwest::Error> for outgoing::ResponseError {
-//     fn from(value: reqwest::Error) -> Self {
-//         outgoing::ResponseError {
-//             kind: outgoing::ResponseErrorKind::BadResponse,
-//             status: value.status().map(|v| v.as_u16()),
-//             response: None,
-//             message: value.to_string(),
-//         }
-//     }
-// }
+                if let Some(content_type) = data.content_type {
+                    part = part.mime_str(&content_type).unwrap();
+                }
+
+                form = form.part(name, part);
+            }
+        };
+    }
+
+    form
+}
+
+impl From<outgoing::Method> for reqwest::Method {
+    fn from(value: outgoing::Method) -> Self {
+        match value {
+            outgoing::Method::Get => reqwest::Method::GET,
+            outgoing::Method::Post => reqwest::Method::POST,
+            outgoing::Method::Put => reqwest::Method::PUT,
+            outgoing::Method::Delete => reqwest::Method::DELETE,
+            outgoing::Method::Patch => reqwest::Method::PATCH,
+            outgoing::Method::Head => reqwest::Method::HEAD,
+            outgoing::Method::Options => reqwest::Method::OPTIONS,
+        }
+    }
+}
+
+impl From<reqwest::blocking::Response> for outgoing::Response {
+    fn from(value: reqwest::blocking::Response) -> Self {
+        let status = value.status().as_u16();
+        let headers = value
+            .headers()
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string()))
+            .collect::<Vec<_>>();
+
+        let data = value.bytes().unwrap().to_vec();
+
+        outgoing::Response {
+            status,
+            headers: Some(headers),
+            data: Some(data),
+        }
+    }
+}
+
+impl From<reqwest::Error> for outgoing::ResponseError {
+    fn from(value: reqwest::Error) -> Self {
+        outgoing::ResponseError {
+            kind: outgoing::ResponseErrorKind::BadResponse,
+            status: value.status().map(|v| v.as_u16()),
+            response: None,
+            message: value.to_string(),
+        }
+    }
+}
