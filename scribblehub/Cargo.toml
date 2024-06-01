@@ -22,5 +22,5 @@ path = "../wit"
 world = "extension"
 
 [package.metadata.component.target.dependencies]
-"quelle:core" = { path = "../core/wit" }
-"quelle:http" = { path = "../http/wit" }
+"quelle:core" = { path = "../wit/deps/core" }
+"quelle:http" = { path = "../wit/deps/http" }
