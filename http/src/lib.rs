@@ -35,6 +35,7 @@ impl outgoing::HostClient for Http {
         self_: wasmtime::component::Resource<outgoing::Client>,
         request: outgoing::Request,
     ) -> Result<outgoing::Response, outgoing::ResponseError> {
+        tracing::debug!("Requesting: {:?}", request);
         self.table.get_mut(&self_).unwrap().request(request)
     }
 

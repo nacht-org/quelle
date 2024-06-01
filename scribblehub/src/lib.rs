@@ -66,10 +66,12 @@ impl instance::GuestSource for ScribbleHub {
                 data: None,
                 headers: None,
             })
-            .unwrap();
+            .map_err(|e| e.to_string())?;
 
-        let text = response.data.unwrap();
-        let text = String::from_utf8(text).unwrap();
+        let text = response
+            .data
+            .ok_or_else(|| "Failed to get data".to_string())?;
+        let text = String::from_utf8(text).map_err(|e| e.to_string())?;
 
         let doc = kuchiki::parse_html().one(text);
 
@@ -79,8 +81,14 @@ impl instance::GuestSource for ScribbleHub {
             .ok_or_else(|| String::from("The url does not have an id"))?;
 
         let novel = Novel {
-            title: doc.select_first("div.fic_title").get_text().unwrap(),
-            authors: vec![doc.select_first("span.auth_name_fic").get_text().unwrap()],
+            title: doc
+                .select_first("div.fic_title")
+                .get_text()
+                .map_err(|e| format!("{:?}", e))?,
+            authors: vec![doc
+                .select_first("span.auth_name_fic")
+                .get_text()
+                .map_err(|e| format!("{:?}", e))?],
             description: doc.select(".wi_fic_desc > p").collect_text(),
             langs: INFO.langs.clone(),
             cover: doc.select_first(".fic_image img").get_attribute("src"),
@@ -108,10 +116,12 @@ impl instance::GuestSource for ScribbleHub {
                 data: None,
                 headers: None,
             })
-            .unwrap();
+            .map_err(|e| e.to_string())?;
 
-        let text = response.data.unwrap();
-        let text = String::from_utf8(text).unwrap();
+        let text = response
+            .data
+            .ok_or_else(|| "Failed to get data".to_string())?;
+        let text = String::from_utf8(text).map_err(|e| e.to_string())?;
 
         let doc = kuchiki::parse_html().one(text);
 
@@ -197,10 +207,12 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, String> {
             data: Some(body),
             headers: None,
         })
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
-    let text = response.data.unwrap();
-    let text = String::from_utf8(text).unwrap();
+    let text = response
+        .data
+        .ok_or_else(|| "Failed to get data".to_string())?;
+    let text = String::from_utf8(text).map_err(|e| e.to_string())?;
 
     let doc = kuchiki::parse_html().one(text);
     let mut volume = Volume {

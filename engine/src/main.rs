@@ -44,10 +44,26 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         "target/wasm32-unknown-unknown/release/extension_scribblehub.wasm",
     )?;
 
-    let (extension, instance) = Extension::instantiate(&mut store, &component, &linker)?;
+    let (extension, _) = Extension::instantiate(&mut store, &component, &linker)?;
 
     let meta = extension.quelle_extension_meta();
     println!("Extension name: {:?}", meta.call_extension_info(&mut store));
+
+    let instance = extension.quelle_extension_instance();
+
+    let source = instance.source();
+    let source_id = source.call_constructor(&mut store)?;
+
+    let args = std::env::args().collect::<Vec<String>>();
+    if args.len() < 2 {
+        eprintln!("Usage: {} <url>", args[0]);
+        std::process::exit(1);
+    }
+
+    let url = &args[1];
+    let novel = source.call_novel_info(&mut store, source_id, url)?;
+
+    println!("Novel: {:?}", novel);
 
     Ok(())
 }

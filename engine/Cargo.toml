@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 quelle_http = { path = "../http" }
-tracing = "0.1.40"
 wasmtime.workspace = true
+tracing.workspace = true
