@@ -1,12 +1,14 @@
 use bindings::quelle::http::outgoing;
 use wasmtime::component::ResourceTable;
 
+pub use bindings::quelle::http as bind_with;
+
 pub mod bindings {
     #![allow(missing_docs)]
     wasmtime::component::bindgen!({
         path: "../wit/deps/http",
         with: {
-            "quelle:http/outgoing/client": super::HostClient,
+            "quelle:http/outgoing/client": crate::HostClient,
         }
     });
 }
