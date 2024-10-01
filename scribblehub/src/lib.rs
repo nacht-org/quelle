@@ -1,6 +1,5 @@
 #[allow(warnings)]
 mod bindings;
-mod node;
 
 use bindings::{
     exports::quelle::extension::{instance, meta},
@@ -13,9 +12,8 @@ use bindings::{
     },
 };
 use chrono::NaiveDateTime;
-use kuchiki::traits::TendrilSink;
-use node::{CollectText, GetAttribute, GetText, OuterHtml};
 use once_cell::sync::Lazy;
+use scraper::{ElementRef, Html, Selector};
 
 pub struct Component;
 
@@ -73,7 +71,7 @@ impl instance::GuestSource for ScribbleHub {
             .ok_or_else(|| "Failed to get data".to_string())?;
         let text = String::from_utf8(text).map_err(|e| e.to_string())?;
 
-        let doc = kuchiki::parse_html().one(text);
+        let doc = Html::parse_document(&text);
 
         let id = url
             .split("/")
@@ -81,23 +79,19 @@ impl instance::GuestSource for ScribbleHub {
             .ok_or_else(|| String::from("The url does not have an id"))?;
 
         let novel = Novel {
-            title: doc
-                .select_first("div.fic_title")
-                .get_text()
-                .map_err(|e| format!("{:?}", e))?,
-            authors: vec![doc
-                .select_first("span.auth_name_fic")
-                .get_text()
-                .map_err(|e| format!("{:?}", e))?],
-            description: doc.select(".wi_fic_desc > p").collect_text(),
+            title: select_first_text(&doc, "div.fic_title")?,
+            authors: select_text(&doc, "span.auth_name_fic")?,
+            description: select_text(&doc, ".wi_fic_desc > p")?,
             langs: INFO.langs.clone(),
-            cover: doc.select_first(".fic_image img").get_attribute("src"),
-            status: doc
-                .select_first(".widget_fic_similar > li:last-child > span:last-child")
-                .map(|node: kuchiki::NodeDataRef<kuchiki::ElementData>| {
-                    str_to_status(node.get_text().as_str())
-                })
-                .unwrap_or(NovelStatus::Unknown),
+            cover: select_first(&doc, ".fic_image img")?
+                .attr("src")
+                .map(|e| e.to_string()),
+            status: select_first_text(
+                &doc,
+                ".widget_fic_similar > li:last-child > span:last-child",
+            )
+            .map(|node| str_to_status(&node))
+            .unwrap_or(NovelStatus::Unknown),
             volumes: volumes(&self.client, id)?,
             metadata: vec![],
             url,
@@ -123,17 +117,12 @@ impl instance::GuestSource for ScribbleHub {
             .ok_or_else(|| "Failed to get data".to_string())?;
         let text = String::from_utf8(text).map_err(|e| e.to_string())?;
 
-        let doc = kuchiki::parse_html().one(text);
+        let doc = Html::parse_document(&text);
+        let content = select_first(&doc, "#chp_raw")?;
 
-        let content = doc
-            .select_first("#chp_raw")
-            .map(|node| node.as_node().outer_html())
-            .ok()
-            .transpose()
-            .map_err(|e| "Failed to get element".to_string())?
-            .ok_or_else(|| String::from("Element not found"))?;
-
-        Ok(ChapterContent { data: content })
+        Ok(ChapterContent {
+            data: content.html(),
+        })
     }
 }
 
@@ -146,6 +135,30 @@ fn str_to_status(value: &str) -> NovelStatus {
         "stub" => NovelStatus::Stub,
         _ => NovelStatus::Unknown,
     }
+}
+
+fn select_first<'a>(doc: &'a Html, selector_str: &str) -> Result<ElementRef<'a>, String> {
+    let selector = Selector::parse(selector_str).map_err(|e| e.to_string())?;
+
+    doc.select(&selector)
+        .next()
+        .ok_or_else(|| format!("Element not found: {selector_str}"))
+}
+
+fn select_first_text(doc: &Html, selector_str: &str) -> Result<String, String> {
+    Ok(select_first(doc, selector_str)?.text().collect::<String>())
+}
+
+fn select<'a>(doc: &'a Html, selector_str: &str) -> Result<Vec<ElementRef<'a>>, String> {
+    let selector = Selector::parse(selector_str).map_err(|e| e.to_string())?;
+    Ok(doc.select(&selector).collect())
+}
+
+fn select_text(doc: &Html, selector_str: &str) -> Result<Vec<String>, String> {
+    Ok(select(doc, selector_str)?
+        .iter()
+        .map(|node| node.text().collect::<String>())
+        .collect())
 }
 
 // fn metadata(doc: &NodeRef) -> Result<Vec<Metadata>, QuelleError> {
@@ -214,26 +227,28 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, String> {
         .ok_or_else(|| "Failed to get data".to_string())?;
     let text = String::from_utf8(text).map_err(|e| e.to_string())?;
 
-    let doc = kuchiki::parse_html().one(text);
+    let doc = Html::parse_document(&text);
     let mut volume = Volume {
         name: "_default".to_string(),
         index: -1,
         chapters: vec![],
     };
 
-    if let Ok(nodes) = doc.select("li.toc_w") {
-        for node in nodes.rev() {
-            let Ok(a) = node.as_node().select_first("a") else {
-                continue;
-            };
-            let Some(href) = a.get_attribute("href") else {
+    if let Ok(elements) = select(&doc, "li.toc_w") {
+        for element in elements.into_iter().rev() {
+            let Some(a) = element.select(&Selector::parse("a").unwrap()).next() else {
                 continue;
             };
 
-            let time = node
-                .as_node()
-                .select_first(".fic_date_pub")
-                .get_attribute("title");
+            let Some(href) = a.attr("href") else {
+                continue;
+            };
+
+            let time = element
+                .select(&Selector::parse(".fic_date_pub").unwrap())
+                .next()
+                .map(|e| e.attr("title"))
+                .flatten();
 
             // TODO: parse relative time
             let updated_at = time
@@ -243,8 +258,8 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, String> {
 
             let chapter = Chapter {
                 index: volume.chapters.len() as i32,
-                title: a.get_text(),
-                url: href,
+                title: a.text().collect(),
+                url: href.to_string(),
                 updated_at,
             };
 
