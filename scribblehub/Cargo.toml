@@ -11,14 +11,3 @@ once_cell = { workspace = true }
 
 [lib]
 crate-type = ["cdylib"]
-
-[package.metadata.component]
-package = "quelle:extension"
-
-[package.metadata.component.target]
-path = "../wit"
-world = "extension"
-
-[package.metadata.component.target.dependencies]
-"quelle:core" = { path = "../wit/deps/core" }
-"quelle:http" = { path = "../wit/deps/http" }

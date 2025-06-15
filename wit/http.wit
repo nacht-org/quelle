@@ -1,6 +1,4 @@
-package quelle:http@0.1.0;
-
-interface outgoing {
+interface http {
     enum method {
         get,
         post,
@@ -60,8 +58,4 @@ interface outgoing {
         constructor();
         request: func(request: request) -> result<response, response-error>;
     }
-}
-
-world http {
-    import outgoing;
 }

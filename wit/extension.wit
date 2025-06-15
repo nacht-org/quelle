@@ -1,27 +1,24 @@
 package quelle:extension@0.1.0;
 
-use quelle:core/novel@0.1.0;
-use quelle:core/source@0.1.0;
+world extension {
+    import source;
+    import http;
 
-interface meta {
     use source.{source-meta};
-
-    extension-info: func () -> source-meta;
-    setup: func () -> result<_, string>;
-}
-
-interface instance {
     use novel.{novel, chapter-content};
 
-    resource source {
-        constructor();
-        novel-info: func(url: string) -> result<novel, string>;
-        chapter-content: func (url: string) -> result<chapter-content, string>;
-    }
-}
+    /// Registers the extension with the system.
+    export register-extension: func();
 
-world extension {
-    export meta;
-    export instance;
-    import quelle:http/outgoing@0.1.0;
+    /// The extension meta information.
+    export meta: func () -> source-meta;
+
+    /// Initializes the extension.
+    export init: func () -> result<_, string>;
+    
+    /// Fetches the novel information from the given URL.
+    export fetch-novel-info: func(url: string) -> result<novel, string>;
+
+    /// Fetches the chapter content from the given URL.
+    export fetch-chapter: func (url: string) -> result<chapter-content, string>;
 }

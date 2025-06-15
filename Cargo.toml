@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "engine", "http", "scribblehub"]
+members = ["core", "engine", "extension", "scribblehub"]
 resolver = "3"
 
 [workspace.dependencies]
