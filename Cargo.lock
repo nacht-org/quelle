@@ -514,15 +514,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "engine"
-version = "0.1.0"
-dependencies = [
- "reqwest",
- "tracing",
- "wasmtime",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1564,6 +1555,15 @@ dependencies = [
  "cranelift-bitset",
  "log",
  "wasmtime-math",
+]
+
+[[package]]
+name = "quelle_engine"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "tracing",
+ "wasmtime",
 ]
 
 [[package]]

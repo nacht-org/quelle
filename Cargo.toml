@@ -1,5 +1,5 @@
 [workspace]
-members = ["engine", "extension", "scribblehub"]
+members = ["crates/*", "extensions/*"]
 resolver = "3"
 
 [workspace.dependencies]

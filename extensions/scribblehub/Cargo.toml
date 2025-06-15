@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-quelle_extension = { path = "../extension" }
+quelle_extension = { path = "../../crates/extension" }
 scraper = { workspace = true }
 chrono = { workspace = true }
 once_cell = { workspace = true }

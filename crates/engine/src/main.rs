@@ -7,13 +7,13 @@ use std::error;
 use wasmtime::component::*;
 use wasmtime::{Config, Engine, Store};
 
-use crate::bindings::Extension;
 use crate::bindings::quelle::extension::{novel, source};
+use crate::bindings::Extension;
 use crate::http::Http;
 
 mod bindings {
     wasmtime::component::bindgen!({
-        path: "../wit",
+        path: "../../wit",
         tracing: true,
         with: {
             "quelle:extension/http/client": crate::http::HostClient,
