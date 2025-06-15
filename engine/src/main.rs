@@ -51,6 +51,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     )?;
 
     let extension = Extension::instantiate(&mut store, &component, &linker)?;
+    extension.call_register_extension(&mut store)?;
 
     println!("Extension: {:?}", extension.call_meta(&mut store)?);
 
