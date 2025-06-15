@@ -484,20 +484,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "extension"
-version = "0.1.0"
-dependencies = [
- "wit-bindgen",
-]
-
-[[package]]
 name = "extension_scribblehub"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "once_cell",
+ "quelle_extension",
  "scraper",
- "wit-bindgen-rt 0.42.1",
 ]
 
 [[package]]
@@ -1109,6 +1102,13 @@ name = "quelle_core"
 version = "0.1.0"
 dependencies = [
  "wasmtime",
+]
+
+[[package]]
+name = "quelle_extension"
+version = "0.1.0"
+dependencies = [
+ "wit-bindgen",
 ]
 
 [[package]]

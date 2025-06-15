@@ -5,6 +5,7 @@ use wit::*;
 use crate::register::extension;
 
 pub use register::register_extension_internal;
+pub use wit::quelle::extension::{http, novel, source};
 
 mod wit {
     wit_bindgen::generate!({
@@ -35,7 +36,7 @@ impl wit::Guest for Component {
     }
 }
 
-pub trait Extension: Send + Sync {
+pub trait QuelleExtension: Send + Sync {
     /// Returns a new instance of the extension.
     fn new() -> Self
     where
