@@ -1,4 +1,5 @@
 mod register;
+mod tracing;
 
 use wit::*;
 
@@ -10,7 +11,7 @@ pub use wit::quelle::extension::{http, novel, source};
 mod wit {
     wit_bindgen::generate!({
         skip: ["register-extension"],
-        path: "../../wit",
+        path: "../../wit"
     });
 }
 

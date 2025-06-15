@@ -3,6 +3,7 @@ package quelle:extension@0.1.0;
 world extension {
     import source;
     import http;
+    import tracing;
 
     use source.{source-meta};
     use novel.{novel, chapter-content};

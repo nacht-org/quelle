@@ -7,8 +7,8 @@ use std::error;
 use wasmtime::component::*;
 use wasmtime::{Config, Engine, Store};
 
-use crate::bindings::quelle::extension::{novel, source};
 use crate::bindings::Extension;
+use crate::bindings::quelle::extension::{novel, source, tracing as wasm_tracing};
 use crate::http::Http;
 
 mod bindings {
@@ -34,6 +34,8 @@ impl State {
 impl novel::Host for State {}
 
 impl source::Host for State {}
+
+// impl wasm_tracing::Host for State {}
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     let engine = Engine::new(Config::new().wasm_component_model(true))?;
