@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 use eyre::eyre;
 use once_cell::sync::Lazy;
-use quelle_extension::prelude::*;
+use quelle_extension::{novel::Metadata, prelude::*};
 use scraper::{Html, Selector};
 
 register_extension!(Extension);
@@ -89,10 +89,10 @@ impl QuelleExtension for Extension {
     }
 }
 
-// fn metadata(doc: &NodeRef) -> Result<Vec<Metadata>, QuelleError> {
+// fn metadata(doc: &Html) -> Result<Vec<Metadata>, eyre::Report> {
 //     let mut metadata = vec![];
 
-//     if let Ok(nodes) = doc.select("a.fic_genre") {
+//     if let Ok(nodes) = select(doc, "a.fic_genre") {
 //         for node in nodes {
 //             metadata.push(Metadata::new(
 //                 String::from("subject"),
@@ -102,13 +102,13 @@ impl QuelleExtension for Extension {
 //         }
 //     }
 
-//     if let Ok(nodes) = doc.select("a.stag") {
+//     if let Ok(nodes) = select(doc, "a.stag") {
 //         for node in nodes {
 //             metadata.push(Metadata::new(String::from("tag"), node.get_text(), None));
 //         }
 //     }
 
-//     if let Ok(nodes) = doc.select(".mature_contains > a") {
+//     if let Ok(nodes) = select(doc, ".mature_contains > a") {
 //         for node in nodes {
 //             metadata.push(Metadata::new(
 //                 String::from("warning"),
@@ -118,7 +118,7 @@ impl QuelleExtension for Extension {
 //         }
 //     }
 
-//     let rating_element = doc.select_first("#ratefic_user > span");
+//     let rating_element = select_first(doc, "#ratefic_user > span");
 //     if let Some(element) = rating_element.ok() {
 //         metadata.push(Metadata::new(
 //             String::from("rating"),
