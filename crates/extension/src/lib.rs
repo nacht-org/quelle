@@ -1,12 +1,13 @@
+mod modules;
 mod register;
-mod tracing;
 
 use wit::*;
 
 use crate::register::extension;
 
+pub use modules::error::install_panic_hook;
 pub use register::{register_extension_internal, register_tracing};
-pub use wit::quelle::extension::{http, novel, source};
+pub use wit::quelle::extension::{error, http, novel, source};
 
 mod wit {
     wit_bindgen::generate!({
@@ -24,16 +25,16 @@ impl wit::Guest for Component {
         extension().meta()
     }
 
-    fn init() -> Result<(), String> {
-        extension().init()
+    fn init() -> Result<(), error::Error> {
+        extension().init().map_err(Into::into)
     }
 
-    fn fetch_novel_info(url: String) -> Result<wit::Novel, String> {
-        extension().fetch_novel_info(url)
+    fn fetch_novel_info(url: String) -> Result<wit::Novel, error::Error> {
+        extension().fetch_novel_info(url).map_err(Into::into)
     }
 
-    fn fetch_chapter(url: String) -> Result<wit::ChapterContent, String> {
-        extension().fetch_chapter(url)
+    fn fetch_chapter(url: String) -> Result<wit::ChapterContent, error::Error> {
+        extension().fetch_chapter(url).map_err(Into::into)
     }
 }
 
@@ -47,11 +48,11 @@ pub trait QuelleExtension: Send + Sync {
     fn meta(&self) -> SourceMeta;
 
     /// Initializes the extension.
-    fn init(&self) -> Result<(), String>;
+    fn init(&self) -> Result<(), eyre::Report>;
 
     /// Fetches novel information from the given URL.
-    fn fetch_novel_info(&self, url: String) -> Result<wit::Novel, String>;
+    fn fetch_novel_info(&self, url: String) -> Result<wit::Novel, eyre::Report>;
 
     /// Fetches chapter content from the given URL.
-    fn fetch_chapter(&self, url: String) -> Result<wit::ChapterContent, String>;
+    fn fetch_chapter(&self, url: String) -> Result<wit::ChapterContent, eyre::Report>;
 }

@@ -1,4 +1,5 @@
 use chrono::NaiveDateTime;
+use eyre::eyre;
 use once_cell::sync::Lazy;
 use quelle_extension::{
     QuelleExtension,
@@ -36,15 +37,14 @@ impl QuelleExtension for Extension {
     }
 
     fn meta(&self) -> SourceMeta {
-        tracing::info!("Fetching metadata for ScribbleHub extension");
         INFO.clone()
     }
 
-    fn init(&self) -> Result<(), String> {
+    fn init(&self) -> Result<(), eyre::Report> {
         Ok(())
     }
 
-    fn fetch_novel_info(&self, url: String) -> Result<Novel, String> {
+    fn fetch_novel_info(&self, url: String) -> Result<Novel, eyre::Report> {
         let response = self
             .client
             .request(&Request {
@@ -54,19 +54,17 @@ impl QuelleExtension for Extension {
                 data: None,
                 headers: None,
             })
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| eyre!(e))?;
 
-        let text = response
-            .data
-            .ok_or_else(|| "Failed to get data".to_string())?;
-        let text = String::from_utf8(text).map_err(|e| e.to_string())?;
+        let text = response.data.ok_or_else(|| eyre!("Failed to get data"))?;
+        let text = String::from_utf8(text).map_err(|e| eyre!(e))?;
 
         let doc = Html::parse_document(&text);
 
         let id = url
             .split("/")
             .nth(4)
-            .ok_or_else(|| String::from("The url does not have an id"))?;
+            .ok_or_else(|| eyre!("The url does not have an id"))?;
 
         let novel = Novel {
             title: select_first_text(&doc, "div.fic_title")?,
@@ -90,7 +88,7 @@ impl QuelleExtension for Extension {
         Ok(novel)
     }
 
-    fn fetch_chapter(&self, url: String) -> Result<ChapterContent, String> {
+    fn fetch_chapter(&self, url: String) -> Result<ChapterContent, eyre::Report> {
         let response = self
             .client
             .request(&Request {
@@ -100,12 +98,10 @@ impl QuelleExtension for Extension {
                 data: None,
                 headers: None,
             })
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| eyre!(e))?;
 
-        let text = response
-            .data
-            .ok_or_else(|| "Failed to get data".to_string())?;
-        let text = String::from_utf8(text).map_err(|e| e.to_string())?;
+        let text = response.data.ok_or_else(|| eyre!("Failed to get data"))?;
+        let text = String::from_utf8(text).map_err(|e| eyre!(e))?;
 
         let doc = Html::parse_document(&text);
         let content = select_first(&doc, "#chp_raw")?;
@@ -127,24 +123,26 @@ fn str_to_status(value: &str) -> NovelStatus {
     }
 }
 
-fn select_first<'a>(doc: &'a Html, selector_str: &str) -> Result<ElementRef<'a>, String> {
-    let selector = Selector::parse(selector_str).map_err(|e| e.to_string())?;
+fn select_first<'a>(doc: &'a Html, selector_str: &str) -> Result<ElementRef<'a>, eyre::Report> {
+    let selector =
+        Selector::parse(selector_str).map_err(|e| eyre!("Failed to compile selector: {e}"))?;
 
     doc.select(&selector)
         .next()
-        .ok_or_else(|| format!("Element not found: {selector_str}"))
+        .ok_or_else(|| eyre!("Element not found: {selector_str}"))
 }
 
-fn select_first_text(doc: &Html, selector_str: &str) -> Result<String, String> {
+fn select_first_text(doc: &Html, selector_str: &str) -> Result<String, eyre::Report> {
     Ok(select_first(doc, selector_str)?.text().collect::<String>())
 }
 
-fn select<'a>(doc: &'a Html, selector_str: &str) -> Result<Vec<ElementRef<'a>>, String> {
-    let selector = Selector::parse(selector_str).map_err(|e| e.to_string())?;
+fn select<'a>(doc: &'a Html, selector_str: &str) -> Result<Vec<ElementRef<'a>>, eyre::Report> {
+    let selector =
+        Selector::parse(selector_str).map_err(|e| eyre!("Failed to compile selector: {e}"))?;
     Ok(doc.select(&selector).collect())
 }
 
-fn select_text(doc: &Html, selector_str: &str) -> Result<Vec<String>, String> {
+fn select_text(doc: &Html, selector_str: &str) -> Result<Vec<String>, eyre::Report> {
     Ok(select(doc, selector_str)?
         .iter()
         .map(|node| node.text().collect::<String>())
@@ -192,7 +190,7 @@ fn select_text(doc: &Html, selector_str: &str) -> Result<Vec<String>, String> {
 //     Ok(metadata)
 // }
 
-fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, String> {
+fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
     let body = RequestBody::Form(vec![
         (
             String::from("action"),
@@ -210,12 +208,10 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, String> {
             data: Some(body),
             headers: None,
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| eyre!(e))?;
 
-    let text = response
-        .data
-        .ok_or_else(|| "Failed to get data".to_string())?;
-    let text = String::from_utf8(text).map_err(|e| e.to_string())?;
+    let text = response.data.ok_or_else(|| eyre!("Failed to get data"))?;
+    let text = String::from_utf8(text).map_err(|e| eyre!(e))?;
 
     let doc = Html::parse_document(&text);
     let mut volume = Volume {

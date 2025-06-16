@@ -4,9 +4,11 @@ world extension {
     import source;
     import http;
     import tracing;
+    import error;
 
     use source.{source-meta};
     use novel.{novel, chapter-content};
+    use error.{error};
 
     /// Registers the extension with the system.
     export register-extension: func();
@@ -15,11 +17,11 @@ world extension {
     export meta: func () -> source-meta;
 
     /// Initializes the extension.
-    export init: func () -> result<_, string>;
+    export init: func () -> result<_, error>;
     
     /// Fetches the novel information from the given URL.
-    export fetch-novel-info: func(url: string) -> result<novel, string>;
+    export fetch-novel-info: func(url: string) -> result<novel, error>;
 
     /// Fetches the chapter content from the given URL.
-    export fetch-chapter: func (url: string) -> result<chapter-content, string>;
+    export fetch-chapter: func (url: string) -> result<chapter-content, error>;
 }

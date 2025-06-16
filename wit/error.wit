@@ -1,0 +1,10 @@
+interface error {
+    /// This function should be called when a panic occurs in the component.
+    report-panic: func(error: error);
+
+    /// Represents an error that can occur in the component.
+    record error {
+        message: string,
+        location: option<string>,
+    }
+}
