@@ -12,7 +12,7 @@ use scraper::{ElementRef, Html, Selector};
 
 register_extension!(Extension);
 
-const INFO: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
+const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     id: String::from("en.scribblehub"),
     name: String::from("ScribbleHub"),
     langs: vec![String::from("en")],
@@ -27,17 +27,14 @@ pub struct Extension {
 }
 
 impl QuelleExtension for Extension {
-    fn new() -> Self
-    where
-        Self: Sized,
-    {
+    fn new() -> Self {
         Self {
             client: Client::new(),
         }
     }
 
     fn meta(&self) -> SourceMeta {
-        INFO.clone()
+        META.clone()
     }
 
     fn init(&self) -> Result<(), eyre::Report> {
@@ -70,7 +67,7 @@ impl QuelleExtension for Extension {
             title: select_first_text(&doc, "div.fic_title")?,
             authors: select_text(&doc, "span.auth_name_fic")?,
             description: select_text(&doc, ".wi_fic_desc > p")?,
-            langs: INFO.langs.clone(),
+            langs: META.langs.clone(),
             cover: select_first(&doc, ".fic_image img")?
                 .attr("src")
                 .map(|e| e.to_string()),
