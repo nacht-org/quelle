@@ -1630,6 +1630,7 @@ name = "quelle_extension"
 version = "0.1.0"
 dependencies = [
  "eyre",
+ "scraper",
  "tracing",
  "tracing-subscriber",
  "wit-bindgen",

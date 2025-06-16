@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use eyre::eyre;
 use once_cell::sync::Lazy;
 use quelle_extension::prelude::*;
-use scraper::{ElementRef, Html, Selector};
+use scraper::{Html, Selector};
 
 register_extension!(Extension);
 
@@ -56,14 +56,12 @@ impl QuelleExtension for Extension {
             authors: select_text(&doc, "span.auth_name_fic")?,
             description: select_text(&doc, ".wi_fic_desc > p")?,
             langs: META.langs.clone(),
-            cover: select_first(&doc, ".fic_image img")?
-                .attr("src")
-                .map(|e| e.to_string()),
+            cover: select_first_attr_opt(&doc, ".fic_image img", "src")?,
             status: select_first_text(
                 &doc,
                 ".widget_fic_similar > li:last-child > span:last-child",
             )
-            .map(|node| str_to_status(&node))
+            .map(|node| NovelStatus::from_str(&node))
             .unwrap_or(NovelStatus::Unknown),
             volumes: volumes(&self.client, id)?,
             metadata: vec![],
@@ -74,19 +72,13 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_chapter(&self, url: String) -> Result<ChapterContent, eyre::Report> {
-        let response = self
-            .client
-            .request(&Request {
-                method: Method::Get,
-                url,
-                params: None,
-                data: None,
-                headers: None,
-            })
+        let response = Request::get(&url)
+            .send(&self.client)
             .map_err(|e| eyre!(e))?;
 
-        let text = response.data.ok_or_else(|| eyre!("Failed to get data"))?;
-        let text = String::from_utf8(text).map_err(|e| eyre!(e))?;
+        let text = response
+            .text()?
+            .ok_or_else(|| eyre!("Failed to get data"))?;
 
         let doc = Html::parse_document(&text);
         let content = select_first(&doc, "#chp_raw")?;
@@ -95,43 +87,6 @@ impl QuelleExtension for Extension {
             data: content.html(),
         })
     }
-}
-
-fn str_to_status(value: &str) -> NovelStatus {
-    match value.to_ascii_lowercase().as_str() {
-        "ongoing" => NovelStatus::Ongoing,
-        "completed" => NovelStatus::Completed,
-        "hiatus" => NovelStatus::Hiatus,
-        "dropped" => NovelStatus::Dropped,
-        "stub" => NovelStatus::Stub,
-        _ => NovelStatus::Unknown,
-    }
-}
-
-fn select_first<'a>(doc: &'a Html, selector_str: &str) -> Result<ElementRef<'a>, eyre::Report> {
-    let selector =
-        Selector::parse(selector_str).map_err(|e| eyre!("Failed to compile selector: {e}"))?;
-
-    doc.select(&selector)
-        .next()
-        .ok_or_else(|| eyre!("Element not found: {selector_str}"))
-}
-
-fn select_first_text(doc: &Html, selector_str: &str) -> Result<String, eyre::Report> {
-    Ok(select_first(doc, selector_str)?.text().collect::<String>())
-}
-
-fn select<'a>(doc: &'a Html, selector_str: &str) -> Result<Vec<ElementRef<'a>>, eyre::Report> {
-    let selector =
-        Selector::parse(selector_str).map_err(|e| eyre!("Failed to compile selector: {e}"))?;
-    Ok(doc.select(&selector).collect())
-}
-
-fn select_text(doc: &Html, selector_str: &str) -> Result<Vec<String>, eyre::Report> {
-    Ok(select(doc, selector_str)?
-        .iter()
-        .map(|node| node.text().collect::<String>())
-        .collect())
 }
 
 // fn metadata(doc: &NodeRef) -> Result<Vec<Metadata>, QuelleError> {

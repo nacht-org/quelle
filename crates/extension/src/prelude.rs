@@ -1,4 +1,4 @@
-
+pub use crate::common::scraping::*;
 pub use crate::http::{Client, Method, Request};
 pub use crate::novel::{Chapter, ChapterContent, Novel, NovelStatus, Volume};
 pub use crate::register_extension;

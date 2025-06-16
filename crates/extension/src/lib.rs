@@ -1,6 +1,7 @@
 mod modules;
 mod register;
 
+pub mod common;
 pub mod prelude;
 
 use crate::register::extension;
