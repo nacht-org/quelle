@@ -2,8 +2,8 @@ use chrono::NaiveDateTime;
 use eyre::eyre;
 use once_cell::sync::Lazy;
 use quelle_extension::{
-    QuelleExtension,
-    http::{Client, FormPart, Method, Request, RequestBody},
+    QuelleExtension, RequestFormBuilder,
+    http::{Client, Method, Request},
     novel::{Chapter, ChapterContent, Novel, NovelStatus, Volume},
     register_extension,
     source::{ReadingDirection, SourceMeta},
@@ -42,19 +42,13 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_novel_info(&self, url: String) -> Result<Novel, eyre::Report> {
-        let response = self
-            .client
-            .request(&Request {
-                method: Method::Get,
-                url: url.clone(),
-                params: None,
-                data: None,
-                headers: None,
-            })
+        let response = Request::get(&url)
+            .send(&self.client)
             .map_err(|e| eyre!(e))?;
 
-        let text = response.data.ok_or_else(|| eyre!("Failed to get data"))?;
-        let text = String::from_utf8(text).map_err(|e| eyre!(e))?;
+        let text = response
+            .text()?
+            .ok_or_else(|| eyre!("Failed to get data"))?;
 
         let doc = Html::parse_document(&text);
 
@@ -188,27 +182,20 @@ fn select_text(doc: &Html, selector_str: &str) -> Result<Vec<String>, eyre::Repo
 // }
 
 fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
-    let body = RequestBody::Form(vec![
-        (
-            String::from("action"),
-            FormPart::Text(String::from("wi_getreleases_pagination")),
-        ),
-        (String::from("pagenum"), FormPart::Text(String::from("-a"))),
-        (String::from("mypostid"), FormPart::Text(id.to_string())),
-    ]);
-
-    let response = client
-        .request(&Request {
-            method: Method::Post,
-            url: "https://www.scribblehub.com/wp-admin/admin-ajax.php".to_string(),
-            params: None,
-            data: Some(body),
-            headers: None,
-        })
+    let response = Request::post("https://www.scribblehub.com/wp-admin/admin-ajax.php")
+        .body(
+            RequestFormBuilder::new()
+                .param("action", "wi_getreleases_pagination")
+                .param("pagenum", "-a")
+                .param("mypostid", id)
+                .build(),
+        )
+        .send(client)
         .map_err(|e| eyre!(e))?;
 
-    let text = response.data.ok_or_else(|| eyre!("Failed to get data"))?;
-    let text = String::from_utf8(text).map_err(|e| eyre!(e))?;
+    let text = response
+        .text()?
+        .ok_or_else(|| eyre!("Failed to get data"))?;
 
     let doc = Html::parse_document(&text);
     let mut volume = Volume {

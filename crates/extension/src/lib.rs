@@ -6,6 +6,7 @@ use wit::*;
 use crate::register::extension;
 
 pub use modules::error::install_panic_hook;
+pub use modules::http::RequestFormBuilder;
 pub use register::{register_extension_internal, register_tracing};
 pub use wit::quelle::extension::{error, http, novel, source};
 
