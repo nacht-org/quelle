@@ -1,13 +1,7 @@
 use chrono::NaiveDateTime;
 use eyre::eyre;
 use once_cell::sync::Lazy;
-use quelle_extension::{
-    QuelleExtension, RequestFormBuilder,
-    http::{Client, Method, Request},
-    novel::{Chapter, ChapterContent, Novel, NovelStatus, Volume},
-    register_extension,
-    source::{ReadingDirection, SourceMeta},
-};
+use quelle_extension::prelude::*;
 use scraper::{ElementRef, Html, Selector};
 
 register_extension!(Extension);

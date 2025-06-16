@@ -1,9 +1,10 @@
 mod modules;
 mod register;
 
-use wit::*;
+pub mod prelude;
 
 use crate::register::extension;
+use crate::wit::*;
 
 pub use modules::error::install_panic_hook;
 pub use modules::http::RequestFormBuilder;
