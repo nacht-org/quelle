@@ -5,7 +5,7 @@ use wit::*;
 
 use crate::register::extension;
 
-pub use register::register_extension_internal;
+pub use register::{register_extension_internal, register_tracing};
 pub use wit::quelle::extension::{http, novel, source};
 
 mod wit {

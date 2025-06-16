@@ -10,7 +10,8 @@ macro_rules! register_extension {
     ($extension_type:ty) => {
         #[unsafe(export_name = "register-extension")]
         pub extern "C" fn __register_extension() {
-            quelle_extension::register_extension_internal(|| {
+            $crate::register_tracing();
+            $crate::register_extension_internal(|| {
                 Box::new(<$extension_type as $crate::QuelleExtension>::new())
             });
         }
@@ -20,6 +21,12 @@ macro_rules! register_extension {
 #[doc(hidden)]
 pub fn register_extension_internal(build_extension: fn() -> Box<dyn QuelleExtension>) {
     unsafe { EXTENSION = Some((build_extension)()) }
+}
+
+pub fn register_tracing() {
+    use crate::tracing::HostLayer;
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+    tracing_subscriber::registry().with(HostLayer).init();
 }
 
 pub fn extension() -> &'static mut dyn QuelleExtension {

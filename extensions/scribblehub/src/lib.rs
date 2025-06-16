@@ -36,6 +36,7 @@ impl QuelleExtension for Extension {
     }
 
     fn meta(&self) -> SourceMeta {
+        tracing::info!("Fetching metadata for ScribbleHub extension");
         INFO.clone()
     }
 

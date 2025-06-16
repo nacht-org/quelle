@@ -1,64 +1,22 @@
 interface tracing {
-    /// Logs an event with the given metadata and parent span.
-    log-event: func(event: event);
-
-    /// Logs a span with the given metadata and parent span.
-    record event {
-        metadata: metadata,
-        parent: parent,
+    // Defines a log entry, for general events or messages
+    record log-event {
+        level: log-level,
+        target: string,
+        message: string,
+        attributes: list<tuple<string, string>>,
+        file: option<string>,
+        line: option<u32>,
     }
 
-    // Define the `level` enum
-    variant level {
-        trace,
+    variant log-level {
         debug,
         info,
         warn,
         error,
+        trace,
     }
 
-    // Define the `metadata` record (struct)
-    record metadata {
-        /// The name of the span described by this metadata.
-        name: string,
-
-        /// The part of the system that the span that this metadata describes
-        /// occurred in.
-        target: string,
-
-        /// The level of verbosity of the described span.
-        level: level,
-
-        /// The name of the Rust module where the span occurred, or `None` if this
-        /// could not be determined.
-        module-path: option<string>,
-
-        /// The name of the source code file where the span occurred, or `None` if
-        /// this could not be determined.
-        file: option<string>,
-
-        /// The line number in the source code file where the span occurred, or
-        /// `None` if this could not be determined.
-        line: option<u32>,
-
-        /// The names of the key-value fields attached to the described span or
-        /// event.
-        // NOTE: fields are not currently supported.
-        // fields: list<string>,
-
-        /// The kind of the callsite.
-        kind: kind,
-    }
-
-    variant kind {
-        event,
-        span,
-        other,
-    }
-
-    variant parent {
-        root,
-        current,
-        explicit(u64),
-    }
+    // For general log messages, separate from span lifecycle
+    on-event: func(event: log-event);
 }
