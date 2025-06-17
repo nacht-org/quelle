@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 use eyre::eyre;
 use once_cell::sync::Lazy;
-use quelle_extension::{novel::Metadata, prelude::*};
+use quelle_extension::prelude::*;
 use scraper::{Html, Selector};
 
 register_extension!(Extension);
@@ -10,8 +10,8 @@ const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     id: String::from("en.scribblehub"),
     name: String::from("ScribbleHub"),
     langs: vec![String::from("en")],
-    version: String::from("0.1.0"),
-    base_urls: vec![String::from("https://www.scribblehub.com/")],
+    version: String::from(env!("CARGO_PKG_VERSION")),
+    base_urls: vec![String::from("https://www.scribblehub.com")],
     rds: vec![ReadingDirection::Ltr],
     attrs: vec![],
 });
