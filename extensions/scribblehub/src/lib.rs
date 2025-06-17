@@ -34,7 +34,8 @@ impl QuelleExtension for Extension {
     fn fetch_novel_info(&self, url: String) -> Result<Novel, eyre::Report> {
         let response = Request::get(&url)
             .send(&self.client)
-            .map_err(|e| eyre!(e))?;
+            .map_err(|e| eyre!(e))?
+            .error_for_status()?;
 
         let text = response
             .text()?
@@ -70,7 +71,8 @@ impl QuelleExtension for Extension {
     fn fetch_chapter(&self, url: String) -> Result<ChapterContent, eyre::Report> {
         let response = Request::get(&url)
             .send(&self.client)
-            .map_err(|e| eyre!(e))?;
+            .map_err(|e| eyre!(e))?
+            .error_for_status()?;
 
         let text = response
             .text()?
@@ -140,7 +142,8 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
                 .build(),
         )
         .send(client)
-        .map_err(|e| eyre!(e))?;
+        .map_err(|e| eyre!(e))?
+        .error_for_status()?;
 
     let text = response
         .text()?

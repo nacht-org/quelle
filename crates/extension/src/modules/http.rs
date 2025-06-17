@@ -32,6 +32,7 @@ impl Request {
 }
 
 impl Response {
+    /// Return the text content of the response, if available.
     pub fn text(self) -> Result<Option<String>, eyre::Report> {
         match self.data {
             Some(data) => {
@@ -40,6 +41,20 @@ impl Response {
             }
             None => Ok(None),
         }
+    }
+
+    /// Throws an error if the response status is not successful (2xx).
+    pub fn error_for_status(self) -> Result<Self, eyre::Report> {
+        if self.is_success() {
+            Ok(self)
+        } else {
+            Err(eyre!("HTTP request failed with status {}", self.status))
+        }
+    }
+
+    /// Returns whether the response status indicates success (2xx).
+    pub fn is_success(&self) -> bool {
+        self.status >= 200 && self.status < 300
     }
 }
 
