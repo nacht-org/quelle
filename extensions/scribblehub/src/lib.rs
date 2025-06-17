@@ -31,10 +31,6 @@ impl QuelleExtension for Extension {
         META.clone()
     }
 
-    fn init(&self) -> Result<(), eyre::Report> {
-        Ok(())
-    }
-
     fn fetch_novel_info(&self, url: String) -> Result<Novel, eyre::Report> {
         let response = Request::get(&url)
             .send(&self.client)

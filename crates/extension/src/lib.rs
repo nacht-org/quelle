@@ -51,7 +51,9 @@ pub trait QuelleExtension: Send + Sync {
     fn meta(&self) -> SourceMeta;
 
     /// Initializes the extension.
-    fn init(&self) -> Result<(), eyre::Report>;
+    fn init(&self) -> Result<(), eyre::Report> {
+        Ok(())
+    }
 
     /// Fetches novel information from the given URL.
     fn fetch_novel_info(&self, url: String) -> Result<wit::Novel, eyre::Report>;
