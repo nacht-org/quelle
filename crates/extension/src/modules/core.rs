@@ -1,4 +1,4 @@
-use crate::novel::{Metadata, Namespace, NovelStatus};
+use crate::novel::{Metadata, Namespace, NovelStatus, Volume};
 
 impl NovelStatus {
     pub fn from_str(status: &str) -> Self {
@@ -62,6 +62,16 @@ impl Metadata {
             value,
             ns,
             others: others.unwrap_or_default(),
+        }
+    }
+}
+
+impl Default for Volume {
+    fn default() -> Self {
+        Self {
+            name: "_default".to_string(),
+            index: -1,
+            chapters: vec![],
         }
     }
 }

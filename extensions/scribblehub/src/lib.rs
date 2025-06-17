@@ -150,11 +150,7 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
         .ok_or_else(|| eyre!("Failed to get data"))?;
 
     let doc = Html::parse_document(&text);
-    let mut volume = Volume {
-        name: "_default".to_string(),
-        index: -1,
-        chapters: vec![],
-    };
+    let mut volume = Volume::default();
 
     if let Ok(elements) = select(&doc, "li.toc_w") {
         for element in elements.into_iter().rev() {
