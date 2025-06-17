@@ -64,7 +64,7 @@ impl QuelleExtension for Extension {
             .map(|node| NovelStatus::from_str(&node))
             .unwrap_or(NovelStatus::Unknown),
             volumes: volumes(&self.client, id)?,
-            metadata: vec![],
+            metadata: metadata(&doc)?,
             url,
         };
 
@@ -89,46 +89,50 @@ impl QuelleExtension for Extension {
     }
 }
 
-// fn metadata(doc: &Html) -> Result<Vec<Metadata>, eyre::Report> {
-//     let mut metadata = vec![];
+fn metadata(doc: &Html) -> Result<Vec<Metadata>, eyre::Report> {
+    let mut metadata = vec![];
 
-//     if let Ok(nodes) = select(doc, "a.fic_genre") {
-//         for node in nodes {
-//             metadata.push(Metadata::new(
-//                 String::from("subject"),
-//                 node.get_text(),
-//                 None,
-//             ));
-//         }
-//     }
+    if let Ok(nodes) = select(doc, "a.fic_genre") {
+        for node in nodes {
+            metadata.push(Metadata::new(
+                String::from("subject"),
+                node.text().collect::<Vec<_>>().into_iter().collect(),
+                None,
+            ));
+        }
+    }
 
-//     if let Ok(nodes) = select(doc, "a.stag") {
-//         for node in nodes {
-//             metadata.push(Metadata::new(String::from("tag"), node.get_text(), None));
-//         }
-//     }
+    if let Ok(nodes) = select(doc, "a.stag") {
+        for node in nodes {
+            metadata.push(Metadata::new(
+                String::from("tag"),
+                node.text().collect::<Vec<_>>().into_iter().collect(),
+                None,
+            ));
+        }
+    }
 
-//     if let Ok(nodes) = select(doc, ".mature_contains > a") {
-//         for node in nodes {
-//             metadata.push(Metadata::new(
-//                 String::from("warning"),
-//                 node.get_text(),
-//                 None,
-//             ));
-//         }
-//     }
+    if let Ok(nodes) = select(doc, ".mature_contains > a") {
+        for node in nodes {
+            metadata.push(Metadata::new(
+                String::from("warning"),
+                node.text().collect::<Vec<_>>().into_iter().collect(),
+                None,
+            ));
+        }
+    }
 
-//     let rating_element = select_first(doc, "#ratefic_user > span");
-//     if let Some(element) = rating_element.ok() {
-//         metadata.push(Metadata::new(
-//             String::from("rating"),
-//             element.get_text(),
-//             None,
-//         ));
-//     }
+    let rating_element = select_first(doc, "#ratefic_user > span");
+    if let Some(element) = rating_element.ok() {
+        metadata.push(Metadata::new(
+            String::from("rating"),
+            element.text().collect::<Vec<_>>().into_iter().collect(),
+            None,
+        ));
+    }
 
-//     Ok(metadata)
-// }
+    Ok(metadata)
+}
 
 fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
     let response = Request::post("https://www.scribblehub.com/wp-admin/admin-ajax.php")
