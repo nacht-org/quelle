@@ -546,7 +546,6 @@ dependencies = [
  "eyre",
  "once_cell",
  "quelle_extension",
- "scraper",
  "tracing",
 ]
 

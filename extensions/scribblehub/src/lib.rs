@@ -40,7 +40,7 @@ impl QuelleExtension for Extension {
             .text()?
             .ok_or_else(|| eyre!("Failed to get data"))?;
 
-        let doc = Doc::new(&text);
+        let doc = Html::new(&text);
 
         let id = url
             .split("/")
@@ -75,7 +75,7 @@ impl QuelleExtension for Extension {
             .text()?
             .ok_or_else(|| eyre!("Failed to get data"))?;
 
-        let doc = Doc::new(&text);
+        let doc = Html::new(&text);
 
         Ok(ChapterContent {
             data: doc.select_first("#chp_raw").html()?,
@@ -83,7 +83,7 @@ impl QuelleExtension for Extension {
     }
 }
 
-fn metadata(doc: &Doc) -> Result<Vec<Metadata>, eyre::Report> {
+fn metadata(doc: &Html) -> Result<Vec<Metadata>, eyre::Report> {
     let mut metadata = vec![];
 
     for node in doc.select("a.fic_genre")? {
@@ -139,7 +139,7 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
         .text()?
         .ok_or_else(|| eyre!("Failed to get data"))?;
 
-    let doc = Doc::new(&text);
+    let doc = Html::new(&text);
     let mut volume = Volume::default();
 
     for element in doc.select("li.toc_w")? {

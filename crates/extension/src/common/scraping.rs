@@ -1,10 +1,10 @@
 use eyre::eyre;
-use scraper::{ElementRef, Html, Selector};
+use scraper::{ElementRef, Selector};
 
 /// Represents an entire HTML document after it has been parsed.
 /// Think of this as your starting point for querying any web page.
-pub struct Doc {
-    pub doc: Html,
+pub struct Html {
+    pub doc: scraper::Html,
 }
 
 /// A collection of HTML elements, typically the result of a selection query
@@ -51,7 +51,7 @@ fn compile_selector(pattern: &str) -> Result<Selector, eyre::Report> {
     Selector::parse(pattern).map_err(|e| eyre!("Failed to compile selector: {e}"))
 }
 
-impl Doc {
+impl Html {
     /// Creates a new `Doc` from an HTML string.
     ///
     /// Use this to load your HTML content and prepare it for querying.
@@ -68,8 +68,8 @@ impl Doc {
     /// # }
     /// ```
     pub fn new(html: &str) -> Self {
-        let doc = Html::parse_document(html);
-        Doc { doc }
+        let doc = scraper::Html::parse_document(html);
+        Html { doc }
     }
 
     /// Finds all HTML elements in the document that match your **CSS selector**.
