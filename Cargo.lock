@@ -1619,6 +1619,7 @@ name = "quelle_engine"
 version = "0.1.0"
 dependencies = [
  "reqwest",
+ "thiserror 2.0.12",
  "tracing",
  "tracing-subscriber",
  "wasmtime",

@@ -1,7 +1,6 @@
+mod error;
 mod http;
 mod state;
-
-use std::error;
 
 use wasmtime::component::*;
 use wasmtime::{Config, Engine, Store};
@@ -20,7 +19,7 @@ mod bindings {
     });
 }
 
-fn main() -> Result<(), Box<dyn error::Error>> {
+fn main() -> error::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
@@ -57,7 +56,7 @@ pub struct ExtensionEngine {
 }
 
 impl ExtensionEngine {
-    pub fn new() -> Result<Self, Box<dyn error::Error>> {
+    pub fn new() -> error::Result<Self> {
         let engine = Engine::new(Config::new().wasm_component_model(true))?;
         let mut linker = Linker::<State>::new(&engine);
         bindings::quelle::extension::source::add_to_linker(&mut linker, |state| state)?;
@@ -73,14 +72,24 @@ impl ExtensionEngine {
         &self.engine
     }
 
-    pub fn new_runner(
-        &self,
-        component: Component,
-    ) -> Result<ExtensionRunner, Box<dyn error::Error>> {
+    pub fn new_runner(&self, component: Component) -> error::Result<ExtensionRunner> {
         let mut store = Store::new(&self.engine, State::new());
         let extension = Extension::instantiate(&mut store, &component, &self.linker)?;
-        extension.call_register_extension(&mut store)?;
-        extension.call_init(&mut store)??;
+
+        extension
+            .call_register_extension(&mut store)
+            .map_err(|e| error::Error::RuntimeError {
+                wasmtime_error: e,
+                panic_error: store.data_mut().panic_error.take(),
+            })?;
+
+        extension
+            .call_init(&mut store)
+            .map_err(|e| error::Error::RuntimeError {
+                wasmtime_error: e,
+                panic_error: store.data_mut().panic_error.take(),
+            })??;
+
         Ok(ExtensionRunner::new(self, extension, store))
     }
 }
@@ -90,6 +99,20 @@ pub struct ExtensionRunner<'a> {
     _engine: &'a ExtensionEngine,
     extension: Extension,
     store: Store<State>,
+}
+
+/// A macro to wrap calls to extension methods, handling errors and returning a tuple of the runner and the result.
+macro_rules! wrap_extension_method {
+    ($self:expr, $name:ident $(, $arg:expr )*) => {{
+        let result = $self.extension.$name(&mut $self.store $(, $arg)*);
+        match result {
+            Ok(value) => Ok(($self, value)),
+            Err(e) => Err(error::Error::RuntimeError {
+                wasmtime_error: e,
+                panic_error: $self.store.data_mut().panic_error.take(),
+            }),
+        }
+    }};
 }
 
 impl<'a> ExtensionRunner<'a> {
@@ -102,17 +125,22 @@ impl<'a> ExtensionRunner<'a> {
     }
 
     /// Safe wrapper around [`Extension::call_meta`].
-    pub fn meta(mut self) -> Result<(Self, source::SourceMeta), Box<dyn error::Error>> {
-        let value = self.extension.call_meta(&mut self.store)?;
-        Ok((self, value))
+    pub fn meta(mut self) -> error::Result<(Self, source::SourceMeta)> {
+        wrap_extension_method!(self, call_meta)
     }
 
     /// Safe wrapper around [`Extension::fetch_novel_info`].
     pub fn fetch_novel_info(
         mut self,
         url: &str,
-    ) -> Result<(Self, Result<novel::Novel, wit_error::Error>), Box<dyn error::Error>> {
-        let result = self.extension.call_fetch_novel_info(&mut self.store, url)?;
-        Ok((self, result))
+    ) -> error::Result<(Self, Result<novel::Novel, wit_error::Error>)> {
+        wrap_extension_method!(self, call_fetch_novel_info, url)
+    }
+
+    pub fn fetch_chapter(
+        mut self,
+        url: &str,
+    ) -> error::Result<(Self, Result<novel::ChapterContent, wit_error::Error>)> {
+        wrap_extension_method!(self, call_fetch_chapter, url)
     }
 }
