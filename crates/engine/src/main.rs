@@ -137,6 +137,7 @@ impl<'a> ExtensionRunner<'a> {
         wrap_extension_method!(self, call_fetch_novel_info, url)
     }
 
+    /// Safe wrapper around [`Extension::fetch_chapter`].
     pub fn fetch_chapter(
         mut self,
         url: &str,
