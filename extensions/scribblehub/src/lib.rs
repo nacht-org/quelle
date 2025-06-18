@@ -1,7 +1,6 @@
-use chrono::NaiveDateTime;
 use eyre::eyre;
 use once_cell::sync::Lazy;
-use quelle_extension::prelude::*;
+use quelle_extension::{common::time::parse_date_or_relative_time, prelude::*};
 
 register_extension!(Extension);
 
@@ -156,9 +155,8 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
             .map(|e| e.attr_opt("title"))
             .flatten();
 
-        // TODO: parse relative time
         let updated_at = time
-            .map(|time| NaiveDateTime::parse_from_str(&time, "").ok())
+            .map(|time| parse_date_or_relative_time(&time, "%b %d, %Y").ok())
             .flatten()
             .map(|time| time.and_utc().to_rfc3339());
 

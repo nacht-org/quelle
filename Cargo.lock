@@ -1473,6 +1473,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "parse_datetime"
+version = "0.10.0"
+source = "git+https://github.com/uutils/parse_datetime?rev=30cb26d75c237c43fb9a53dc2b66cb6745ab16c2#30cb26d75c237c43fb9a53dc2b66cb6745ab16c2"
+dependencies = [
+ "chrono",
+ "num-traits",
+ "regex",
+ "winnow",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1629,7 +1640,9 @@ dependencies = [
 name = "quelle_extension"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "eyre",
+ "parse_datetime",
  "scraper",
  "tracing",
  "tracing-subscriber",
