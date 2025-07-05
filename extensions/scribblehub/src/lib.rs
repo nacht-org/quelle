@@ -54,7 +54,13 @@ impl QuelleExtension for Extension {
             cover: doc.select_first(".fic_image img").attr_opt("src")?,
             status: doc
                 .select_first(".widget_fic_similar > li:last-child > span:last-child")
-                .map(|node| NovelStatus::from_str(&node.text_or_empty()))
+                .map(|node| {
+                    let text = node.text_or_empty();
+                    text.split_once("-")
+                        .map(|(status, _)| status.trim().to_string())
+                        .unwrap_or(text)
+                })
+                .map(|text| NovelStatus::from_str(&text))
                 .unwrap_or(NovelStatus::Unknown),
             volumes: volumes(&self.client, id)?,
             metadata: metadata(&doc)?,
@@ -126,7 +132,7 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
         .body(
             RequestFormBuilder::new()
                 .param("action", "wi_getreleases_pagination")
-                .param("pagenum", "-a")
+                .param("pagenum", "-1")
                 .param("mypostid", id)
                 .build(),
         )
@@ -155,6 +161,7 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
             .map(|e| e.attr_opt("title"))
             .flatten();
 
+        // TODO: relative time parsing must be done from the parent context (aka expose a function to wasm)
         let updated_at = time
             .map(|time| parse_date_or_relative_time(&time, "%b %d, %Y").ok())
             .flatten()
