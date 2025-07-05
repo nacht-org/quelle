@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose};
 use headless_chrome::{Browser, LaunchOptions, protocol::cdp::Runtime::RemoteObjectSubtype};
+use serde_json::Value;
 use thiserror::Error;
 
 use super::HttpExecutor;
@@ -47,7 +48,9 @@ pub struct HeadlessChromeExecutor {
 }
 
 impl HeadlessChromeExecutor {
+    #[tracing::instrument]
     pub fn new() -> Self {
+        tracing::info!("creating new headless chrome browser instance");
         let browser = Browser::new(LaunchOptions::default_builder().build().unwrap()).unwrap();
         Self { browser }
     }
@@ -55,7 +58,13 @@ impl HeadlessChromeExecutor {
 
 #[async_trait]
 impl HttpExecutor for HeadlessChromeExecutor {
+    #[tracing::instrument(skip_all)]
     async fn execute(&self, request: http::Request) -> Result<http::Response, http::ResponseError> {
+        tracing::info!(
+            url = request.url,
+            "executing http request in headless chrome"
+        );
+
         let tab = self
             .browser
             .new_tab()
@@ -65,6 +74,7 @@ impl HttpExecutor for HeadlessChromeExecutor {
             .map_err(|e| HeadlessChromeError::NewTab(e.to_string()))?;
 
         if request.method == http::Method::Get {
+            tracing::info!("handling GET request with direct navigation");
             let response = tab
                 .navigate_to(&request.url)
                 .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?
@@ -76,14 +86,13 @@ impl HttpExecutor for HeadlessChromeExecutor {
                 .get_content()
                 .map_err(|e| HeadlessChromeError::GetContent(e.to_string()))?;
 
+            tracing::info!("successfully handled GET request");
             return Ok(http::Response {
                 status: 200,
                 headers: Some(headers),
                 data: Some(data.into_bytes()),
             });
         }
-
-        // Load the site URL to ensure the browser is ready
 
         let url = request
             .url
@@ -92,6 +101,7 @@ impl HttpExecutor for HeadlessChromeExecutor {
 
         match url.host_str() {
             Some(host) => {
+                tracing::info!("navigating to site url to prepare for fetch");
                 let site_url = format!("{}://{}", url.scheme(), host);
                 tab.navigate_to(&site_url)
                     .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?
@@ -156,11 +166,11 @@ impl HttpExecutor for HeadlessChromeExecutor {
         headers[key] = value;
     }}
 
-    return {{
+    return JSON.stringify({{
         status: response.status,
         headers: headers,
         data: await response.text(),
-    }};
+    }});
 }})()
             "#,
             script,
@@ -169,8 +179,7 @@ impl HttpExecutor for HeadlessChromeExecutor {
             headers,
             body.unwrap_or("undefined")
         );
-
-        println!("Executing script: {}", script.trim());
+        tracing::info!("executing fetch script in browser");
 
         let result = tab
             .evaluate(script.trim(), true)
@@ -190,7 +199,23 @@ impl HttpExecutor for HeadlessChromeExecutor {
                 .ok_or_else(|| HeadlessChromeError::Evaluate("no value returned".to_string()))?,
         };
 
-        let status: u16 = value.get("status").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+        let value = match value {
+            Value::String(s) => serde_json::from_str(&s)?,
+            Value::Object(o) => o,
+            _ => {
+                return Err(
+                    HeadlessChromeError::Evaluate("unexpected response type".to_string()).into(),
+                );
+            }
+        };
+
+        let status: u16 = value
+            .get("status")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| {
+                HeadlessChromeError::Evaluate("missing status in response".to_string())
+            })? as u16;
+
         let headers: Vec<(String, String)> = value
             .get("headers")
             .and_then(|v| v.as_object())
@@ -200,12 +225,15 @@ impl HttpExecutor for HeadlessChromeExecutor {
                     .collect()
             })
             .unwrap_or_default();
+
         let data = value
             .get("data")
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .as_bytes()
             .to_vec();
+
+        tracing::info!("successfully executed fetch script and got response");
 
         Ok(http::Response {
             status,

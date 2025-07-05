@@ -53,6 +53,12 @@ impl http::HostClient for Http {
         self_: wasmtime::component::Resource<http::Client>,
         request: http::Request,
     ) -> Result<http::Response, http::ResponseError> {
+        tracing::info!(
+            "Executing HTTP request: method={:?}, url={}",
+            request.method,
+            request.url
+        );
+
         let client = self.table.get_mut(&self_).unwrap();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(client.request(request))
