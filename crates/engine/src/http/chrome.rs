@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use base64::{engine::general_purpose, Engine as _};
-use headless_chrome::{Browser, LaunchOptions};
+use base64::{Engine as _, engine::general_purpose};
+use headless_chrome::{Browser, LaunchOptions, protocol::cdp::Runtime::RemoteObjectSubtype};
 use thiserror::Error;
 
 use super::HttpExecutor;
@@ -48,21 +48,20 @@ pub struct HeadlessChromeExecutor {
 
 impl HeadlessChromeExecutor {
     pub fn new() -> Self {
-        let browser =
-            Browser::new(LaunchOptions::default_builder().build().unwrap()).unwrap();
+        let browser = Browser::new(LaunchOptions::default_builder().build().unwrap()).unwrap();
         Self { browser }
     }
 }
 
 #[async_trait]
 impl HttpExecutor for HeadlessChromeExecutor {
-    async fn execute(
-        &self,
-        request: http::Request,
-    ) -> Result<http::Response, http::ResponseError> {
+    async fn execute(&self, request: http::Request) -> Result<http::Response, http::ResponseError> {
         let tab = self
             .browser
             .new_tab()
+            .map_err(|e| HeadlessChromeError::NewTab(e.to_string()))?;
+
+        tab.enable_stealth_mode()
             .map_err(|e| HeadlessChromeError::NewTab(e.to_string()))?;
 
         if request.method == http::Method::Get {
@@ -84,8 +83,33 @@ impl HttpExecutor for HeadlessChromeExecutor {
             });
         }
 
+        // Load the site URL to ensure the browser is ready
+
+        let url = request
+            .url
+            .parse::<url::Url>()
+            .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?;
+
+        match url.host_str() {
+            Some(host) => {
+                let site_url = format!("{}://{}", url.scheme(), host);
+                tab.navigate_to(&site_url)
+                    .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?
+                    .wait_for_element("body")
+                    .map_err(|e| HeadlessChromeError::GetContent(e.to_string()))?;
+            }
+            None => {
+                return Err(
+                    HeadlessChromeError::Navigate("Invalid URL: missing host".to_string()).into(),
+                );
+            }
+        }
+
         let method = request.method.to_string();
-        let headers = serde_json::to_string(&request.headers)?;
+        let headers = match request.headers {
+            Some(headers) => serde_json::to_string(&headers)?,
+            None => "undefined".to_string(),
+        };
 
         let (body, script) = if let Some(body) = request.data {
             match body {
@@ -96,8 +120,7 @@ impl HttpExecutor for HeadlessChromeExecutor {
                             http::FormPart::Text(value) => {
                                 script.push_str(&format!(
                                     "formData.append('{}', '{}');",
-                                    name,
-                                    value
+                                    name, value
                                 ));
                             }
                             http::FormPart::Data(data) => {
@@ -120,38 +143,52 @@ impl HttpExecutor for HeadlessChromeExecutor {
 
         let script = format!(
             r#"
-            (async () => {{
-                {}
-                const response = await fetch("{}", {{
-                    method: "{}",
-                    headers: {},
-                    body: {},
-                }});
+(async () => {{
+    {}
+    const response = await fetch("{}", {{
+        method: "{}",
+        headers: {},
+        body: {},
+    }});
 
-                const headers = {{}};
-                for (const [key, value] of response.headers.entries()) {{
-                    headers[key] = value;
-                }}
+    const headers = {{}};
+    for (const [key, value] of response.headers.entries()) {{
+        headers[key] = value;
+    }}
 
-                return {{
-                    status: response.status,
-                    headers: headers,
-                    data: await response.text(),
-                }};
-            }})();
+    return {{
+        status: response.status,
+        headers: headers,
+        data: await response.text(),
+    }};
+}})()
             "#,
             script,
             request.url,
             method,
             headers,
-            body.unwrap_or("null")
+            body.unwrap_or("undefined")
         );
 
+        println!("Executing script: {}", script.trim());
+
         let result = tab
-            .evaluate(&script, true)
+            .evaluate(script.trim(), true)
             .map_err(|e| HeadlessChromeError::Evaluate(e.to_string()))?;
 
-        let value = result.value.ok_or_else(|| HeadlessChromeError::Evaluate("no value returned".to_string()))?;
+        let value = match result.subtype {
+            Some(RemoteObjectSubtype::Error) => {
+                return Err(HeadlessChromeError::Evaluate(
+                    result
+                        .description
+                        .unwrap_or_else(|| "Unknown error".to_string()),
+                )
+                .into());
+            }
+            _ => result
+                .value
+                .ok_or_else(|| HeadlessChromeError::Evaluate("no value returned".to_string()))?,
+        };
 
         let status: u16 = value.get("status").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
         let headers: Vec<(String, String)> = value

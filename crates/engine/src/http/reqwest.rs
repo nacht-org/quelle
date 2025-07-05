@@ -17,10 +17,7 @@ impl ReqwestExecutor {
 
 #[async_trait]
 impl HttpExecutor for ReqwestExecutor {
-    async fn execute(
-        &self,
-        request: http::Request,
-    ) -> Result<http::Response, http::ResponseError> {
+    async fn execute(&self, request: http::Request) -> Result<http::Response, http::ResponseError> {
         let mut builder = self.client.request(request.method.into(), &request.url);
 
         if let Some(params) = request.params {
@@ -55,12 +52,14 @@ fn create_multipart(
                 }
 
                 if let Some(content_type) = data.content_type {
-                    part = part.mime_str(&content_type).map_err(|e| http::ResponseError {
-                        kind: http::ResponseErrorKind::BadResponse,
-                        status: None,
-                        response: None,
-                        message: e.to_string(),
-                    })?;
+                    part = part
+                        .mime_str(&content_type)
+                        .map_err(|e| http::ResponseError {
+                            kind: http::ResponseErrorKind::BadResponse,
+                            status: None,
+                            response: None,
+                            message: e.to_string(),
+                        })?;
                 }
 
                 form = form.part(name, part);

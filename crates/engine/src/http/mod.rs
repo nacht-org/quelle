@@ -1,12 +1,12 @@
+mod chrome;
+mod executor;
+mod reqwest;
+
 use std::fmt;
 use std::sync::Arc;
 use wasmtime::component::ResourceTable;
 
 use crate::bindings::quelle::extension::http;
-
-mod chrome;
-mod executor;
-mod reqwest;
 
 pub use self::chrome::HeadlessChromeExecutor;
 pub use self::executor::HttpExecutor;
