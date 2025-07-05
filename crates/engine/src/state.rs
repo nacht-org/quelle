@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use crate::bindings::quelle::extension::tracing::LogEvent;
 use crate::bindings::quelle::extension::{
     error as wit_error, novel, source, tracing as wit_tracing,
 };
-use crate::http::Http;
+use crate::http::{Http, HttpExecutor};
 use tracing::event;
 
 pub struct State {
@@ -11,9 +13,9 @@ pub struct State {
 }
 
 impl State {
-    pub fn new() -> Self {
+    pub fn new(executor: Arc<dyn HttpExecutor>) -> Self {
         Self {
-            http: Http::new(),
+            http: Http::new(executor),
             panic_error: None,
         }
     }

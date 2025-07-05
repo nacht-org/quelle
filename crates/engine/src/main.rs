@@ -1,30 +1,26 @@
+mod bindings;
 mod error;
 mod http;
 mod state;
 
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use clap::Parser;
 use wasmtime::component::*;
 use wasmtime::{Config, Engine, Store};
 
 use crate::bindings::Extension;
 use crate::bindings::quelle::extension::{error as wit_error, novel, source};
+use crate::http::{HeadlessChromeExecutor, HttpExecutor, ReqwestExecutor};
 use crate::state::State;
-
-mod bindings {
-    wasmtime::component::bindgen!({
-        path: "../../wit",
-        tracing: true,
-        with: {
-            "quelle:extension/http/client": crate::http::HostClient,
-        }
-    });
-}
 
 fn main() -> error::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let engine = ExtensionEngine::new()?;
+    let engine = ExtensionEngine::new(Arc::new(HeadlessChromeExecutor::new()))?;
 
     let component = Component::from_file(
         &engine.engine(),
@@ -53,19 +49,26 @@ fn main() -> error::Result<()> {
 pub struct ExtensionEngine {
     engine: Engine,
     linker: Linker<State>,
+    executor: Arc<dyn HttpExecutor>,
 }
 
 impl ExtensionEngine {
-    pub fn new() -> error::Result<Self> {
+    pub fn new(executor: Arc<dyn HttpExecutor>) -> error::Result<Self> {
         let engine = Engine::new(Config::new().wasm_component_model(true))?;
         let mut linker = Linker::<State>::new(&engine);
-        bindings::quelle::extension::source::add_to_linker(&mut linker, |state| state)?;
-        bindings::quelle::extension::novel::add_to_linker(&mut linker, |state| state)?;
-        bindings::quelle::extension::http::add_to_linker(&mut linker, |state| &mut state.http)?;
-        bindings::quelle::extension::tracing::add_to_linker(&mut linker, |state| state)?;
-        bindings::quelle::extension::error::add_to_linker(&mut linker, |state| state)?;
+        crate::bindings::quelle::extension::source::add_to_linker(&mut linker, |state| state)?;
+        crate::bindings::quelle::extension::novel::add_to_linker(&mut linker, |state| state)?;
+        crate::bindings::quelle::extension::http::add_to_linker(&mut linker, |state| {
+            &mut state.http
+        })?;
+        crate::bindings::quelle::extension::tracing::add_to_linker(&mut linker, |state| state)?;
+        crate::bindings::quelle::extension::error::add_to_linker(&mut linker, |state| state)?;
 
-        Ok(Self { engine, linker })
+        Ok(Self {
+            engine,
+            linker,
+            executor,
+        })
     }
 
     pub fn engine(&self) -> &Engine {
@@ -73,8 +76,9 @@ impl ExtensionEngine {
     }
 
     pub fn new_runner(&self, component: Component) -> error::Result<ExtensionRunner> {
-        let mut store = Store::new(&self.engine, State::new());
-        let extension = Extension::instantiate(&mut store, &component, &self.linker)?;
+        let mut store = Store::new(&self.engine, State::new(self.executor.clone()));
+        let extension =
+            crate::bindings::Extension::instantiate(&mut store, &component, &self.linker)?;
 
         extension
             .call_register_extension(&mut store)
