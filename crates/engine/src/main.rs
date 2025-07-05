@@ -3,16 +3,14 @@ mod error;
 mod http;
 mod state;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use clap::Parser;
 use wasmtime::component::*;
 use wasmtime::{Config, Engine, Store};
 
 use crate::bindings::Extension;
 use crate::bindings::quelle::extension::{error as wit_error, novel, source};
-use crate::http::{HeadlessChromeExecutor, HttpExecutor, ReqwestExecutor};
+use crate::http::{HeadlessChromeExecutor, HttpExecutor};
 use crate::state::State;
 
 fn main() -> error::Result<()> {
