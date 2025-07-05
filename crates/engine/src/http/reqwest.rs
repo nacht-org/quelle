@@ -1,54 +1,24 @@
-use wasmtime::component::ResourceTable;
+use async_trait::async_trait;
 
+use super::HttpExecutor;
 use crate::bindings::quelle::extension::http;
 
-pub struct Http {
-    table: ResourceTable,
-}
-
-impl Http {
-    pub fn new() -> Self {
-        Self {
-            table: ResourceTable::new(),
-        }
-    }
-}
-
-impl http::Host for Http {}
-
-impl http::HostClient for Http {
-    fn new(&mut self) -> wasmtime::component::Resource<http::Client> {
-        self.table.push(http::Client::new()).unwrap()
-    }
-
-    fn request(
-        &mut self,
-        self_: wasmtime::component::Resource<http::Client>,
-        request: http::Request,
-    ) -> Result<http::Response, http::ResponseError> {
-        tracing::debug!("Requesting: {:?}", request);
-        self.table.get_mut(&self_).unwrap().request(request)
-    }
-
-    fn drop(&mut self, rep: wasmtime::component::Resource<http::Client>) -> wasmtime::Result<()> {
-        let _ = self.table.delete(rep)?;
-        Ok(())
-    }
-}
-
-pub struct HostClient {
+pub struct ReqwestExecutor {
     client: reqwest::blocking::Client,
 }
 
-impl HostClient {
-    fn new() -> Self {
+impl ReqwestExecutor {
+    pub fn new() -> Self {
         Self {
             client: reqwest::blocking::Client::new(),
         }
     }
+}
 
-    fn request(&self, request: http::Request) -> Result<http::Response, http::ResponseError> {
-        let mut builder = self.client.request(request.method.into(), request.url);
+#[async_trait]
+impl HttpExecutor for ReqwestExecutor {
+    async fn execute(&self, request: http::Request) -> Result<http::Response, http::ResponseError> {
+        let mut builder = self.client.request(request.method.into(), &request.url);
 
         if let Some(params) = request.params {
             builder = builder.query(&params);
@@ -57,7 +27,7 @@ impl HostClient {
         if let Some(body) = request.data {
             match body {
                 http::RequestBody::Form(data) => {
-                    let multipart = create_multipart(data);
+                    let multipart = create_multipart(data)?;
                     builder = builder.multipart(multipart);
                 }
             };
@@ -67,7 +37,9 @@ impl HostClient {
     }
 }
 
-fn create_multipart(data: Vec<(String, http::FormPart)>) -> reqwest::blocking::multipart::Form {
+fn create_multipart(
+    data: Vec<(String, http::FormPart)>,
+) -> Result<reqwest::blocking::multipart::Form, http::ResponseError> {
     let mut form = reqwest::blocking::multipart::Form::new();
     for (name, part) in data {
         match part {
@@ -80,7 +52,14 @@ fn create_multipart(data: Vec<(String, http::FormPart)>) -> reqwest::blocking::m
                 }
 
                 if let Some(content_type) = data.content_type {
-                    part = part.mime_str(&content_type).unwrap();
+                    part = part
+                        .mime_str(&content_type)
+                        .map_err(|e| http::ResponseError {
+                            kind: http::ResponseErrorKind::BadResponse,
+                            status: None,
+                            response: None,
+                            message: e.to_string(),
+                        })?;
                 }
 
                 form = form.part(name, part);
@@ -88,7 +67,7 @@ fn create_multipart(data: Vec<(String, http::FormPart)>) -> reqwest::blocking::m
         };
     }
 
-    form
+    Ok(form)
 }
 
 impl From<http::Method> for reqwest::Method {
