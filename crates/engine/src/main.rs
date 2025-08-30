@@ -61,6 +61,7 @@ impl ExtensionEngine {
         })?;
         crate::bindings::quelle::extension::tracing::add_to_linker(&mut linker, |state| state)?;
         crate::bindings::quelle::extension::error::add_to_linker(&mut linker, |state| state)?;
+        crate::bindings::quelle::extension::time::add_to_linker(&mut linker, |state| state)?;
 
         Ok(Self {
             engine,
