@@ -73,7 +73,7 @@ impl ExtensionEngine {
         &self.engine
     }
 
-    pub fn new_runner(&self, component: Component) -> error::Result<ExtensionRunner> {
+    pub fn new_runner(&'_ self, component: Component) -> error::Result<ExtensionRunner<'_>> {
         let mut store = Store::new(&self.engine, State::new(self.executor.clone()));
         let extension =
             crate::bindings::Extension::instantiate(&mut store, &component, &self.linker)?;

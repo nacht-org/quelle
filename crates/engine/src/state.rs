@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use crate::bindings::quelle::extension::tracing::LogEvent;
 use crate::bindings::quelle::extension::{
-    error as wit_error, novel, source, tracing as wit_tracing,
+    error as wit_error, novel, source, time as wit_time, tracing as wit_tracing,
 };
 use crate::http::{Http, HttpExecutor};
+use chrono::Local;
 use tracing::event;
 
 pub struct State {
@@ -54,5 +55,11 @@ impl wit_tracing::Host for State {
             wit_tracing::LogLevel::Trace => log_event!(tracing::Level::TRACE),
             wit_tracing::LogLevel::Warn => log_event!(tracing::Level::WARN),
         }
+    }
+}
+
+impl wit_time::Host for State {
+    fn local_now_millis(&mut self) -> i64 {
+        Local::now().timestamp_millis()
     }
 }

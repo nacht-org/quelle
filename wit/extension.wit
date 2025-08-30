@@ -5,6 +5,7 @@ world extension {
     import http;
     import tracing;
     import error;
+    import time;
 
     use source.{source-meta};
     use novel.{novel, chapter-content};
@@ -14,14 +15,14 @@ world extension {
     export register-extension: func();
 
     /// The extension meta information.
-    export meta: func () -> source-meta;
+    export meta: func() -> source-meta;
 
     /// Initializes the extension.
-    export init: func () -> result<_, error>;
-    
+    export init: func() -> result<_, error>;
+
     /// Fetches the novel information from the given URL.
     export fetch-novel-info: func(url: string) -> result<novel, error>;
 
     /// Fetches the chapter content from the given URL.
-    export fetch-chapter: func (url: string) -> result<chapter-content, error>;
+    export fetch-chapter: func(url: string) -> result<chapter-content, error>;
 }

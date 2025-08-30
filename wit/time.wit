@@ -1,0 +1,4 @@
+interface time {
+    /// Returns the current local time in milliseconds since the Unix epoch (January 1, 1970)
+    local-now-millis: func() -> s64;
+}

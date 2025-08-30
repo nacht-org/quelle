@@ -1,5 +1,7 @@
-use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use parse_datetime::parse_datetime_at_date;
+
+use crate::modules::time::local_time;
 
 /// Parses a string into a **`NaiveDateTime`**. This function first attempts
 /// to interpret the string as a specific date using the provided `fmt` format.
@@ -10,7 +12,7 @@ pub fn parse_date_or_relative_time(s: &str, fmt: &str) -> Result<NaiveDateTime, 
         return Ok(value);
     }
 
-    let now = Local::now();
+    let now = local_time()?;
     let result = parse_datetime_at_date(now, s).map(|v| v.naive_local());
     result.map_err(|e| {
         eyre::eyre!("Failed to parse date with format({fmt}) or relative time: {s}: {e}")
@@ -27,7 +29,7 @@ pub fn parse_date_time_or_relative_time(s: &str, fmt: &str) -> Result<NaiveDateT
         return Ok(value);
     }
 
-    let now = Local::now();
+    let now = local_time()?;
     let result = parse_datetime_at_date(now, s).map(|v| v.naive_local());
     result.map_err(|e| {
         eyre::eyre!("Failed to parse date time with format({fmt}) or relative time: {s}: {e}")
@@ -37,7 +39,7 @@ pub fn parse_date_time_or_relative_time(s: &str, fmt: &str) -> Result<NaiveDateT
 /// Parses a string as a relative time expression (e.g., "tomorrow", "last Tuesday").
 /// This function uses the current local time as a reference point for parsing.
 pub fn parse_relative_time(s: &str) -> Result<NaiveDateTime, eyre::Report> {
-    let now = Local::now();
+    let now = local_time()?;
     let result = parse_datetime_at_date(now, s).map(|v| v.naive_local());
     result.map_err(|e| eyre::eyre!("Failed to parse relative time: {s}: {e}"))
 }
