@@ -189,6 +189,21 @@ impl<'a> Element<'a> {
     pub fn text_or_empty(&self) -> String {
         self.element.text().collect::<String>().trim().to_string()
     }
+
+    /// Returns the **outer HTML** of this element, including its own tag and all its children.
+    ///
+    /// This is useful when you want to extract the full HTML markup for a section of the page,
+    /// such as a card, a div, or any container element. The result includes the element's opening
+    /// and closing tags, as well as all nested content.
+    pub fn html(&self) -> Option<String> {
+        let value = self.element.html();
+        let value = value.trim();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    }
 }
 
 /// Extends `Result<Element, ...>` to easily extract text, attributes, or HTML from a single element.

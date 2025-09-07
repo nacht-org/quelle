@@ -733,6 +733,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "extension_dragontea"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "ego-tree",
+ "eyre",
+ "once_cell",
+ "quelle_extension",
+ "scraper",
+ "tracing",
+]
+
+[[package]]
 name = "extension_scribblehub"
 version = "0.1.0"
 dependencies = [

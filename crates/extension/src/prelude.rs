@@ -1,3 +1,4 @@
+pub use crate::common::net::make_absolute_url;
 pub use crate::common::scraping::*;
 pub use crate::http::{Client, Method, Request};
 pub use crate::novel::{Chapter, ChapterContent, Metadata, Novel, NovelStatus, Volume};
