@@ -86,7 +86,8 @@ impl HttpExecutor for HeadlessChromeExecutor {
                 .get_content()
                 .map_err(|e| HeadlessChromeError::GetContent(e.to_string()))?;
 
-            tracing::info!("successfully handled GET request");
+            tracing::debug!("GET request successful, response: {}", &data);
+
             return Ok(http::Response {
                 status: 200,
                 headers: Some(headers),
