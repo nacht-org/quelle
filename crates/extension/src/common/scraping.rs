@@ -182,6 +182,20 @@ impl<'a> Element<'a> {
         self.element.value().attr(name).map(|s| s.to_string())
     }
 
+    /// Extracts the **trimmed visible text content** of this element and all its children.
+    ///
+    /// Use this when you are sure the element contains text. It returns the text as a `String`,
+    /// or `None` if no text is found.
+    pub fn text_opt(&self) -> Option<String> {
+        let value = self.element.text().collect::<String>();
+        let value = value.trim();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    }
+
     /// Retrieves the **trimmed visible text content** of this element and all its children.
     ///
     /// This is your go-to method for extracting the human-readable content, like the title of an article,
@@ -195,7 +209,7 @@ impl<'a> Element<'a> {
     /// This is useful when you want to extract the full HTML markup for a section of the page,
     /// such as a card, a div, or any container element. The result includes the element's opening
     /// and closing tags, as well as all nested content.
-    pub fn html(&self) -> Option<String> {
+    pub fn html_opt(&self) -> Option<String> {
         let value = self.element.html();
         let value = value.trim();
         if value.is_empty() {
@@ -253,26 +267,28 @@ pub trait ElementExt<'a>: Sized {
     ///
     /// Use this when you need the complete HTML structure of a section, not just its plain text or inner content.
     /// It returns the outer HTML as a `String`, or an error if the initial element selection failed.
-    fn html(self) -> Result<String, eyre::Report>;
+    fn html(self) -> Result<String, eyre::Report> {
+        self.html_opt()?
+            .ok_or_else(|| eyre!("HTML content not found in element"))
+    }
+
+    /// Optionally retrieves the **trimmed outer HTML content** of the element.
+    ///
+    /// This method returns `Some(String)` with the outer HTML if it exists, or `None` if the element has no HTML content.
+    /// It also returns an error if the initial element selection failed.
+    fn html_opt(self) -> Result<Option<String>, eyre::Report>;
 }
 
 impl<'a> ElementExt<'a> for Result<Element<'a>, eyre::Report> {
     fn text_opt(self) -> Result<Option<String>, eyre::Report> {
-        self.map(|element| {
-            let text = element.element.text().collect::<String>();
-            if text.is_empty() {
-                None
-            } else {
-                Some(text.trim().to_string())
-            }
-        })
+        self.map(|element| element.text_opt())
     }
 
     fn attr_opt(self, name: &str) -> Result<Option<String>, eyre::Report> {
-        self.map(|element| element.element.value().attr(name).map(|s| s.to_string()))
+        self.map(|element| element.attr_opt(name))
     }
 
-    fn html(self) -> Result<String, eyre::Report> {
-        self.map(|element| element.element.html().trim().to_string())
+    fn html_opt(self) -> Result<Option<String>, eyre::Report> {
+        self.map(|element| element.html_opt())
     }
 }

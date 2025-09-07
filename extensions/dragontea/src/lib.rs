@@ -208,7 +208,7 @@ impl QuelleExtension for Extension {
 
         Ok(ChapterContent {
             data: content
-                .html()
+                .html_opt()
                 .ok_or_else(|| eyre!("Failed to extract chapter HTML"))?,
         })
     }
