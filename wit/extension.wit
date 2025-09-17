@@ -7,8 +7,8 @@ world extension {
     import error;
     import time;
 
-    use source.{source-meta};
-    use novel.{novel, chapter-content};
+    use source.{source-meta, sort-order};
+    use novel.{novel, chapter-content, simple-search-query, complex-search-query, search-result};
     use error.{error};
 
     /// Registers the extension with the system.
@@ -25,4 +25,10 @@ world extension {
 
     /// Fetches the chapter content from the given URL.
     export fetch-chapter: func(url: string) -> result<chapter-content, error>;
+
+    /// Performs a simple search with just a query string.
+    export simple-search: func(query: simple-search-query) -> result<search-result, error>;
+
+    /// Performs a complex search with multiple filters.
+    export complex-search: func(query: complex-search-query) -> result<search-result, error>;
 }

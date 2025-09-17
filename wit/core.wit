@@ -1,3 +1,4 @@
+// Source metadata and capabilities
 interface source {
     record source-meta {
         id: string,
@@ -7,6 +8,7 @@ interface source {
         base-urls: list<string>,
         rds: list<reading-direction>,
         attrs: list<source-attr>,
+        capabilities: source-capabilities,
     }
 
     enum reading-direction {
@@ -17,9 +19,96 @@ interface source {
     enum source-attr {
         fanfiction,
     }
+
+    // Source capabilities
+    record source-capabilities {
+        search: option<search-capabilities>,
+    }
+
+    record search-capabilities {
+        supports-simple-search: bool,
+        supports-complex-search: bool,
+        available-filters: list<filter-definition>,
+        available-sort-options: list<sort-option>,
+        max-results-per-page: option<u32>,
+        default-results-per-page: u32,
+    }
+
+    // Dynamic filter system
+    record filter-definition {
+        id: string,
+        name: string,
+        description: option<string>,
+        filter-type: filter-type,
+        required: bool,
+    }
+
+    variant filter-type {
+        text(text-filter),
+        select(select-filter),
+        multi-select(multi-select-filter),
+        number-range(number-range-filter),
+        date-range(date-range-filter),
+        boolean(boolean-filter),
+    }
+
+    record text-filter {
+        placeholder: option<string>,
+        max-length: option<u32>,
+    }
+
+    record select-filter {
+        options: list<filter-option>,
+    }
+
+    record multi-select-filter {
+        options: list<filter-option>,
+        max-selections: option<u32>,
+    }
+
+    record filter-option {
+        value: string,
+        label: string,
+        description: option<string>,
+    }
+
+    record number-range-filter {
+        min: f64,
+        max: f64,
+        step: option<f64>,
+        unit: option<string>,
+    }
+
+    record date-range-filter {
+        min-date: option<string>,
+        max-date: option<string>,
+        format: string,
+    }
+
+    record boolean-filter {
+        default-value: option<bool>,
+        true-label: option<string>,
+        false-label: option<string>,
+    }
+
+    record sort-option {
+        id: string,
+        name: string,
+        description: option<string>,
+        supports-asc: bool,
+        supports-desc: bool,
+        default-order: option<sort-order>,
+    }
+
+    enum sort-order {
+        asc,
+        desc,
+    }
 }
 
+// Novel data structures and search functionality
 interface novel {
+    // Core novel data structures
     record novel {
         url: string,
         authors: list<string>,
@@ -74,5 +163,55 @@ interface novel {
 
     record chapter-content {
         data: string,
+    }
+
+    // Search queries
+    record simple-search-query {
+        query: string,
+        page: option<u32>,
+        limit: option<u32>,
+    }
+
+    // Complex search with flexible, dynamic filters
+    record complex-search-query {
+        filters: list<applied-filter>,
+        page: option<u32>,
+        limit: option<u32>,
+        sort-by: option<string>,
+        sort-order: option<sort-order>,
+    }
+
+    record applied-filter {
+        filter-id: string,
+        value: filter-value,
+    }
+
+    variant filter-value {
+        text(string),
+        select(string),
+        multi-select(list<string>),
+        number-range(number-range-value),
+        date-range(date-range-value),
+        boolean(bool),
+    }
+
+    record number-range-value {
+        min: option<f64>,
+        max: option<f64>,
+    }
+
+    record date-range-value {
+        start: option<string>,
+        end: option<string>,
+    }
+
+    // Search results
+    record search-result {
+        novels: list<basic-novel>,
+        total-count: option<u32>,
+        current-page: u32,
+        total-pages: option<u32>,
+        has-next-page: bool,
+        has-previous-page: bool,
     }
 }
