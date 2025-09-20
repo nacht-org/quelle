@@ -4,13 +4,13 @@ use super::HttpExecutor;
 use crate::bindings::quelle::extension::http;
 
 pub struct ReqwestExecutor {
-    client: reqwest::blocking::Client,
+    client: reqwest::Client,
 }
 
 impl ReqwestExecutor {
     pub fn new() -> Self {
         Self {
-            client: reqwest::blocking::Client::new(),
+            client: reqwest::Client::new(),
         }
     }
 }
@@ -41,19 +41,20 @@ impl HttpExecutor for ReqwestExecutor {
             };
         }
 
-        builder.send().map(Into::into).map_err(Into::into)
+        let response = builder.send().await?;
+        map_response(response).await
     }
 }
 
 fn create_multipart(
     data: Vec<(String, http::FormPart)>,
-) -> Result<reqwest::blocking::multipart::Form, http::ResponseError> {
-    let mut form = reqwest::blocking::multipart::Form::new();
+) -> Result<reqwest::multipart::Form, http::ResponseError> {
+    let mut form = reqwest::multipart::Form::new();
     for (name, part) in data {
         match part {
             http::FormPart::Text(value) => form = form.text(name, value),
             http::FormPart::Data(data) => {
-                let mut part = reqwest::blocking::multipart::Part::bytes(data.data);
+                let mut part = reqwest::multipart::Part::bytes(data.data);
 
                 if let Some(name) = data.name {
                     part = part.file_name(name);
@@ -92,23 +93,30 @@ impl From<http::Method> for reqwest::Method {
     }
 }
 
-impl From<reqwest::blocking::Response> for http::Response {
-    fn from(value: reqwest::blocking::Response) -> Self {
-        let status = value.status().as_u16();
-        let headers = value
-            .headers()
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string()))
-            .collect::<Vec<_>>();
+async fn map_response(value: reqwest::Response) -> Result<http::Response, http::ResponseError> {
+    let status = value.status().as_u16();
+    let headers = value
+        .headers()
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string()))
+        .collect::<Vec<_>>();
 
-        let data = value.bytes().unwrap().to_vec();
+    let data = value
+        .bytes()
+        .await
+        .map_err(|e| http::ResponseError {
+            kind: http::ResponseErrorKind::BadResponse,
+            status: Some(status),
+            response: None,
+            message: e.to_string(),
+        })?
+        .to_vec();
 
-        http::Response {
-            status,
-            headers: Some(headers),
-            data: Some(data),
-        }
-    }
+    Ok(http::Response {
+        status,
+        headers: Some(headers),
+        data: Some(data),
+    })
 }
 
 impl From<reqwest::Error> for http::ResponseError {
