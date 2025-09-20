@@ -1,4 +1,26 @@
 use crate::novel::{Metadata, Namespace, NovelStatus, Volume};
+use crate::source::{SearchCapabilities, SourceCapabilities};
+
+impl Default for SourceCapabilities {
+    fn default() -> Self {
+        Self {
+            search: Default::default(),
+        }
+    }
+}
+
+impl Default for SearchCapabilities {
+    fn default() -> Self {
+        Self {
+            supports_simple_search: false,
+            supports_complex_search: false,
+            available_filters: Default::default(),
+            available_sort_options: Default::default(),
+            max_results_per_page: Default::default(),
+            default_results_per_page: Default::default(),
+        }
+    }
+}
 
 impl NovelStatus {
     pub fn from_str(status: &str) -> Self {

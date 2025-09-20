@@ -12,6 +12,7 @@ const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     base_urls: vec![String::from("https://dragontea.ink")],
     rds: vec![ReadingDirection::Ltr],
     attrs: vec![],
+    capabilities: SourceCapabilities::default(),
 });
 
 pub struct Extension {

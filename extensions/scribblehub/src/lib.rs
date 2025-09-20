@@ -12,6 +12,7 @@ const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     base_urls: vec![String::from("https://www.scribblehub.com")],
     rds: vec![ReadingDirection::Ltr],
     attrs: vec![],
+    capabilities: SourceCapabilities::default(),
 });
 
 pub struct Extension {
@@ -161,7 +162,6 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
             .map(|e| e.attr_opt("title"))
             .flatten();
 
-        // TODO: relative time parsing must be done from the parent context (aka expose a function to wasm)
         let updated_at = time
             .map(|time| parse_date_or_relative_time(&time, "%b %d, %Y").ok())
             .flatten()
