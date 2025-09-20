@@ -3,7 +3,7 @@ mod cli;
 use std::sync::Arc;
 
 use clap::Parser;
-use quelle_engine::{ExtensionEngine, http::HeadlessChromeExecutor};
+use quelle_engine::{ExtensionEngine, bindings::SimpleSearchQuery, http::HeadlessChromeExecutor};
 
 use crate::cli::Commands;
 
@@ -34,6 +34,18 @@ fn main() -> eyre::Result<()> {
             let (_runner, result) = runner.fetch_chapter(url.as_str())?;
 
             println!("Chapter: {:?}", result);
+        }
+        Commands::Search { query } => {
+            let (runner, extension_meta) = runner.meta()?;
+            println!("Extension: {:?}", extension_meta);
+
+            let (_runner, result) = runner.simple_search(&SimpleSearchQuery {
+                query,
+                limit: None,
+                page: None,
+            })?;
+
+            println!("Search Result: {:?}", result);
         }
     }
 

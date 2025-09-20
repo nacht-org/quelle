@@ -10,4 +10,5 @@ pub struct Cli {
 pub enum Commands {
     Novel { url: Url },
     Chapter { url: Url },
+    Search { query: String },
 }

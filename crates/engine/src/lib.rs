@@ -1,4 +1,4 @@
-mod bindings;
+pub mod bindings;
 pub mod error;
 pub mod http;
 mod state;
@@ -8,8 +8,8 @@ use std::sync::Arc;
 use wasmtime::component::*;
 use wasmtime::{Config, Engine, Store};
 
-use crate::bindings::Extension;
 use crate::bindings::quelle::extension::{error as wit_error, novel, source};
+use crate::bindings::{ComplexSearchQuery, Extension, SearchResult, SimpleSearchQuery};
 use crate::http::HttpExecutor;
 use crate::state::State;
 
@@ -120,5 +120,21 @@ impl<'a> ExtensionRunner<'a> {
         url: &str,
     ) -> error::Result<(Self, Result<novel::ChapterContent, wit_error::Error>)> {
         wrap_extension_method!(self, call_fetch_chapter, url)
+    }
+
+    /// Safe wrapper around [`Extension::simple_search`].
+    pub fn simple_search(
+        mut self,
+        query: &SimpleSearchQuery,
+    ) -> error::Result<(Self, Result<SearchResult, wit_error::Error>)> {
+        wrap_extension_method!(self, call_simple_search, query)
+    }
+
+    /// Safe wrapper around [`Extension::complex_search`].
+    pub fn complex_search(
+        mut self,
+        query: &ComplexSearchQuery,
+    ) -> error::Result<(Self, Result<SearchResult, wit_error::Error>)> {
+        wrap_extension_method!(self, call_complex_search, query)
     }
 }

@@ -1,7 +1,6 @@
-use eyre::eyre;
+use eyre::{OptionExt, eyre};
 use once_cell::sync::Lazy;
 use quelle_extension::{common::time::parse_date_or_relative_time, prelude::*};
-use urlencoding;
 
 register_extension!(Extension);
 
@@ -97,17 +96,13 @@ impl QuelleExtension for Extension {
     }
 
     fn simple_search(&self, query: SimpleSearchQuery) -> Result<SearchResult, eyre::Report> {
-        let page = query.page.unwrap_or(1);
-        let limit = query.limit.unwrap_or(20);
+        let current_page = query.page();
 
-        // Build the search URL
-        let search_url = format!(
-            "https://www.scribblehub.com/series-finder/?sf=1&title_contains={}&paged={}",
-            urlencoding::encode(&query.query),
-            page
-        );
-
-        let response = Request::get(&search_url)
+        let response = Request::get("https://www.scribblehub.com/series-finder")
+            .param("sf", "1")
+            .param("sh", query.query)
+            .param("order", "desc")
+            .param("pg", current_page.to_string())
             .send(&self.client)
             .map_err(|e| eyre!(e))?
             .error_for_status()?;
@@ -120,99 +115,41 @@ impl QuelleExtension for Extension {
 
         let mut novels = Vec::new();
 
-        // ScribbleHub search results are displayed in a structured format
-        // The results appear to be in a main content area with specific patterns
+        for element in doc.select(".search_main_box")? {
+            let title = element
+                .select_first(".search_title > a")?
+                .text_opt()
+                .ok_or_eyre("Failed to get title")?;
 
-        // Look for series results - they contain rating info in parentheses
-        let text = doc
-            .select_first_opt("body")?
-            .map(|b| b.text_or_empty())
-            .unwrap_or_default();
+            let url = element
+                .select_first(".search_title > a")?
+                .attr_opt("href")
+                .map(|href| make_absolute_url(&href, BASE_URL))
+                .ok_or_eyre("Failed to get url")?;
 
-        // Parse the text content to find series information
-        // Pattern: (rating)Title Views Favorites Chapters etc.
-        let lines: Vec<&str> = text.lines().collect();
-        let mut i = 0;
+            let cover = element
+                .select_first(".search_img > img")?
+                .attr_opt("src")
+                .map(|src| make_absolute_url(&src, BASE_URL));
 
-        while i < lines.len() && novels.len() < limit as usize {
-            let line = lines[i].trim();
-
-            // Look for rating pattern like "(4.7)" at the start of a line
-            if line.starts_with('(') && line.contains(')') {
-                if let Some(close_paren) = line.find(')') {
-                    let title_part = &line[close_paren + 1..].trim();
-
-                    // The title is usually the first part before view/chapter counts
-                    let title = if let Some(pos) = title_part.find(" Views") {
-                        title_part[..pos].trim()
-                    } else if let Some(pos) = title_part.find(" Chapters") {
-                        title_part[..pos].trim()
-                    } else {
-                        title_part
-                    };
-
-                    if !title.is_empty() && title.len() > 2 {
-                        // Try to find the corresponding link in the HTML
-                        let mut found_url = None;
-
-                        for link in doc.select("a[href*='/series/']")? {
-                            let link_title = link.text_or_empty();
-                            let trimmed_title = link_title.trim();
-                            if trimmed_title == title
-                                || title.contains(trimmed_title)
-                                || trimmed_title.contains(title)
-                            {
-                                found_url = Some(link.attr_opt("href").unwrap_or_default());
-                                break;
-                            }
-                        }
-
-                        if let Some(url) = found_url {
-                            novels.push(BasicNovel {
-                                title: title.to_string(),
-                                cover: None, // ScribbleHub search doesn't show cover images in results
-                                url: make_absolute_url(&url, BASE_URL),
-                            });
-                        }
-                    }
-                }
-            }
-            i += 1;
+            novels.push(BasicNovel { title, cover, url });
         }
 
-        // Fallback: if no results found, try simpler link extraction
-        if novels.is_empty() {
-            for link in doc.select("a[href*='/series/']")? {
-                let title = link.text_or_empty().trim().to_string();
-                let url = link.attr_opt("href").unwrap_or_default();
-
-                if !title.is_empty() && !url.is_empty() && title.len() > 2 {
-                    novels.push(BasicNovel {
-                        title,
-                        cover: None,
-                        url: make_absolute_url(&url, BASE_URL),
-                    });
-
-                    if novels.len() >= limit as usize {
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Calculate pagination info
-        let total_count = None; // ScribbleHub doesn't provide total count easily
-        let current_page = page;
-        let has_next_page = novels.len() as u32 >= limit;
-        let has_previous_page = current_page > 1;
+        let total_pages = doc
+            .select(".simple-pagination > li")?
+            .into_iter()
+            .filter_map(|li| li.text_opt())
+            .filter_map(|s| s.parse::<u32>().ok())
+            .max()
+            .unwrap_or(current_page);
 
         Ok(SearchResult {
             novels,
-            total_count,
+            total_count: None,
             current_page,
-            total_pages: None,
-            has_next_page,
-            has_previous_page,
+            total_pages: Some(total_pages),
+            has_next_page: current_page < total_pages,
+            has_previous_page: current_page > 1,
         })
     }
 }

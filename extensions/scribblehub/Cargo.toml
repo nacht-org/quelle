@@ -9,7 +9,6 @@ chrono = { workspace = true }
 once_cell = { workspace = true }
 tracing.workspace = true
 eyre.workspace = true
-urlencoding = "2.1"
 
 [lib]
 crate-type = ["cdylib"]
