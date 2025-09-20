@@ -18,11 +18,7 @@ const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     capabilities: SourceCapabilities {
         search: Some(SearchCapabilities {
             supports_simple_search: true,
-            supports_complex_search: false,
-            available_filters: vec![],
-            available_sort_options: vec![],
-            max_results_per_page: Some(50),
-            default_results_per_page: 20,
+            ..Default::default()
         }),
     },
 });
