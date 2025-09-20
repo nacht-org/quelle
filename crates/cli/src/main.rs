@@ -1,8 +1,15 @@
+mod cli;
+
 use std::sync::Arc;
 
-use quelle_engine::{ExtensionEngine, error, http::HeadlessChromeExecutor};
+use clap::Parser;
+use quelle_engine::{ExtensionEngine, http::HeadlessChromeExecutor};
 
-fn main() -> error::Result<()> {
+use crate::cli::Commands;
+
+fn main() -> eyre::Result<()> {
+    let cli = cli::Cli::parse();
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
@@ -11,19 +18,24 @@ fn main() -> error::Result<()> {
     let runner = engine
         .new_runner_from_file("target/wasm32-unknown-unknown/release/extension_scribblehub.wasm")?;
 
-    let (runner, extension_meta) = runner.meta()?;
-    println!("Extension: {:?}", extension_meta);
+    match cli.command {
+        Commands::Novel { url } => {
+            let (runner, extension_meta) = runner.meta()?;
+            println!("Extension: {:?}", extension_meta);
 
-    let args = std::env::args().collect::<Vec<String>>();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <url>", args[0]);
-        std::process::exit(1);
+            let (_runner, result) = runner.fetch_novel_info(url.as_str())?;
+
+            println!("Novel: {:?}", result);
+        }
+        Commands::Chapter { url } => {
+            let (runner, extension_meta) = runner.meta()?;
+            println!("Extension: {:?}", extension_meta);
+
+            let (_runner, result) = runner.fetch_chapter(url.as_str())?;
+
+            println!("Chapter: {:?}", result);
+        }
     }
-
-    let url = &args[1];
-    let (_runner, result) = runner.fetch_novel_info(url)?;
-
-    println!("Novel: {:?}", result);
 
     Ok(())
 }

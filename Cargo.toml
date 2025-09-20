@@ -11,6 +11,7 @@ tracing-subscriber = "0.3.19"
 eyre = "0.6.12"
 thiserror = "2.0.12"
 ego-tree = "0.10.0"
+url = "2.5.7"
 
 [workspace.dependencies.chrono]
 version = "0.4.22"
