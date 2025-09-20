@@ -87,6 +87,10 @@ impl QuelleExtension for Extension {
             data: doc.select_first("#chp_raw").html()?,
         })
     }
+
+    fn simple_search(&self, query: SimpleSearchQuery) -> Result<SearchResult, eyre::Report> {
+        Err(eyre!("Search is not supported"))
+    }
 }
 
 fn metadata(doc: &Html) -> Result<Vec<Metadata>, eyre::Report> {
