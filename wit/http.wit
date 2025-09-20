@@ -12,15 +12,15 @@ interface http {
     record request {
         method: method,
         url: string,
-        params: option<list<u8>>,
+        params: option<list<tuple<string, string>>>,
         data: option<request-body>,
-        headers: option<list<u8>>,
+        headers: option<list<tuple<string, string>>>,
     }
 
     variant request-body {
         form(list<tuple<string, form-part>>),
     }
-    
+
     variant form-part {
         text(string),
         data(data-part),

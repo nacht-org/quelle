@@ -21,7 +21,15 @@ impl HttpExecutor for ReqwestExecutor {
         let mut builder = self.client.request(request.method.into(), &request.url);
 
         if let Some(params) = request.params {
-            builder = builder.query(&params);
+            for (key, value) in params {
+                builder = builder.query(&[(key, value)]);
+            }
+        }
+
+        if let Some(headers) = request.headers {
+            for (key, value) in headers {
+                builder = builder.header(key, value);
+            }
         }
 
         if let Some(body) = request.data {

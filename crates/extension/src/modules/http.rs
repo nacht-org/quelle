@@ -26,6 +26,38 @@ impl Request {
         self
     }
 
+    pub fn param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        if self.params.is_none() {
+            self.params = Some(Vec::new());
+        }
+        self.params
+            .as_mut()
+            .unwrap()
+            .push((key.into(), value.into()));
+        self
+    }
+
+    pub fn params(mut self, params: Vec<(String, String)>) -> Self {
+        self.params = Some(params);
+        self
+    }
+
+    pub fn header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        if self.headers.is_none() {
+            self.headers = Some(Vec::new());
+        }
+        self.headers
+            .as_mut()
+            .unwrap()
+            .push((key.into(), value.into()));
+        self
+    }
+
+    pub fn headers(mut self, headers: Vec<(String, String)>) -> Self {
+        self.headers = Some(headers);
+        self
+    }
+
     pub fn send(&self, client: &Client) -> Result<Response, ResponseError> {
         client.request(&self)
     }

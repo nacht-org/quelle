@@ -60,10 +60,22 @@ impl HeadlessChromeExecutor {
 impl HttpExecutor for HeadlessChromeExecutor {
     #[tracing::instrument(skip_all)]
     async fn execute(&self, request: http::Request) -> Result<http::Response, http::ResponseError> {
-        tracing::info!(
-            url = request.url,
-            "executing http request in headless chrome"
-        );
+        // Build the final URL with parameters
+        let mut url = request.url.clone();
+        if let Some(params) = &request.params {
+            if !params.is_empty() {
+                let mut parsed_url = url::Url::parse(&url)
+                    .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?;
+
+                for (key, value) in params {
+                    parsed_url.query_pairs_mut().append_pair(key, value);
+                }
+
+                url = parsed_url.to_string();
+            }
+        }
+
+        tracing::info!(url = url, "executing http request in headless chrome");
 
         let tab = self
             .browser
@@ -76,7 +88,7 @@ impl HttpExecutor for HeadlessChromeExecutor {
         if request.method == http::Method::Get {
             tracing::info!("handling GET request with direct navigation");
             let response = tab
-                .navigate_to(&request.url)
+                .navigate_to(&url)
                 .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?
                 .wait_for_element("body")
                 .map_err(|e| HeadlessChromeError::GetContent(e.to_string()))?;
@@ -95,15 +107,14 @@ impl HttpExecutor for HeadlessChromeExecutor {
             });
         }
 
-        let url = request
-            .url
+        let parsed_url = url
             .parse::<url::Url>()
             .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?;
 
-        match url.host_str() {
+        match parsed_url.host_str() {
             Some(host) => {
                 tracing::info!("navigating to site url to prepare for fetch");
-                let site_url = format!("{}://{}", url.scheme(), host);
+                let site_url = format!("{}://{}", parsed_url.scheme(), host);
                 tab.navigate_to(&site_url)
                     .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?
                     .wait_for_element("body")
@@ -118,7 +129,11 @@ impl HttpExecutor for HeadlessChromeExecutor {
 
         let method = request.method.to_string();
         let headers = match request.headers {
-            Some(headers) => serde_json::to_string(&headers)?,
+            Some(headers) => {
+                let headers_map: std::collections::HashMap<String, String> =
+                    headers.into_iter().collect();
+                serde_json::to_string(&headers_map)?
+            }
             None => "undefined".to_string(),
         };
 
@@ -175,7 +190,7 @@ impl HttpExecutor for HeadlessChromeExecutor {
 }})()
             "#,
             script,
-            request.url,
+            url,
             method,
             headers,
             body.unwrap_or("undefined")
