@@ -30,8 +30,6 @@ interface source {
         supports-complex-search: bool,
         available-filters: list<filter-definition>,
         available-sort-options: list<sort-option>,
-        max-results-per-page: option<u32>,
-        default-results-per-page: u32,
     }
 
     // Dynamic filter system

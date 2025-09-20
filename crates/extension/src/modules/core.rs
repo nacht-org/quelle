@@ -16,8 +16,6 @@ impl Default for SearchCapabilities {
             supports_complex_search: false,
             available_filters: Default::default(),
             available_sort_options: Default::default(),
-            max_results_per_page: Default::default(),
-            default_results_per_page: Default::default(),
         }
     }
 }
