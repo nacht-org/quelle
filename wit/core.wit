@@ -108,6 +108,8 @@ interface source {
 
 // Novel data structures and search functionality
 interface novel {
+    use source.{sort-order};
+
     // Core novel data structures
     record novel {
         url: string,

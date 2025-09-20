@@ -39,6 +39,14 @@ impl wit::Guest for Component {
     fn fetch_chapter(url: String) -> Result<wit::ChapterContent, error::Error> {
         extension().fetch_chapter(url).map_err(Into::into)
     }
+
+    fn simple_search(query: wit::SimpleSearchQuery) -> Result<wit::SearchResult, error::Error> {
+        extension().simple_search(query).map_err(Into::into)
+    }
+
+    fn complex_search(query: wit::ComplexSearchQuery) -> Result<wit::SearchResult, error::Error> {
+        extension().complex_search(query).map_err(Into::into)
+    }
 }
 
 pub trait QuelleExtension: Send + Sync {
@@ -60,4 +68,26 @@ pub trait QuelleExtension: Send + Sync {
 
     /// Fetches chapter content from the given URL.
     fn fetch_chapter(&self, url: String) -> Result<wit::ChapterContent, eyre::Report>;
+
+    /// Performs a simple search with just a query string.
+    /// Default implementation returns an error indicating search is not supported.
+    fn simple_search(
+        &self,
+        _query: wit::SimpleSearchQuery,
+    ) -> Result<wit::SearchResult, eyre::Report> {
+        Err(eyre::eyre!(
+            "Simple search functionality is not supported by this extension"
+        ))
+    }
+
+    /// Performs a complex search with multiple filters.
+    /// Default implementation returns an error indicating search is not supported.
+    fn complex_search(
+        &self,
+        _query: wit::ComplexSearchQuery,
+    ) -> Result<wit::SearchResult, eyre::Report> {
+        Err(eyre::eyre!(
+            "Complex search functionality is not supported by this extension"
+        ))
+    }
 }
