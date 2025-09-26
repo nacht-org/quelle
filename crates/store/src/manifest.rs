@@ -1,8 +1,4 @@
-use std::{fmt::Display, str::FromStr};
-
 use serde::{Deserialize, Serialize};
-
-use crate::manifest::checksum::Checksum;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExtensionManifest {
@@ -16,7 +12,7 @@ pub struct ExtensionManifest {
     pub attrs: Vec<Attribute>,
 
     // Manifest Only Fields
-    pub checksum: Checksum,
+    pub checksum: checksum::Checksum,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -30,7 +26,10 @@ pub enum Attribute {
     Fanfiction,
 }
 
-mod checksum {
+// Re-export checksum types for convenience
+pub use checksum::{Checksum, ChecksumAlgorithm};
+
+pub mod checksum {
     use std::{fmt::Display, str::FromStr};
 
     use serde::{Deserialize, Serialize};

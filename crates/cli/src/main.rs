@@ -1,25 +1,42 @@
 mod cli;
+mod store_commands;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
 use quelle_engine::{ExtensionEngine, bindings::SimpleSearchQuery, http::HeadlessChromeExecutor};
+use quelle_store::StoreManager;
 
 use crate::cli::Commands;
+use crate::store_commands::{handle_extension_command, handle_store_command};
 
-fn main() -> eyre::Result<()> {
+#[tokio::main]
+async fn main() -> eyre::Result<()> {
     let cli = cli::Cli::parse();
 
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let engine = ExtensionEngine::new(Arc::new(HeadlessChromeExecutor::new()))?;
-    let runner = engine
-        .new_runner_from_file("target/wasm32-unknown-unknown/release/extension_scribblehub.wasm")?;
+    // Initialize store manager
+    let install_dir = PathBuf::from("./extensions");
+    let cache_dir = PathBuf::from("./cache");
+    let mut store_manager = StoreManager::new(install_dir, cache_dir).await?;
 
     match cli.command {
+        Commands::Store { command } => {
+            handle_store_command(command, &mut store_manager).await?;
+        }
+        Commands::Extension { command } => {
+            handle_extension_command(command, &mut store_manager).await?;
+        }
         Commands::Novel { url } => {
+            let engine = ExtensionEngine::new(Arc::new(HeadlessChromeExecutor::new()))?;
+            let runner = engine.new_runner_from_file(
+                "target/wasm32-unknown-unknown/release/extension_scribblehub.wasm",
+            )?;
+
             let (runner, extension_meta) = runner.meta()?;
             println!("Extension: {:?}", extension_meta);
 
@@ -28,6 +45,11 @@ fn main() -> eyre::Result<()> {
             println!("Novel: {:?}", result);
         }
         Commands::Chapter { url } => {
+            let engine = ExtensionEngine::new(Arc::new(HeadlessChromeExecutor::new()))?;
+            let runner = engine.new_runner_from_file(
+                "target/wasm32-unknown-unknown/release/extension_scribblehub.wasm",
+            )?;
+
             let (runner, extension_meta) = runner.meta()?;
             println!("Extension: {:?}", extension_meta);
 
@@ -36,6 +58,11 @@ fn main() -> eyre::Result<()> {
             println!("Chapter: {:?}", result);
         }
         Commands::Search { query } => {
+            let engine = ExtensionEngine::new(Arc::new(HeadlessChromeExecutor::new()))?;
+            let runner = engine.new_runner_from_file(
+                "target/wasm32-unknown-unknown/release/extension_scribblehub.wasm",
+            )?;
+
             let (runner, extension_meta) = runner.meta()?;
             println!("Extension: {:?}", extension_meta);
 

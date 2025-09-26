@@ -19,6 +19,18 @@ Quelle uses a modular WebAssembly-based architecture:
 
 This project is currently under active development. The core architecture is in place, but the MVP is not yet complete.
 
+## Documentation
+
+📚 **Comprehensive documentation is available in the [Quelle Book](./book/)**
+
+- [Introduction](./book/src/introduction.md) - Project overview and key concepts
+- [Getting Started](./book/src/getting-started.md) - Installation and first steps
+- [Store System](./book/src/store/overview.md) - Extension package management
+- [CLI Reference](./book/src/store/cli-reference.md) - Complete command reference
+- [Development Guide](./book/src/development/store-implementation.md) - Technical implementation details
+
+The book contains detailed guides for users, developers, and contributors. Since Quelle is under active development, the documentation reflects current capabilities while noting planned features.
+
 ### What Works
 - ✅ Core WASM runtime engine
 - ✅ Extension loading system
