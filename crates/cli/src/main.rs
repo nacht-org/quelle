@@ -20,10 +20,9 @@ async fn main() -> eyre::Result<()> {
         .init();
 
     // Initialize store manager
-    let install_dir = PathBuf::from("./extensions");
     let registry_dir = PathBuf::from("./registry");
     let registry_store = Box::new(quelle_store::LocalRegistryStore::new(registry_dir).await?);
-    let mut store_manager = StoreManager::new(install_dir, registry_store).await?;
+    let mut store_manager = StoreManager::new(registry_store).await?;
 
     match cli.command {
         Commands::Store { command } => {
