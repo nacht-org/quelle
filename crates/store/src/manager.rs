@@ -13,7 +13,10 @@ use crate::models::{
     ExtensionInfo, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy, StoreConfig,
     UpdateInfo, UpdateOptions,
 };
-use crate::registry::{InstallationQuery, InstallationStats, RegistryStore, ValidationIssue};
+use crate::registry::{
+    InstallationQuery, InstallationStats, LocalRegistryStore, RegistryHealth, RegistryStore,
+    ValidationIssue,
+};
 use crate::store::Store;
 
 /// Central manager for handling multiple stores and local installations
@@ -577,6 +580,11 @@ impl StoreManager {
         self.registry_store.get_installation_stats().await
     }
 
+    /// Get registry health information (generic across implementations)
+    pub async fn get_registry_health(&self) -> Result<RegistryHealth> {
+        self.registry_store.get_registry_health().await
+    }
+
     /// Validate all installed extensions
     pub async fn validate_installations(&self) -> Result<Vec<ValidationIssue>> {
         self.registry_store.validate_installations().await
@@ -587,9 +595,14 @@ impl StoreManager {
         self.registry_store.cleanup_orphaned().await
     }
 
-    /// Get the installation directory
-    pub fn install_dir(&self) -> &std::path::Path {
-        self.registry_store.install_dir()
+    /// Get access to LocalRegistryStore specific methods if applicable
+    pub fn as_local_registry_store(&self) -> Option<&LocalRegistryStore> {
+        self.registry_store.as_local()
+    }
+
+    /// Get mutable access to LocalRegistryStore specific methods if applicable
+    pub fn as_local_registry_store_mut(&mut self) -> Option<&mut LocalRegistryStore> {
+        self.registry_store.as_local_mut()
     }
 
     /// Remove an installed extension
@@ -731,7 +744,7 @@ mod tests {
         );
         let manager = StoreManager::new(registry_store).await.unwrap();
 
-        assert!(manager.install_dir().exists());
+        // Test that manager can be created successfully
         assert_eq!(manager.list_extension_stores().len(), 0);
     }
 

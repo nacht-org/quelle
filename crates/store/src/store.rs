@@ -6,7 +6,7 @@ use crate::error::Result;
 use crate::manifest::ExtensionManifest;
 use crate::models::{
     ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions, InstalledExtension,
-    PackageLayout, SearchQuery, StoreHealth, StoreInfo, UpdateInfo,
+    SearchQuery, StoreHealth, StoreInfo, UpdateInfo,
 };
 
 /// Core trait defining the interface for all store implementations
@@ -14,9 +14,6 @@ use crate::models::{
 pub trait Store: Send + Sync {
     /// Get information about this store
     fn store_info(&self) -> &StoreInfo;
-
-    /// Get the package layout used by this store
-    fn package_layout(&self) -> &PackageLayout;
 
     /// Check the health status of this store
     async fn health_check(&self) -> Result<StoreHealth>;
@@ -53,9 +50,6 @@ pub trait Store: Send + Sync {
 
     // Package Operations
 
-    /// Get the raw WASM bytes for an extension
-    async fn get_extension_wasm(&self, name: &str, version: Option<&str>) -> Result<Vec<u8>>;
-
     /// Get the complete extension package including all files
     async fn get_extension_package(
         &self,
@@ -86,46 +80,6 @@ pub trait Store: Send + Sync {
 
     /// Get a list of all capabilities supported by this store
     fn capabilities(&self) -> Vec<String>;
-
-    // Optional Operations (default implementations provided)
-
-    /// Download and cache an extension package for faster access
-    async fn cache_extension(&self, name: &str, version: Option<&str>) -> Result<()> {
-        // Default implementation: just verify the package exists
-        let _ = self.get_extension_package(name, version).await?;
-        Ok(())
-    }
-
-    /// Clear cached data for an extension
-    async fn clear_cache(&self, name: Option<&str>) -> Result<()> {
-        // Default implementation: no-op since not all stores have caches
-        let _ = name;
-        Ok(())
-    }
-
-    /// Validate the integrity of an extension package
-    async fn validate_extension(&self, name: &str, version: Option<&str>) -> Result<bool> {
-        // Default implementation: verify checksum if available
-        let manifest = self.get_manifest(name, version).await?;
-        let wasm_bytes = self.get_extension_wasm(name, version).await?;
-
-        // Verify checksum using the enhanced checksum system
-        let checksum_valid = manifest.checksum.verify(&wasm_bytes);
-
-        // Also verify signature if present and supported
-        if let Some(signature) = &manifest.signature {
-            // For now, just log that signature verification would happen
-            // Full signature verification would require public key infrastructure
-            tracing::debug!(
-                "Signature verification requested for {}@{:?} with key {}",
-                name,
-                version,
-                signature.public_key_id
-            );
-        }
-
-        Ok(checksum_valid)
-    }
 }
 
 /// Store capabilities that can be queried
@@ -236,14 +190,12 @@ mod tests {
     // Mock store for testing
     struct MockStore {
         info: StoreInfo,
-        layout: PackageLayout,
     }
 
     impl MockStore {
         fn new() -> Self {
             Self {
                 info: StoreInfo::new("mock".to_string(), "test".to_string()),
-                layout: PackageLayout::default(),
             }
         }
     }
@@ -252,10 +204,6 @@ mod tests {
     impl Store for MockStore {
         fn store_info(&self) -> &StoreInfo {
             &self.info
-        }
-
-        fn package_layout(&self) -> &PackageLayout {
-            &self.layout
         }
 
         async fn health_check(&self) -> Result<StoreHealth> {
@@ -300,12 +248,6 @@ mod tests {
             _version: Option<&str>,
         ) -> Result<Option<ExtensionMetadata>> {
             Ok(None)
-        }
-
-        async fn get_extension_wasm(&self, _name: &str, _version: Option<&str>) -> Result<Vec<u8>> {
-            Err(crate::error::StoreError::ExtensionNotFound(
-                "mock".to_string(),
-            ))
         }
 
         async fn get_extension_package(

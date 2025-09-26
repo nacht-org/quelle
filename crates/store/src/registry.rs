@@ -52,7 +52,38 @@ pub struct InstallationStats {
     pub last_updated: Option<DateTime<Utc>>,
 }
 
-/// Validation issue found during installation validation
+/// Registry health information (generic across implementations)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryHealth {
+    pub healthy: bool,
+    pub total_extensions: usize,
+    pub last_updated: Option<DateTime<Utc>>,
+    pub implementation_info: HashMap<String, serde_json::Value>,
+}
+
+impl RegistryHealth {
+    pub fn healthy(total_extensions: usize) -> Self {
+        Self {
+            healthy: true,
+            total_extensions,
+            last_updated: Some(Utc::now()),
+            implementation_info: HashMap::new(),
+        }
+    }
+
+    pub fn unhealthy(reason: String) -> Self {
+        let mut info = HashMap::new();
+        info.insert("error".to_string(), serde_json::Value::String(reason));
+        Self {
+            healthy: false,
+            total_extensions: 0,
+            last_updated: None,
+            implementation_info: info,
+        }
+    }
+}
+
+/// Validation issue found during installation validation (LocalRegistryStore specific)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationIssue {
     pub extension_name: String,
@@ -81,12 +112,15 @@ pub enum IssueSeverity {
 /// Core trait for managing installed extensions registry
 #[async_trait]
 pub trait RegistryStore: Send + Sync {
-    /// Get the installation directory managed by this registry
-    fn install_dir(&self) -> &Path;
+    /// Downcast to LocalRegistryStore if this is one
+    fn as_local(&self) -> Option<&LocalRegistryStore> {
+        None
+    }
 
-    /// Set a new installation directory
-    async fn set_install_dir(&mut self, path: PathBuf) -> Result<()>;
-
+    /// Downcast to mutable LocalRegistryStore if this is one
+    fn as_local_mut(&mut self) -> Option<&mut LocalRegistryStore> {
+        None
+    }
     /// Install an extension package to the registry
     async fn install_extension(
         &mut self,
@@ -118,19 +152,35 @@ pub trait RegistryStore: Send + Sync {
     /// Get statistics about installed extensions
     async fn get_installation_stats(&self) -> Result<InstallationStats>;
 
-    /// Validate all registered installations
-    async fn validate_installations(&self) -> Result<Vec<ValidationIssue>>;
-
-    /// Remove orphaned registry entries (extensions no longer on disk)
-    async fn cleanup_orphaned(&mut self) -> Result<u32>;
+    /// Get registry health information (generic across implementations)
+    async fn get_registry_health(&self) -> Result<RegistryHealth>;
 
     /// Check if an extension is registered as installed
     async fn is_installed(&self, name: &str) -> Result<bool> {
         Ok(self.get_installed(name).await?.is_some())
     }
 
-    /// Get the registry file path (if applicable)
-    fn registry_path(&self) -> Option<PathBuf>;
+    /// Validate all registered installations
+    ///
+    /// Checks that all registered extensions are properly installed and accessible.
+    /// Returns a list of validation issues found. The specific validation performed
+    /// depends on the implementation:
+    /// - File-based: Check files exist, checksums match, required components present
+    /// - Database: Verify data integrity, foreign key constraints
+    /// - Cloud: Validate remote resources exist and are accessible
+    /// - HTTP: Check URLs are reachable and content is valid
+    async fn validate_installations(&self) -> Result<Vec<ValidationIssue>>;
+
+    /// Remove orphaned registry entries
+    ///
+    /// Removes registry entries that reference extensions no longer available
+    /// in the backing store. Returns the number of entries removed.
+    /// Implementation-specific behavior:
+    /// - File-based: Remove entries for deleted directories/files
+    /// - Database: Clean up records with broken references
+    /// - Cloud: Remove entries for deleted cloud resources
+    /// - HTTP: Remove entries for unreachable URLs
+    async fn cleanup_orphaned(&mut self) -> Result<u32>;
 }
 
 /// JSON-based registry data structure
@@ -168,7 +218,7 @@ pub struct LocalRegistryStore {
 }
 
 impl LocalRegistryStore {
-    /// Create a new LocalRegistryStore
+    /// Create a new LocalRegistryStore with explicit path
     pub async fn new<P: AsRef<Path>>(install_dir: P) -> Result<Self> {
         let install_dir = install_dir.as_ref().to_path_buf();
         let registry_path = install_dir.join("registry.json");
@@ -187,6 +237,46 @@ impl LocalRegistryStore {
         // Load existing registry if it exists
         store.load_registry().await?;
         Ok(store)
+    }
+
+    /// Create a new LocalRegistryStore with OS-specific default directory
+    pub async fn new_with_defaults() -> Result<Self> {
+        let install_dir = Self::default_install_dir()?;
+        Self::new(install_dir).await
+    }
+
+    /// Get the default installation directory for the current OS
+    ///
+    /// Returns an error if the system directories cannot be determined
+    pub fn default_install_dir() -> Result<PathBuf> {
+        use directories::ProjectDirs;
+
+        let project_dirs = ProjectDirs::from("com", "quelle", "quelle").ok_or_else(|| {
+            StoreError::ConfigError(
+                "Could not determine system directories for current user/OS".to_string(),
+            )
+        })?;
+
+        Ok(project_dirs.data_local_dir().join("extensions"))
+    }
+
+    /// Get the installation directory managed by this registry
+    pub fn install_dir(&self) -> &Path {
+        &self.install_dir
+    }
+
+    /// Get the registry file path (LocalRegistryStore specific)
+    pub fn registry_path(&self) -> &Path {
+        &self.registry_path
+    }
+
+    /// Set a new installation directory
+    pub async fn set_install_dir(&mut self, path: PathBuf) -> Result<()> {
+        fs::create_dir_all(&path).await?;
+        self.install_dir = path;
+        self.registry_path = self.install_dir.join("registry.json");
+        self.backup_path = self.install_dir.join("registry.json.backup");
+        Ok(())
     }
 
     /// Load registry from disk
@@ -342,18 +432,13 @@ impl LocalRegistryStore {
 
 #[async_trait]
 impl RegistryStore for LocalRegistryStore {
-    fn install_dir(&self) -> &Path {
-        &self.install_dir
+    fn as_local(&self) -> Option<&LocalRegistryStore> {
+        Some(self)
     }
 
-    async fn set_install_dir(&mut self, path: PathBuf) -> Result<()> {
-        fs::create_dir_all(&path).await?;
-        self.install_dir = path;
-        self.registry_path = self.install_dir.join("registry.json");
-        self.backup_path = self.install_dir.join("registry.json.backup");
-        Ok(())
+    fn as_local_mut(&mut self) -> Option<&mut LocalRegistryStore> {
+        Some(self)
     }
-
     async fn install_extension(
         &mut self,
         package: ExtensionPackage,
@@ -491,6 +576,29 @@ impl RegistryStore for LocalRegistryStore {
         Ok(self.calculate_stats().await)
     }
 
+    async fn get_registry_health(&self) -> Result<RegistryHealth> {
+        let stats = self.calculate_stats().await;
+        let mut health = RegistryHealth::healthy(stats.total_extensions);
+
+        // Add implementation-specific info
+        health.implementation_info.insert(
+            "registry_file".to_string(),
+            serde_json::Value::String(self.registry_path.display().to_string()),
+        );
+        health.implementation_info.insert(
+            "install_directory".to_string(),
+            serde_json::Value::String(self.install_dir.display().to_string()),
+        );
+        health.implementation_info.insert(
+            "total_size_bytes".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(stats.total_size)),
+        );
+
+        health.last_updated = stats.last_updated;
+
+        Ok(health)
+    }
+
     async fn validate_installations(&self) -> Result<Vec<ValidationIssue>> {
         let mut issues = Vec::new();
 
@@ -571,10 +679,6 @@ impl RegistryStore for LocalRegistryStore {
 
         Ok(removed)
     }
-
-    fn registry_path(&self) -> Option<PathBuf> {
-        Some(self.registry_path.clone())
-    }
 }
 
 #[cfg(test)]
@@ -612,7 +716,9 @@ mod tests {
         let registry = LocalRegistryStore::new(temp_dir.path()).await.unwrap();
 
         assert_eq!(registry.install_dir(), temp_dir.path());
-        assert!(registry.registry_path().is_some());
+        assert!(
+            registry.registry_path().exists() || !registry.registry_path().as_os_str().is_empty()
+        );
     }
 
     #[tokio::test]
@@ -676,5 +782,73 @@ mod tests {
         let stats = registry.get_installation_stats().await.unwrap();
         assert_eq!(stats.total_extensions, 1);
         assert!(stats.stores_used.contains(&"test-store".to_string()));
+    }
+
+    #[test]
+    fn test_default_directory_structure() {
+        match LocalRegistryStore::default_install_dir() {
+            Ok(default_dir) => {
+                // Should always end with "extensions"
+                assert_eq!(default_dir.file_name().unwrap(), "extensions");
+
+                // Should contain proper application identifier structure
+                let path_str = default_dir.to_string_lossy();
+                assert!(path_str.contains("quelle"));
+
+                // Should follow directories crate conventions (contain com.quelle.quelle or similar)
+                assert!(path_str.contains("com.quelle.quelle") || path_str.contains("quelle"));
+            }
+            Err(_) => {
+                // This is acceptable on systems where directories cannot be determined
+                println!("Note: System directories could not be determined, which is expected on some systems");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_new_with_defaults() {
+        match LocalRegistryStore::new_with_defaults().await {
+            Ok(registry) => {
+                // Should have a valid install directory
+                assert!(!registry.install_dir().as_os_str().is_empty());
+
+                // Should have a registry path
+                assert!(!registry.registry_path().as_os_str().is_empty());
+            }
+            Err(_) => {
+                // This is acceptable on systems where directories cannot be determined
+                println!("Note: System directories could not be determined for new_with_defaults");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_trait_methods_validate_and_cleanup() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let install_dir = temp_dir.path().join("extensions");
+
+        let mut registry = LocalRegistryStore::new(install_dir).await.unwrap();
+
+        // Test validate_installations through trait interface
+        let issues = RegistryStore::validate_installations(&registry)
+            .await
+            .unwrap();
+        assert_eq!(issues.len(), 0);
+
+        // Test cleanup_orphaned through trait interface
+        let cleaned = RegistryStore::cleanup_orphaned(&mut registry)
+            .await
+            .unwrap();
+        assert_eq!(cleaned, 0);
+
+        // Test through trait object
+        let registry_trait: &dyn RegistryStore = &registry;
+        let issues_trait = registry_trait.validate_installations().await.unwrap();
+        assert_eq!(issues_trait.len(), 0);
+
+        // Test mutable trait object
+        let registry_trait_mut: &mut dyn RegistryStore = &mut registry;
+        let cleaned_trait = registry_trait_mut.cleanup_orphaned().await.unwrap();
+        assert_eq!(cleaned_trait, 0);
     }
 }

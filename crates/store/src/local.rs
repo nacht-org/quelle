@@ -507,10 +507,6 @@ impl Store for LocalStore {
         &self.info
     }
 
-    fn package_layout(&self) -> &PackageLayout {
-        &self.layout
-    }
-
     async fn health_check(&self) -> Result<StoreHealth> {
         let start = Instant::now();
 
@@ -629,39 +625,13 @@ impl Store for LocalStore {
         }
     }
 
-    async fn get_extension_wasm(&self, name: &str, version: Option<&str>) -> Result<Vec<u8>> {
-        let version = match version {
-            Some(v) => v.to_string(),
-            None => self
-                .get_latest_version_internal(name)
-                .await
-                .map_err(StoreError::from)?
-                .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?,
-        };
-
-        let version_path = self
-            .extension_version_path(name, &version)
-            .map_err(StoreError::from)?;
-        let wasm_path = version_path.join(&self.layout.wasm_file);
-
-        if !wasm_path.exists() {
-            return Err(StoreError::ExtensionNotFound(format!(
-                "WASM file for {}@{}",
-                name, version
-            )));
-        }
-
-        let wasm_content = fs::read(&wasm_path).await?;
-        Ok(wasm_content)
-    }
-
     async fn get_extension_package(
         &self,
         name: &str,
         version: Option<&str>,
     ) -> Result<ExtensionPackage> {
         let manifest = self.get_manifest(name, version).await?;
-        let wasm_component = self.get_extension_wasm(name, version).await?;
+        let wasm_component = self.get_extension_wasm_internal(name, version).await?;
         let metadata = self.get_metadata(name, version).await?;
 
         let mut package = ExtensionPackage::new(manifest, wasm_component, self.info.name.clone())
@@ -803,8 +773,20 @@ impl Store for LocalStore {
             capabilities::UPDATE_CHECK.to_string(),
         ]
     }
+}
 
-    async fn validate_extension(&self, name: &str, version: Option<&str>) -> Result<bool> {
+impl LocalStore {
+    /// Get the package layout used by this store (LocalStore specific)
+    pub fn package_layout(&self) -> &PackageLayout {
+        &self.layout
+    }
+
+    /// Internal method to get WASM bytes
+    async fn get_extension_wasm_internal(
+        &self,
+        name: &str,
+        version: Option<&str>,
+    ) -> Result<Vec<u8>> {
         let version = match version {
             Some(v) => v.to_string(),
             None => self
@@ -814,29 +796,106 @@ impl Store for LocalStore {
                 .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?,
         };
 
-        self.verify_extension_integrity(name, &version).await
+        let version_path = self
+            .extension_version_path(name, &version)
+            .map_err(StoreError::from)?;
+        let wasm_path = version_path.join(&self.layout.wasm_file);
+
+        if !wasm_path.exists() {
+            return Err(StoreError::ExtensionNotFound(format!(
+                "WASM file for {}@{}",
+                name, version
+            )));
+        }
+
+        let wasm_content = fs::read(&wasm_path).await?;
+        Ok(wasm_content)
     }
 
-    async fn clear_cache(&self, name: Option<&str>) -> Result<()> {
+    /// Get the raw WASM bytes for an extension (LocalStore specific)
+    pub async fn get_extension_wasm(&self, name: &str, version: Option<&str>) -> Result<Vec<u8>> {
+        self.validate_extension_name(name)
+            .map_err(StoreError::from)?;
+        if let Some(v) = version {
+            self.validate_version_string(v).map_err(StoreError::from)?;
+        }
+
+        let version = match version {
+            Some(v) => v.to_string(),
+            None => self
+                .get_latest_version_internal(name)
+                .await
+                .map_err(StoreError::from)?
+                .ok_or_else(|| {
+                    StoreError::ExtensionNotFound(format!("No versions found for {}", name))
+                })?,
+        };
+
+        let version_path = self.extension_version_path(name, &version)?;
+        let wasm_path = version_path.join(&self.layout.wasm_file);
+
+        if !wasm_path.exists() {
+            return Err(StoreError::ExtensionNotFound(format!(
+                "WASM file not found for {}@{}",
+                name, version
+            )));
+        }
+
+        let wasm_bytes = fs::read(&wasm_path).await?;
+
+        // Verify checksum if available
+        if !self.verify_extension_integrity(name, &version).await? {
+            return Err(StoreError::ChecksumMismatch(format!(
+                "{}@{}",
+                name, version
+            )));
+        }
+
+        Ok(wasm_bytes)
+    }
+
+    /// Download and cache an extension package for faster access (LocalStore specific)
+    pub async fn cache_extension(&self, name: &str, version: Option<&str>) -> Result<()> {
+        // Just verify the package exists and cache will be updated
+        let _ = self.get_extension_package(name, version).await?;
+        Ok(())
+    }
+
+    /// Clear cached data for an extension (LocalStore specific)
+    pub async fn clear_cache(&self, name: Option<&str>) -> Result<()> {
+        use tracing::info;
         match name {
-            Some(ext_name) => {
+            Some(extension_name) => {
+                // Clear cache for specific extension
                 let mut cache = self.cache.write().unwrap();
-                cache.remove(ext_name);
-                debug!("Cleared cache for extension: {}", ext_name);
+                cache.remove(extension_name);
+                info!("Cleared cache for extension '{}'", extension_name);
             }
             None => {
-                {
-                    let mut cache = self.cache.write().unwrap();
-                    cache.clear();
-                }
-                {
-                    let mut timestamp = self.cache_timestamp.write().unwrap();
-                    *timestamp = None;
-                }
-                debug!("Cleared entire local store cache");
+                // Clear all cache
+                let mut cache = self.cache.write().unwrap();
+                let count = cache.len();
+                cache.clear();
+                info!("Cleared cache for {} extensions", count);
             }
         }
         Ok(())
+    }
+
+    /// Validate the integrity of an extension package (LocalStore specific)
+    pub async fn validate_extension(&self, name: &str, version: Option<&str>) -> Result<bool> {
+        let version = match version {
+            Some(v) => v.to_string(),
+            None => self
+                .get_latest_version_internal(name)
+                .await
+                .map_err(StoreError::from)?
+                .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?,
+        };
+
+        self.verify_extension_integrity(name, &version)
+            .await
+            .map_err(StoreError::from)
     }
 }
 
