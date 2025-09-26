@@ -22,6 +22,7 @@ pub trait Store: Send + Sync {
     async fn health_check(&self) -> Result<StoreHealth>;
 
     // Discovery Operations
+
     /// List all available extensions in this store
     async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>>;
 
@@ -39,6 +40,7 @@ pub trait Store: Send + Sync {
     ) -> Result<ExtensionInfo>;
 
     // Manifest and Metadata Operations
+
     /// Get the manifest for a specific extension version
     async fn get_manifest(&self, name: &str, version: Option<&str>) -> Result<ExtensionManifest>;
 
@@ -50,6 +52,7 @@ pub trait Store: Send + Sync {
     ) -> Result<Option<ExtensionMetadata>>;
 
     // Package Operations
+
     /// Get the raw WASM bytes for an extension
     async fn get_extension_wasm(&self, name: &str, version: Option<&str>) -> Result<Vec<u8>>;
 
@@ -70,6 +73,7 @@ pub trait Store: Send + Sync {
     ) -> Result<InstalledExtension>;
 
     // Update Operations
+
     /// Check for updates for the given installed extensions
     async fn check_updates(&self, installed: &[InstalledExtension]) -> Result<Vec<UpdateInfo>>;
 
@@ -85,6 +89,7 @@ pub trait Store: Send + Sync {
     ) -> Result<InstalledExtension>;
 
     // Version Management
+
     /// List all available versions for an extension
     async fn list_versions(&self, name: &str) -> Result<Vec<String>>;
 
@@ -92,6 +97,7 @@ pub trait Store: Send + Sync {
     async fn version_exists(&self, name: &str, version: &str) -> Result<bool>;
 
     // Capability Queries
+
     /// Check if this store supports the given capability
     fn supports_capability(&self, capability: &str) -> bool;
 
@@ -99,6 +105,7 @@ pub trait Store: Send + Sync {
     fn capabilities(&self) -> Vec<String>;
 
     // Optional Operations (default implementations provided)
+
     /// Download and cache an extension package for faster access
     async fn cache_extension(&self, name: &str, version: Option<&str>) -> Result<()> {
         // Default implementation: just verify the package exists

@@ -76,7 +76,6 @@ impl LocalStore {
     async fn scan_extensions(&self) -> Result<HashMap<String, Vec<ExtensionInfo>>> {
         let extensions_root = self.extensions_root();
         if !extensions_root.exists() {
-            fs::create_dir_all(&extensions_root)?;
             return Ok(HashMap::new());
         }
 
