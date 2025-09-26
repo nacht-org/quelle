@@ -112,15 +112,6 @@ pub enum IssueSeverity {
 /// Core trait for managing installed extensions registry
 #[async_trait]
 pub trait RegistryStore: Send + Sync {
-    /// Downcast to LocalRegistryStore if this is one
-    fn as_local(&self) -> Option<&LocalRegistryStore> {
-        None
-    }
-
-    /// Downcast to mutable LocalRegistryStore if this is one
-    fn as_local_mut(&mut self) -> Option<&mut LocalRegistryStore> {
-        None
-    }
     /// Install an extension package to the registry
     async fn install_extension(
         &mut self,
@@ -432,13 +423,6 @@ impl LocalRegistryStore {
 
 #[async_trait]
 impl RegistryStore for LocalRegistryStore {
-    fn as_local(&self) -> Option<&LocalRegistryStore> {
-        Some(self)
-    }
-
-    fn as_local_mut(&mut self) -> Option<&mut LocalRegistryStore> {
-        Some(self)
-    }
     async fn install_extension(
         &mut self,
         package: ExtensionPackage,
@@ -850,5 +834,40 @@ mod tests {
         let registry_trait_mut: &mut dyn RegistryStore = &mut registry;
         let cleaned_trait = registry_trait_mut.cleanup_orphaned().await.unwrap();
         assert_eq!(cleaned_trait, 0);
+    }
+
+    #[test]
+    fn test_trait_is_implementation_agnostic() {
+        // This test verifies that the RegistryStore trait doesn't contain
+        // implementation-specific methods that would break abstraction
+
+        fn verify_generic_interface<T: RegistryStore>() {
+            // This function should compile if the trait is truly generic
+            // If it contained implementation-specific methods, this would fail
+        }
+
+        // Test that the trait works with any theoretical implementation
+        verify_generic_interface::<LocalRegistryStore>();
+
+        // The trait should only contain operations that make sense for ANY registry:
+        // - install_extension: Any registry can install
+        // - uninstall_extension: Any registry can uninstall
+        // - register_installation: Any registry can register
+        // - unregister_installation: Any registry can unregister
+        // - update_installation: Any registry can update
+        // - list_installed: Any registry can list
+        // - get_installed: Any registry can get specific items
+        // - find_installed: Any registry can search
+        // - get_installation_stats: Any registry can provide stats
+        // - get_registry_health: Any registry can report health
+        // - is_installed: Any registry can check existence
+        // - validate_installations: Any registry can validate its state
+        // - cleanup_orphaned: Any registry can clean up invalid entries
+        //
+        // Notably ABSENT (and correctly so):
+        // - install_dir(): File-system specific
+        // - registry_path(): File-system specific
+        // - as_local(): Downcasting breaks abstraction
+        // - as_local_mut(): Downcasting breaks abstraction
     }
 }

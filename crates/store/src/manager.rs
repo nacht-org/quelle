@@ -14,8 +14,7 @@ use crate::models::{
     UpdateInfo, UpdateOptions,
 };
 use crate::registry::{
-    InstallationQuery, InstallationStats, LocalRegistryStore, RegistryHealth, RegistryStore,
-    ValidationIssue,
+    InstallationQuery, InstallationStats, RegistryHealth, RegistryStore, ValidationIssue,
 };
 use crate::store::Store;
 
@@ -593,16 +592,6 @@ impl StoreManager {
     /// Clean up orphaned registry entries
     pub async fn cleanup_orphaned(&mut self) -> Result<u32> {
         self.registry_store.cleanup_orphaned().await
-    }
-
-    /// Get access to LocalRegistryStore specific methods if applicable
-    pub fn as_local_registry_store(&self) -> Option<&LocalRegistryStore> {
-        self.registry_store.as_local()
-    }
-
-    /// Get mutable access to LocalRegistryStore specific methods if applicable
-    pub fn as_local_registry_store_mut(&mut self) -> Option<&mut LocalRegistryStore> {
-        self.registry_store.as_local_mut()
     }
 
     /// Remove an installed extension
