@@ -5,6 +5,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::error::Result;
 use crate::manifest::ExtensionManifest;
 
 /// Information about an available extension in a store
@@ -67,6 +68,170 @@ impl ExtensionPackage {
             size += asset.len() as u64;
         }
         size
+    }
+
+    /// Create an ExtensionPackage from a WASM file by extracting its metadata
+    pub async fn from_wasm_file(
+        wasm_path: impl AsRef<std::path::Path>,
+        source_store: String,
+    ) -> Result<Self> {
+        use quelle_engine::ExtensionEngine;
+        use std::sync::Arc;
+
+        let wasm_path = wasm_path.as_ref();
+
+        // Read the wasm file
+        let wasm_content = tokio::fs::read(wasm_path).await.map_err(|e| {
+            crate::error::StoreError::IoOperation {
+                operation: "read wasm file".to_string(),
+                path: wasm_path.to_path_buf(),
+                source: e,
+            }
+        })?;
+
+        // Create a headless executor for metadata extraction
+        // Note: We use a minimal executor since we only need metadata
+        let executor = Arc::new(quelle_engine::http::HeadlessChromeExecutor::new());
+        let engine = ExtensionEngine::new(executor).map_err(|e| {
+            crate::error::StoreError::InvalidPackage {
+                reason: format!("Failed to create engine: {}", e),
+            }
+        })?;
+
+        // Create a runner from the wasm content
+        let runner = engine.new_runner_from_bytes(&wasm_content).map_err(|e| {
+            crate::error::StoreError::InvalidPackage {
+                reason: format!("Failed to create runner from wasm: {}", e),
+            }
+        })?;
+
+        // Extract metadata
+        let (_runner, extension_meta) =
+            runner
+                .meta()
+                .map_err(|e| crate::error::StoreError::InvalidPackage {
+                    reason: format!("Failed to extract metadata from wasm: {}", e),
+                })?;
+
+        // Convert the engine metadata to our manifest format
+        let manifest = ExtensionManifest {
+            name: extension_meta.name.clone(),
+            version: extension_meta.version.clone(),
+            author: extension_meta.id.clone(), // Use ID as author for now
+            langs: extension_meta.langs,
+            base_urls: extension_meta.base_urls,
+            rds: extension_meta
+                .rds
+                .into_iter()
+                .map(|rd| match rd {
+                    quelle_engine::bindings::quelle::extension::source::ReadingDirection::Ltr => {
+                        crate::manifest::ReadingDirection::Ltr
+                    }
+                    quelle_engine::bindings::quelle::extension::source::ReadingDirection::Rtl => {
+                        crate::manifest::ReadingDirection::Rtl
+                    }
+                })
+                .collect(),
+            attrs: extension_meta
+                .attrs
+                .into_iter()
+                .map(|attr| match attr {
+                    quelle_engine::bindings::quelle::extension::source::SourceAttr::Fanfiction => {
+                        crate::manifest::Attribute::Fanfiction
+                    }
+                })
+                .collect(),
+            checksum: crate::manifest::Checksum::from_data(
+                crate::manifest::ChecksumAlgorithm::Blake3,
+                &wasm_content,
+            ),
+            signature: None,
+        };
+
+        // Create the package with only the WASM file - no automatic asset collection for security
+        let package = ExtensionPackage::new(manifest, wasm_content, source_store);
+
+        Ok(package)
+    }
+
+    /// Create an ExtensionPackage from a directory containing a manifest and wasm file
+    pub async fn from_directory(
+        dir_path: impl AsRef<std::path::Path>,
+        source_store: String,
+    ) -> Result<Self> {
+        let dir_path = dir_path.as_ref();
+
+        // Look for manifest.json
+        let manifest_path = dir_path.join("manifest.json");
+        if !manifest_path.exists() {
+            return Err(crate::error::StoreError::InvalidPackage {
+                reason: "No manifest.json found in directory".to_string(),
+            });
+        }
+
+        // Read and parse manifest
+        let manifest_content = tokio::fs::read_to_string(&manifest_path)
+            .await
+            .map_err(|e| crate::error::StoreError::IoOperation {
+                operation: "read manifest".to_string(),
+                path: manifest_path.clone(),
+                source: e,
+            })?;
+
+        let manifest: ExtensionManifest = serde_json::from_str(&manifest_content).map_err(|e| {
+            crate::error::StoreError::InvalidManifestFile {
+                path: manifest_path.clone(),
+                source: e,
+            }
+        })?;
+
+        // Look for wasm file - try common names
+        let wasm_candidates = [
+            format!("{}.wasm", manifest.name),
+            "extension.wasm".to_string(),
+            "main.wasm".to_string(),
+        ];
+
+        let mut wasm_content = None;
+        for candidate in &wasm_candidates {
+            let wasm_path = dir_path.join(candidate);
+            if wasm_path.exists() {
+                wasm_content = Some(tokio::fs::read(&wasm_path).await.map_err(|e| {
+                    crate::error::StoreError::IoOperation {
+                        operation: "read wasm file".to_string(),
+                        path: wasm_path,
+                        source: e,
+                    }
+                })?);
+                break;
+            }
+        }
+
+        let wasm_component =
+            wasm_content.ok_or_else(|| crate::error::StoreError::InvalidPackage {
+                reason: format!(
+                    "No wasm file found. Looked for: {}",
+                    wasm_candidates.join(", ")
+                ),
+            })?;
+
+        // Create the package
+        let mut package = ExtensionPackage::new(manifest, wasm_component, source_store);
+
+        // Only include explicitly allowed files for security
+        // Only README files are automatically included as assets
+        let allowed_files = ["README.md", "readme.md", "README.txt", "readme.txt"];
+
+        for allowed_file in &allowed_files {
+            let file_path = dir_path.join(allowed_file);
+            if file_path.exists() {
+                if let Ok(content) = tokio::fs::read(&file_path).await {
+                    package.add_asset(allowed_file.to_string(), content);
+                }
+            }
+        }
+
+        Ok(package)
     }
 }
 
@@ -179,7 +344,7 @@ impl InstalledExtension {
     }
 
     /// Verify the integrity of the installation if checksum is available
-    pub async fn verify_integrity(&self) -> Result<bool, std::io::Error> {
+    pub async fn verify_integrity(&self) -> std::result::Result<bool, std::io::Error> {
         if let Some(ref checksum) = self.checksum {
             use tokio::fs;
             let wasm_bytes = fs::read(self.get_wasm_path()).await?;

@@ -2857,6 +2857,7 @@ dependencies = [
  "directories",
  "futures",
  "git2",
+ "quelle_engine",
  "reqwest 0.11.27",
  "semver",
  "serde",

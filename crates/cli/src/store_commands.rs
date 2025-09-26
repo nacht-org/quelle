@@ -1073,9 +1073,6 @@ async fn handle_validate_extension(
 }
 
 async fn load_extension_package(package_path: &PathBuf) -> eyre::Result<ExtensionPackage> {
-    // TODO: Implement proper package loading from file system
-    // This should handle both directories and package files (.zip, .tar.gz, etc.)
-
     if !package_path.exists() {
         return Err(eyre::eyre!(
             "Package path does not exist: {:?}",
@@ -1088,23 +1085,57 @@ async fn load_extension_package(package_path: &PathBuf) -> eyre::Result<Extensio
             "Loading extension package from directory: {:?}",
             package_path
         );
-        // Load from directory - need to read manifest and create package
-        let manifest_path = package_path.join("manifest.json");
-        if !manifest_path.exists() {
-            return Err(eyre::eyre!(
-                "No manifest.json found in directory: {:?}",
-                package_path
-            ));
-        }
 
-        // For now, return an error - this needs proper implementation
-        error!("Directory package loading not yet implemented");
-        return Err(eyre::eyre!("Directory package loading not yet implemented"));
+        // Try to load from directory with manifest
+        match ExtensionPackage::from_directory(package_path, "cli".to_string()).await {
+            Ok(package) => {
+                info!(
+                    "Successfully loaded package '{}' v{} from directory",
+                    package.manifest.name, package.manifest.version
+                );
+                return Ok(package);
+            }
+            Err(e) => {
+                warn!("Failed to load from directory with manifest: {}", e);
+
+                // Fallback: look for a .wasm file in the directory
+                if let Ok(entries) = std::fs::read_dir(package_path) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if let Some(extension) = path.extension() {
+                            if extension == "wasm" {
+                                info!("Found WASM file, attempting to load: {:?}", path);
+                                return ExtensionPackage::from_wasm_file(path, "cli".to_string())
+                                    .await
+                                    .map_err(|e| {
+                                        eyre::eyre!("Failed to load from WASM file: {}", e)
+                                    });
+                            }
+                        }
+                    }
+                }
+
+                return Err(eyre::eyre!("Could not load package from directory: {}", e));
+            }
+        }
     } else {
         info!("Loading extension package from file: {:?}", package_path);
-        // Load from package file
-        error!("File package loading not yet implemented");
-        return Err(eyre::eyre!("File package loading not yet implemented"));
+
+        // Check if it's a WASM file
+        if let Some(extension) = package_path.extension() {
+            if extension == "wasm" {
+                info!("Loading package from WASM file using engine metadata extraction");
+                return ExtensionPackage::from_wasm_file(package_path, "cli".to_string())
+                    .await
+                    .map_err(|e| eyre::eyre!("Failed to create package from WASM file: {}", e));
+            }
+        }
+
+        // TODO: Handle other package formats (.zip, .tar.gz, etc.)
+        error!("Non-WASM file package loading not yet implemented");
+        return Err(eyre::eyre!(
+            "Unsupported file type. Currently supported: .wasm files and directories with manifest.json"
+        ));
     }
 }
 

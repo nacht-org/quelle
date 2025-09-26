@@ -16,6 +16,12 @@ pub enum StoreError {
     #[error("Invalid manifest for extension '{0}': {1}")]
     InvalidManifest(String, String),
 
+    #[error("Invalid manifest at '{path}': {source}")]
+    InvalidManifestFile {
+        path: std::path::PathBuf,
+        source: serde_json::Error,
+    },
+
     #[error("Dependency resolution failed: {0}")]
     DependencyError(String),
 
@@ -24,6 +30,13 @@ pub enum StoreError {
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[error("IO operation '{operation}' failed on path '{path}': {source}")]
+    IoOperation {
+        operation: String,
+        path: std::path::PathBuf,
+        source: std::io::Error,
+    },
 
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
@@ -51,6 +64,9 @@ pub enum StoreError {
 
     #[error("Validation error: {0}")]
     ValidationError(String),
+
+    #[error("Invalid package: {reason}")]
+    InvalidPackage { reason: String },
 
     #[error("Timeout error: operation timed out")]
     Timeout,

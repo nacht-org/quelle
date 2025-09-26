@@ -48,6 +48,11 @@ impl ExtensionEngine {
         self.new_runner(component)
     }
 
+    pub fn new_runner_from_bytes(&'_ self, bytes: &[u8]) -> error::Result<ExtensionRunner<'_>> {
+        let component = Component::from_binary(&self.engine, bytes)?;
+        self.new_runner(component)
+    }
+
     pub fn new_runner(&'_ self, component: Component) -> error::Result<ExtensionRunner<'_>> {
         let mut store = Store::new(&self.engine, State::new(self.executor.clone()));
         let extension =
