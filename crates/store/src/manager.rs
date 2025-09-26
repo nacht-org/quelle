@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use semver::Version;
 use tokio::fs;
-use tokio::sync::Semaphore;
+use tokio::sync::{RwLock, Semaphore};
 use tracing::{debug, error, info, warn};
 
 use crate::error::{Result, StoreError};
@@ -38,23 +38,23 @@ impl Default for ExtensionRegistry {
 pub struct StoreManager {
     stores: Vec<Box<dyn Store>>,
     install_dir: PathBuf,
-    cache_dir: PathBuf,
     config: StoreConfig,
     registry: Arc<RwLock<ExtensionRegistry>>,
     registry_path: PathBuf,
+    registry_backup_path: PathBuf,
     download_semaphore: Arc<Semaphore>,
 }
 
 impl StoreManager {
     /// Create a new StoreManager instance
-    pub async fn new(install_dir: PathBuf, cache_dir: PathBuf) -> Result<Self> {
+    pub async fn new(install_dir: PathBuf) -> Result<Self> {
         let config = StoreConfig::default();
 
         // Ensure directories exist
         fs::create_dir_all(&install_dir).await?;
-        fs::create_dir_all(&cache_dir).await?;
 
         let registry_path = install_dir.join("registry.json");
+        let registry_backup_path = install_dir.join("registry.json.backup");
         let registry = if registry_path.exists() {
             Self::load_registry(&registry_path).await?
         } else {
@@ -66,21 +66,17 @@ impl StoreManager {
         Ok(Self {
             stores: Vec::new(),
             install_dir,
-            cache_dir,
             config,
             registry: Arc::new(RwLock::new(registry)),
             registry_path,
+            registry_backup_path,
             download_semaphore,
         })
     }
 
     /// Create a StoreManager with custom configuration
-    pub async fn with_config(
-        install_dir: PathBuf,
-        cache_dir: PathBuf,
-        config: StoreConfig,
-    ) -> Result<Self> {
-        let mut manager = Self::new(install_dir, cache_dir).await?;
+    pub async fn with_config(install_dir: PathBuf, config: StoreConfig) -> Result<Self> {
+        let mut manager = Self::new(install_dir).await?;
         let parallel_downloads = config.parallel_downloads;
         manager.config = config;
         manager.download_semaphore = Arc::new(Semaphore::new(parallel_downloads));
@@ -289,7 +285,7 @@ impl StoreManager {
         let options = options.unwrap_or_default();
 
         // Check if already installed and handle accordingly
-        if let Some(installed) = self.get_installed(name) {
+        if let Some(installed) = self.get_installed(name).await {
             if let Some(requested_version) = version {
                 if installed.version == requested_version && !options.force_reinstall {
                     info!("Extension {}@{} already installed", name, requested_version);
@@ -408,6 +404,7 @@ impl StoreManager {
                             algorithm: crate::manifest::checksum::ChecksumAlgorithm::Sha256,
                             value: "placeholder".to_string(),
                         },
+                        signature: None,
                     },
                     crate::models::PackageLayout::default(),
                     "placeholder".to_string(),
@@ -424,7 +421,7 @@ impl StoreManager {
 
     /// Check for updates across all stores
     pub async fn check_all_updates(&self) -> Result<Vec<UpdateInfo>> {
-        let installed = self.list_installed();
+        let installed = self.list_installed().await;
         if installed.is_empty() {
             return Ok(Vec::new());
         }
@@ -489,6 +486,7 @@ impl StoreManager {
 
         let installed = self
             .get_installed(name)
+            .await
             .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?;
 
         // Find the store that originally provided this extension
@@ -563,19 +561,20 @@ impl StoreManager {
     // Registry Management
 
     /// Get information about an installed extension
-    pub fn get_installed(&self, name: &str) -> Option<InstalledExtension> {
-        self.registry.read().unwrap().extensions.get(name).cloned()
+    pub async fn get_installed(&self, name: &str) -> Option<InstalledExtension> {
+        self.registry.read().await.extensions.get(name).cloned()
     }
 
     /// List all installed extensions
-    pub fn list_installed(&self) -> HashMap<String, InstalledExtension> {
-        self.registry.read().unwrap().extensions.clone()
+    pub async fn list_installed(&self) -> HashMap<String, InstalledExtension> {
+        self.registry.read().await.extensions.clone()
     }
 
     /// Remove an installed extension
     pub async fn uninstall(&mut self, name: &str, remove_files: bool) -> Result<()> {
         let installed = self
             .get_installed(name)
+            .await
             .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?;
 
         if remove_files {
@@ -586,13 +585,13 @@ impl StoreManager {
         }
 
         // Remove from registry
-        {
-            let mut registry = self.registry.write().unwrap();
+        self.atomic_registry_update(|registry| {
             registry.extensions.remove(name);
             registry.last_updated = Utc::now();
-        }
+            Ok(())
+        })
+        .await?;
 
-        self.save_registry().await?;
         info!("Successfully uninstalled extension '{}'", name);
         Ok(())
     }
@@ -610,20 +609,92 @@ impl StoreManager {
     }
 
     async fn add_to_registry(&self, installed: InstalledExtension) -> Result<()> {
-        {
-            let mut registry = self.registry.write().unwrap();
+        self.atomic_registry_update(|registry| {
             registry
                 .extensions
                 .insert(installed.name.clone(), installed);
             registry.last_updated = Utc::now();
-        }
-        self.save_registry().await
+            Ok(())
+        })
+        .await
     }
 
-    async fn save_registry(&self) -> Result<()> {
-        let registry = self.registry.read().unwrap().clone();
-        let content = serde_json::to_string_pretty(&registry)?;
-        fs::write(&self.registry_path, content).await?;
+    /// Perform an atomic registry update with backup and rollback support
+    async fn atomic_registry_update<F>(&self, update_fn: F) -> Result<()>
+    where
+        F: FnOnce(&mut ExtensionRegistry) -> Result<()>,
+    {
+        // Create backup of current registry
+        if self.registry_path.exists() {
+            if let Err(e) = fs::copy(&self.registry_path, &self.registry_backup_path).await {
+                warn!("Failed to create registry backup: {}", e);
+            }
+        }
+
+        // Apply the update to the in-memory registry
+        let updated_registry = {
+            let mut registry = self.registry.write().await;
+            update_fn(&mut *registry)?;
+            registry.clone()
+        };
+
+        // Attempt to save the updated registry
+        match self.save_registry_content(&updated_registry).await {
+            Ok(()) => {
+                debug!("Registry updated successfully");
+                Ok(())
+            }
+            Err(e) => {
+                error!("Failed to save registry, attempting rollback: {}", e);
+
+                // Attempt to restore from backup
+                if let Err(rollback_err) = self.rollback_registry().await {
+                    error!("Registry rollback failed: {}", rollback_err);
+                    return Err(StoreError::ConcurrencyError(format!(
+                        "Registry update failed and rollback failed: {} -> {}",
+                        e, rollback_err
+                    )));
+                }
+
+                warn!("Registry rolled back successfully");
+                Err(e)
+            }
+        }
+    }
+
+    async fn save_registry_content(&self, registry: &ExtensionRegistry) -> Result<()> {
+        let content = serde_json::to_string_pretty(registry)?;
+
+        // Write to a temporary file first, then atomically move it
+        let temp_path = self.registry_path.with_extension("json.tmp");
+
+        fs::write(&temp_path, &content).await?;
+
+        // Atomic move (rename) on most filesystems
+        fs::rename(&temp_path, &self.registry_path)
+            .await
+            .map_err(|e| StoreError::IoError(e))?;
+
+        Ok(())
+    }
+
+    async fn rollback_registry(&self) -> Result<()> {
+        if !self.registry_backup_path.exists() {
+            return Err(StoreError::CacheError(
+                "No registry backup available for rollback".to_string(),
+            ));
+        }
+
+        // Restore from backup
+        fs::copy(&self.registry_backup_path, &self.registry_path).await?;
+
+        // Reload the registry in memory
+        let restored_registry = Self::load_registry(&self.registry_path).await?;
+        {
+            let mut registry = self.registry.write().await;
+            *registry = restored_registry;
+        }
+
         Ok(())
     }
 
@@ -738,12 +809,9 @@ mod tests {
         let install_dir = temp_dir.path().join("install");
         let cache_dir = temp_dir.path().join("cache");
 
-        let manager = StoreManager::new(install_dir.clone(), cache_dir.clone())
-            .await
-            .unwrap();
+        let manager = StoreManager::new(install_dir.clone()).await.unwrap();
 
         assert!(install_dir.exists());
-        assert!(cache_dir.exists());
         assert_eq!(manager.list_stores().len(), 0);
     }
 
@@ -751,12 +819,12 @@ mod tests {
     async fn test_registry_operations() {
         let temp_dir = TempDir::new().unwrap();
         let install_dir = temp_dir.path().join("install");
-        let cache_dir = temp_dir.path().join("cache");
+        let _cache_dir = temp_dir.path().join("cache");
 
-        let manager = StoreManager::new(install_dir, cache_dir).await.unwrap();
+        let manager = StoreManager::new(install_dir).await.unwrap();
 
         // Initially no extensions
-        assert_eq!(manager.list_installed().len(), 0);
-        assert!(manager.get_installed("test").is_none());
+        assert_eq!(manager.list_installed().await.len(), 0);
+        assert!(manager.get_installed("test").await.is_none());
     }
 }

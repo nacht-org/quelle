@@ -24,8 +24,7 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create a store manager
 //! let mut manager = StoreManager::new(
-//!     PathBuf::from("./extensions"),
-//!     PathBuf::from("./cache")
+//!     PathBuf::from("./extensions")
 //! ).await?;
 //!
 //! // Add a local store
@@ -91,17 +90,15 @@ pub const NAME: &str = env!("CARGO_PKG_NAME");
 /// This is a convenience function that sets up a basic store manager
 /// with sensible defaults for most use cases.
 pub async fn init_default(install_dir: std::path::PathBuf) -> Result<StoreManager> {
-    let cache_dir = install_dir.join(".cache");
-    StoreManager::new(install_dir, cache_dir).await
+    StoreManager::new(install_dir).await
 }
 
 /// Create a store manager with custom configuration
 pub async fn init_with_config(
     install_dir: std::path::PathBuf,
-    cache_dir: std::path::PathBuf,
     config: StoreConfig,
 ) -> Result<StoreManager> {
-    StoreManager::with_config(install_dir, cache_dir, config).await
+    StoreManager::with_config(install_dir, config).await
 }
 
 #[cfg(test)]
@@ -117,7 +114,6 @@ mod tests {
         let manager = init_default(install_dir.clone()).await.unwrap();
 
         assert!(install_dir.exists());
-        assert!(install_dir.join(".cache").exists());
         assert_eq!(manager.list_stores().len(), 0);
     }
 

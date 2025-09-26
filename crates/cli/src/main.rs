@@ -21,8 +21,7 @@ async fn main() -> eyre::Result<()> {
 
     // Initialize store manager
     let install_dir = PathBuf::from("./extensions");
-    let cache_dir = PathBuf::from("./cache");
-    let mut store_manager = StoreManager::new(install_dir, cache_dir).await?;
+    let mut store_manager = StoreManager::new(install_dir).await?;
 
     match cli.command {
         Commands::Store { command } => {

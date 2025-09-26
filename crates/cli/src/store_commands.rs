@@ -540,7 +540,7 @@ async fn handle_uninstall_extension(
 }
 
 async fn handle_list_installed(manager: &StoreManager) -> eyre::Result<()> {
-    let installed = manager.list_installed();
+    let installed = manager.list_installed().await;
 
     if installed.is_empty() {
         println!("No extensions installed.");
@@ -576,7 +576,7 @@ async fn handle_list_installed(manager: &StoreManager) -> eyre::Result<()> {
 
 async fn handle_extension_info(name: String, manager: &StoreManager) -> eyre::Result<()> {
     // Check if installed first
-    if let Some(installed) = manager.get_installed(&name) {
+    if let Some(installed) = manager.get_installed(&name).await {
         println!("Extension: {}", installed.name);
         println!("Version: {}", installed.version);
         println!("Author: {}", installed.manifest.author);
@@ -615,7 +615,7 @@ async fn handle_extension_info(name: String, manager: &StoreManager) -> eyre::Re
             }
         }
         Ok(_) => {
-            if manager.get_installed(&name).is_none() {
+            if manager.get_installed(&name).await.is_none() {
                 println!("Extension '{}' not found in any store.", name);
             }
         }

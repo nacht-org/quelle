@@ -126,10 +126,22 @@ pub trait Store: Send + Sync {
         let manifest = self.get_manifest(name, version).await?;
         let wasm_bytes = self.get_extension_wasm(name, version).await?;
 
-        // Verify checksum
-        use sha2::{Digest, Sha256};
-        let calculated_hash = format!("{:x}", Sha256::digest(&wasm_bytes));
-        Ok(manifest.checksum.value == calculated_hash)
+        // Verify checksum using the enhanced checksum system
+        let checksum_valid = manifest.checksum.verify(&wasm_bytes);
+
+        // Also verify signature if present and supported
+        if let Some(signature) = &manifest.signature {
+            // For now, just log that signature verification would happen
+            // Full signature verification would require public key infrastructure
+            tracing::debug!(
+                "Signature verification requested for {}@{:?} with key {}",
+                name,
+                version,
+                signature.public_key_id
+            );
+        }
+
+        Ok(checksum_valid)
     }
 }
 
@@ -237,7 +249,6 @@ pub trait StoreFactory {
 mod tests {
     use super::*;
     use crate::models::*;
-    use std::path::PathBuf;
 
     // Mock store for testing
     struct MockStore {
