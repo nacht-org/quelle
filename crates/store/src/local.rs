@@ -525,19 +525,139 @@ impl Store for LocalStore {
         let start = Instant::now();
 
         // Check if root directory exists and is accessible
-        match fs::metadata(&self.root_path).await {
-            Ok(_) => {
-                let response_time = start.elapsed();
-                let extension_count = self.cache.read().unwrap().values().map(|v| v.len()).sum();
-
-                Ok(StoreHealth::healthy()
-                    .with_response_time(response_time)
-                    .with_extension_count(extension_count))
+        let metadata = match fs::metadata(&self.root_path).await {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                return Ok(StoreHealth::unhealthy(format!(
+                    "Cannot access store directory: {}",
+                    e
+                )))
             }
-            Err(e) => Ok(StoreHealth::unhealthy(format!(
-                "Cannot access store directory: {}",
-                e
-            ))),
+        };
+
+        // Ensure it's actually a directory
+        if !metadata.is_dir() {
+            return Ok(StoreHealth::unhealthy(
+                "Store path is not a directory".to_string(),
+            ));
+        }
+
+        // Try to read directory contents to validate it's a proper store
+        let mut dir_entries = match fs::read_dir(&self.root_path).await {
+            Ok(entries) => entries,
+            Err(e) => {
+                return Ok(StoreHealth::unhealthy(format!(
+                    "Cannot read store directory: {}",
+                    e
+                )))
+            }
+        };
+
+        let mut has_extensions = false;
+        let mut extension_count = 0;
+        let mut validation_errors = Vec::new();
+
+        // Check directory structure and validate extensions
+        while let Some(entry) =
+            dir_entries
+                .next_entry()
+                .await
+                .map_err(|e| StoreError::IoOperation {
+                    operation: "read directory entry".to_string(),
+                    path: self.root_path.clone(),
+                    source: e,
+                })?
+        {
+            let entry_path = entry.path();
+            if entry_path.is_dir() {
+                let extension_name = entry_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown");
+
+                // Validate extension name
+                if let Err(e) = self.validate_extension_name(extension_name) {
+                    validation_errors.push(format!(
+                        "Invalid extension name '{}': {}",
+                        extension_name, e
+                    ));
+                    continue;
+                }
+
+                // Check if extension has valid structure (at least one version directory)
+                match fs::read_dir(&entry_path).await {
+                    Ok(mut version_entries) => {
+                        let mut has_versions = false;
+                        while let Some(version_entry) =
+                            version_entries.next_entry().await.map_err(|_| {
+                                StoreError::InvalidPackage {
+                                    reason: "Cannot read version directory".to_string(),
+                                }
+                            })?
+                        {
+                            if version_entry.path().is_dir() {
+                                let version_path = version_entry.path();
+                                let version_name = version_path
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("unknown");
+
+                                // Validate version string
+                                if let Err(e) = self.validate_version_string(version_name) {
+                                    validation_errors.push(format!(
+                                        "Invalid version '{}' in extension '{}': {}",
+                                        version_name, extension_name, e
+                                    ));
+                                    continue;
+                                }
+
+                                // Check if version has required files (manifest.json)
+                                let manifest_path =
+                                    version_entry.path().join(&self.layout.manifest_file);
+                                if !manifest_path.exists() {
+                                    validation_errors.push(format!(
+                                        "Missing manifest in {}@{}",
+                                        extension_name, version_name
+                                    ));
+                                } else {
+                                    has_versions = true;
+                                    extension_count += 1;
+                                }
+                            }
+                        }
+
+                        if has_versions {
+                            has_extensions = true;
+                        }
+                    }
+                    Err(_) => {
+                        validation_errors.push(format!(
+                            "Cannot read extension directory: {}",
+                            extension_name
+                        ));
+                    }
+                }
+            }
+        }
+
+        let response_time = start.elapsed();
+
+        // Return health status based on validation
+        if validation_errors.is_empty() {
+            Ok(StoreHealth::healthy()
+                .with_response_time(response_time)
+                .with_extension_count(extension_count))
+        } else if has_extensions {
+            // Some extensions are valid, but there are issues
+            Ok(StoreHealth::healthy()
+                .with_response_time(response_time)
+                .with_extension_count(extension_count))
+        } else {
+            // No valid extensions found or serious structural issues
+            Ok(StoreHealth::unhealthy(format!(
+                "Invalid store structure: {}",
+                validation_errors.join("; ")
+            )))
         }
     }
 

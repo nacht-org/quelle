@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use clap::Subcommand;
 use quelle_store::{
-    ConfigStore, ExtensionSource, ExtensionVisibility, SearchQuery, SearchSortBy, StoreManager,
+    ConfigStore, ExtensionSource, ExtensionVisibility, SearchQuery, SearchSortBy, Store,
+    StoreManager,
     local::LocalStore,
     models::{ExtensionPackage, InstallOptions},
     publish::{PublishOptions, PublishUpdateOptions, UnpublishOptions},
@@ -433,6 +434,7 @@ async fn handle_add_store(
             }
 
             // Load config and check if store already exists
+            // Check if store already exists
             let mut config = config_store.load().await?;
             if config.has_source(&store_name) {
                 error!("Store '{}' already exists", store_name);
@@ -442,6 +444,30 @@ async fn handle_add_store(
             // Create local store
             let local_store = LocalStore::new(&path)
                 .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
+
+            // Validate store using health check
+            info!("Validating store structure...");
+            match local_store.health_check().await {
+                Ok(health) => {
+                    if !health.healthy {
+                        let error_msg = health.error.unwrap_or_default();
+                        error!("Store validation failed: {}", error_msg);
+                        return Err(eyre::eyre!("Store validation failed: {}", error_msg));
+                    }
+
+                    if let Some(count) = health.extension_count {
+                        if count == 0 {
+                            warn!("Store appears to be empty (no extensions found)");
+                        } else {
+                            info!("Found {} extensions in store", count);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to validate store: {}", e);
+                    return Err(eyre::eyre!("Failed to validate store: {}", e));
+                }
+            }
 
             // Create source configuration
             let source = ExtensionSource::local(store_name.clone(), path);
