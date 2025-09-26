@@ -67,6 +67,7 @@ pub mod models;
 pub mod publish;
 pub mod registry;
 pub mod store;
+pub mod validation;
 
 // Additional store implementations will be added as separate modules:
 // - git.rs for Git repository stores
@@ -91,6 +92,11 @@ pub use registry::{
     ValidationIssue,
 };
 pub use store::{capabilities, Store};
+pub use validation::{
+    create_default_validator, create_strict_validator, ExtensionValidationReport, RuleResult,
+    SecurityRuleConfig, SecurityValidationRule, ValidationConfig, ValidationEngine, ValidationRule,
+    ValidationSummary,
+};
 
 // Version information
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

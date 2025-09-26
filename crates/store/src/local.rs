@@ -22,6 +22,7 @@ use crate::publish::{
     RateLimits, UnpublishOptions, UnpublishResult, ValidationReport,
 };
 use crate::store::{capabilities, Store};
+use crate::validation::{create_default_validator, ValidationEngine};
 
 /// Local file system-based store implementation
 pub struct LocalStore {
@@ -30,6 +31,7 @@ pub struct LocalStore {
     info: StoreInfo,
     cache: RwLock<HashMap<String, Vec<ExtensionInfo>>>,
     cache_timestamp: RwLock<Option<Instant>>,
+    validator: ValidationEngine,
 }
 
 impl LocalStore {
@@ -45,6 +47,7 @@ impl LocalStore {
             info,
             cache: RwLock::new(HashMap::new()),
             cache_timestamp: RwLock::new(None),
+            validator: create_default_validator(),
         })
     }
 
@@ -927,9 +930,9 @@ impl PublishableStore for LocalStore {
 
         // Validate package if not skipped
         if !options.skip_validation {
-            let validation = self.validate_publish(&package, options).await?;
-            if !validation.passed {
-                let critical_count = validation
+            let validation_report = self.validator.validate(&package).await?;
+            if !validation_report.passed {
+                let critical_count = validation_report
                     .issues
                     .iter()
                     .filter(|i| matches!(i.severity, crate::registry::IssueSeverity::Critical))
@@ -1080,7 +1083,11 @@ impl PublishableStore for LocalStore {
         package: &ExtensionPackage,
         options: &PublishOptions,
     ) -> Result<ValidationReport> {
-        let mut issues = Vec::new();
+        // Use the integrated validation engine for comprehensive validation
+        let validation_report = self.validator.validate(package).await?;
+
+        // Additional store-specific validations
+        let mut additional_issues = Vec::new();
         let start = Instant::now();
 
         // Check package requirements
@@ -1090,7 +1097,7 @@ impl PublishableStore for LocalStore {
         if let Some(max_size) = requirements.max_package_size {
             let package_size = package.calculate_total_size();
             if package_size > max_size {
-                issues.push(crate::registry::ValidationIssue {
+                additional_issues.push(crate::registry::ValidationIssue {
                     extension_name: package.manifest.name.clone(),
                     issue_type: crate::registry::ValidationIssueType::InvalidManifest,
                     description: format!(
@@ -1102,39 +1109,12 @@ impl PublishableStore for LocalStore {
             }
         }
 
-        // Check required metadata
-        for required_field in &requirements.required_metadata {
-            match required_field.as_str() {
-                "name" => {
-                    if package.manifest.name.is_empty() {
-                        issues.push(crate::registry::ValidationIssue {
-                            extension_name: package.manifest.name.clone(),
-                            issue_type: crate::registry::ValidationIssueType::InvalidManifest,
-                            description: "Extension name is required".to_string(),
-                            severity: crate::registry::IssueSeverity::Critical,
-                        });
-                    }
-                }
-                "version" => {
-                    if package.manifest.version.is_empty() {
-                        issues.push(crate::registry::ValidationIssue {
-                            extension_name: package.manifest.name.clone(),
-                            issue_type: crate::registry::ValidationIssueType::InvalidManifest,
-                            description: "Version is required".to_string(),
-                            severity: crate::registry::IssueSeverity::Critical,
-                        });
-                    }
-                }
-                _ => {}
-            }
-        }
-
         // Check visibility support
         if !requirements
             .supported_visibility
             .contains(&options.visibility)
         {
-            issues.push(crate::registry::ValidationIssue {
+            additional_issues.push(crate::registry::ValidationIssue {
                 extension_name: package.manifest.name.clone(),
                 issue_type: crate::registry::ValidationIssueType::InvalidManifest,
                 description: format!("Visibility {:?} not supported", options.visibility),
@@ -1142,14 +1122,19 @@ impl PublishableStore for LocalStore {
             });
         }
 
-        let validation_duration = start.elapsed();
-        let passed = !issues
-            .iter()
-            .any(|i| matches!(i.severity, crate::registry::IssueSeverity::Critical));
+        // Combine validation engine results with store-specific validation
+        let mut all_issues = validation_report.issues;
+        all_issues.extend(additional_issues);
+
+        let validation_duration = validation_report.validation_duration + start.elapsed();
+        let passed = validation_report.passed
+            && !all_issues
+                .iter()
+                .any(|i| matches!(i.severity, crate::registry::IssueSeverity::Critical));
 
         Ok(ValidationReport {
             passed,
-            issues,
+            issues: all_issues,
             validation_duration,
             validator_version: env!("CARGO_PKG_VERSION").to_string(),
             metadata: HashMap::new(),
@@ -1344,6 +1329,13 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut store = LocalStore::new(temp_dir.path()).unwrap();
 
+        // Valid WASM magic number + version + minimal content
+        let valid_wasm = [
+            0x00, 0x61, 0x73, 0x6d, // WASM magic number
+            0x01, 0x00, 0x00, 0x00, // WASM version 1
+            0x00, // Minimal content
+        ];
+
         // Create a test extension package
         let manifest = ExtensionManifest {
             name: "test-extension".to_string(),
@@ -1353,15 +1345,12 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, b"test wasm content"),
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
         };
 
-        let package = ExtensionPackage::new(
-            manifest,
-            b"test wasm content".to_vec(),
-            "test-store".to_string(),
-        );
+        let package =
+            ExtensionPackage::new(manifest, valid_wasm.to_vec(), "test-store".to_string());
 
         let options = PublishOptions::default();
 
@@ -1370,7 +1359,7 @@ mod tests {
 
         assert_eq!(result.version, "1.0.0");
         assert!(result.download_url.contains("test-extension"));
-        assert_eq!(result.package_size, b"test wasm content".len() as u64);
+        assert_eq!(result.package_size, valid_wasm.len() as u64);
 
         // Verify the extension was actually published
         let extension_info = store
@@ -1399,9 +1388,10 @@ mod tests {
             signature: None,
         };
 
+        // Invalid WASM content (empty)
         let package = ExtensionPackage::new(
             manifest,
-            b"test wasm content".to_vec(),
+            vec![], // Empty content will fail validation
             "test-store".to_string(),
         );
 
@@ -1420,6 +1410,13 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut store = LocalStore::new(temp_dir.path()).unwrap();
 
+        // Valid WASM magic number + version + minimal content
+        let valid_wasm = [
+            0x00, 0x61, 0x73, 0x6d, // WASM magic number
+            0x01, 0x00, 0x00, 0x00, // WASM version 1
+            0x00, // Minimal content
+        ];
+
         // First publish an extension
         let manifest = ExtensionManifest {
             name: "test-extension".to_string(),
@@ -1429,15 +1426,12 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, b"test wasm content"),
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
         };
 
-        let package = ExtensionPackage::new(
-            manifest,
-            b"test wasm content".to_vec(),
-            "test-store".to_string(),
-        );
+        let package =
+            ExtensionPackage::new(manifest, valid_wasm.to_vec(), "test-store".to_string());
 
         let options = PublishOptions::default();
         store.publish_extension(package, &options).await.unwrap();
@@ -1469,5 +1463,144 @@ mod tests {
             .version_exists("test-extension", "1.0.0")
             .await
             .unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_validation_integration() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = LocalStore::new(temp_dir.path()).unwrap();
+
+        // Test 1: Valid extension should pass validation and publish
+        let valid_wasm = [
+            0x00, 0x61, 0x73, 0x6d, // WASM magic number
+            0x01, 0x00, 0x00, 0x00, // WASM version 1
+            0x00, // Minimal content
+        ];
+
+        let valid_manifest = ExtensionManifest {
+            name: "valid-extension".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
+            signature: None,
+        };
+
+        let valid_package = ExtensionPackage::new(
+            valid_manifest,
+            valid_wasm.to_vec(),
+            "test-store".to_string(),
+        );
+
+        let result = store
+            .publish_extension(valid_package, &PublishOptions::default())
+            .await;
+        assert!(
+            result.is_ok(),
+            "Valid extension should publish successfully"
+        );
+
+        // Test 2: Invalid extension should fail validation
+        let invalid_wasm = [0x12, 0x34, 0x56, 0x78]; // Invalid magic number
+
+        let invalid_manifest = ExtensionManifest {
+            name: "invalid-extension".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &invalid_wasm),
+            signature: None,
+        };
+
+        let invalid_package = ExtensionPackage::new(
+            invalid_manifest,
+            invalid_wasm.to_vec(),
+            "test-store".to_string(),
+        );
+
+        let result = store
+            .publish_extension(invalid_package, &PublishOptions::default())
+            .await;
+        assert!(result.is_err(), "Invalid extension should fail to publish");
+
+        // Verify the error is a validation error
+        match result.unwrap_err() {
+            crate::error::StoreError::PublishError(
+                crate::publish::PublishError::ValidationFailed(_),
+            ) => {
+                // Expected error type
+            }
+            other => panic!("Expected ValidationFailed error, got: {:?}", other),
+        }
+
+        // Test 3: Extension with forbidden files should fail validation
+        let forbidden_manifest = ExtensionManifest {
+            name: "forbidden-extension".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
+            signature: None,
+        };
+
+        let mut forbidden_package = ExtensionPackage::new(
+            forbidden_manifest,
+            valid_wasm.to_vec(),
+            "test-store".to_string(),
+        );
+
+        // Add forbidden file
+        forbidden_package
+            .assets
+            .insert("malware.exe".to_string(), vec![0x4d, 0x5a]); // PE header
+
+        let result = store
+            .publish_extension(forbidden_package, &PublishOptions::default())
+            .await;
+        assert!(
+            result.is_err(),
+            "Extension with forbidden files should fail to publish"
+        );
+
+        // Test 4: Skip validation should allow invalid content
+        let invalid_manifest_skip = ExtensionManifest {
+            name: "skip-validation".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &invalid_wasm),
+            signature: None,
+        };
+
+        let invalid_package_skip = ExtensionPackage::new(
+            invalid_manifest_skip,
+            invalid_wasm.to_vec(),
+            "test-store".to_string(),
+        );
+
+        let skip_options = PublishOptions {
+            skip_validation: true,
+            ..Default::default()
+        };
+
+        let result = store
+            .publish_extension(invalid_package_skip, &skip_options)
+            .await;
+        assert!(
+            result.is_ok(),
+            "Extension should publish when validation is skipped"
+        );
     }
 }
