@@ -18,18 +18,23 @@
 //! ## Basic Usage
 //!
 //! ```rust
-//! use quelle_store::{StoreManager, local::LocalStore};
+//! use quelle_store::{StoreManager, LocalRegistryStore, local::LocalStore};
 //! use std::path::PathBuf;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Create a registry store
+//! let registry_store: Box<dyn quelle_store::RegistryStore> =
+//!     Box::new(LocalRegistryStore::new("./registry").await?);
+//!
 //! // Create a store manager
 //! let mut manager = StoreManager::new(
-//!     PathBuf::from("./extensions")
+//!     PathBuf::from("./extensions"),
+//!     registry_store
 //! ).await?;
 //!
-//! // Add a local store
+//! // Add a local extension store
 //! let local_store = LocalStore::new("./local-repo")?;
-//! manager.add_store(local_store);
+//! manager.add_extension_store(local_store);
 //!
 //! // Install an extension
 //! let installed = manager.install("dragontea", None, None).await?;
@@ -64,6 +69,7 @@ pub mod local;
 pub mod manager;
 pub mod manifest;
 pub mod models;
+pub mod registry;
 pub mod store;
 
 // Additional store implementations will be added as separate modules:
@@ -79,6 +85,9 @@ pub use models::{
     InstallOptions, InstalledExtension, PackageLayout, SearchQuery, SearchSortBy, StoreConfig,
     StoreHealth, StoreInfo, UpdateInfo, UpdateOptions,
 };
+pub use registry::{
+    InstallationQuery, InstallationStats, LocalRegistryStore, RegistryStore, ValidationIssue,
+};
 pub use store::{capabilities, Store};
 
 // Version information
@@ -90,15 +99,18 @@ pub const NAME: &str = env!("CARGO_PKG_NAME");
 /// This is a convenience function that sets up a basic store manager
 /// with sensible defaults for most use cases.
 pub async fn init_default(install_dir: std::path::PathBuf) -> Result<StoreManager> {
-    StoreManager::new(install_dir).await
+    let registry_dir = install_dir.join(".registry");
+    let registry_store = Box::new(LocalRegistryStore::new(registry_dir).await?);
+    StoreManager::new(install_dir, registry_store).await
 }
 
 /// Create a store manager with custom configuration
 pub async fn init_with_config(
     install_dir: std::path::PathBuf,
+    registry_store: Box<dyn RegistryStore>,
     config: StoreConfig,
 ) -> Result<StoreManager> {
-    StoreManager::with_config(install_dir, config).await
+    StoreManager::with_config(install_dir, registry_store, config).await
 }
 
 #[cfg(test)]
@@ -114,7 +126,7 @@ mod tests {
         let manager = init_default(install_dir.clone()).await.unwrap();
 
         assert!(install_dir.exists());
-        assert_eq!(manager.list_stores().len(), 0);
+        assert_eq!(manager.list_extension_stores().len(), 0);
     }
 
     #[tokio::test]

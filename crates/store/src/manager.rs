@@ -1,12 +1,11 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use semver::Version;
 use tokio::fs;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use crate::error::{Result, StoreError};
@@ -14,108 +13,96 @@ use crate::models::{
     ExtensionInfo, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy, StoreConfig,
     UpdateInfo, UpdateOptions,
 };
+use crate::registry::{InstallationQuery, RegistryStore};
 use crate::store::Store;
-
-/// Registry entry for installed extensions
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct ExtensionRegistry {
-    extensions: HashMap<String, InstalledExtension>,
-    last_updated: DateTime<Utc>,
-    version: String,
-}
-
-impl Default for ExtensionRegistry {
-    fn default() -> Self {
-        Self {
-            extensions: HashMap::new(),
-            last_updated: Utc::now(),
-            version: "1.0.0".to_string(),
-        }
-    }
-}
 
 /// Central manager for handling multiple stores and local installations
 pub struct StoreManager {
-    stores: Vec<Box<dyn Store>>,
+    /// Extension sources (read-only stores for discovering extensions)
+    extension_stores: Vec<Box<dyn Store>>,
+    /// The authoritative source of truth for installed extensions
+    registry_store: Box<dyn RegistryStore>,
+    /// Installation directory
     install_dir: PathBuf,
+    /// Configuration
     config: StoreConfig,
-    registry: Arc<RwLock<ExtensionRegistry>>,
-    registry_path: PathBuf,
-    registry_backup_path: PathBuf,
+    /// Semaphore for controlling parallel downloads
     download_semaphore: Arc<Semaphore>,
 }
 
 impl StoreManager {
-    /// Create a new StoreManager instance
-    pub async fn new(install_dir: PathBuf) -> Result<Self> {
+    /// Create a new StoreManager with the provided registry store
+    pub async fn new(install_dir: PathBuf, registry_store: Box<dyn RegistryStore>) -> Result<Self> {
         let config = StoreConfig::default();
 
         // Ensure directories exist
         fs::create_dir_all(&install_dir).await?;
 
-        let registry_path = install_dir.join("registry.json");
-        let registry_backup_path = install_dir.join("registry.json.backup");
-        let registry = if registry_path.exists() {
-            Self::load_registry(&registry_path).await?
-        } else {
-            ExtensionRegistry::default()
-        };
-
         let download_semaphore = Arc::new(Semaphore::new(config.parallel_downloads));
 
         Ok(Self {
-            stores: Vec::new(),
+            extension_stores: Vec::new(),
+            registry_store,
             install_dir,
             config,
-            registry: Arc::new(RwLock::new(registry)),
-            registry_path,
-            registry_backup_path,
             download_semaphore,
         })
     }
 
     /// Create a StoreManager with custom configuration
-    pub async fn with_config(install_dir: PathBuf, config: StoreConfig) -> Result<Self> {
-        let mut manager = Self::new(install_dir).await?;
+    pub async fn with_config(
+        install_dir: PathBuf,
+        registry_store: Box<dyn RegistryStore>,
+        config: StoreConfig,
+    ) -> Result<Self> {
+        let mut manager = Self::new(install_dir, registry_store).await?;
         let parallel_downloads = config.parallel_downloads;
         manager.config = config;
         manager.download_semaphore = Arc::new(Semaphore::new(parallel_downloads));
         Ok(manager)
     }
 
-    /// Add a store to the manager
-    pub fn add_store<S: Store + 'static>(&mut self, store: S) {
-        info!("Adding store: {}", store.store_info().name);
-        self.stores.push(Box::new(store));
+    /// Add an extension store to the manager (for discovering extensions)
+    pub fn add_extension_store<S: Store + 'static>(&mut self, store: S) {
+        info!("Adding extension store: {}", store.store_info().name);
+        self.extension_stores.push(Box::new(store));
         self.sort_stores_by_priority();
     }
 
-    /// Remove a store by name
-    pub fn remove_store(&mut self, name: &str) -> bool {
-        let initial_len = self.stores.len();
-        self.stores.retain(|store| store.store_info().name != name);
-        initial_len != self.stores.len()
+    /// Remove an extension store by name
+    pub fn remove_extension_store(&mut self, name: &str) -> bool {
+        let initial_len = self.extension_stores.len();
+        self.extension_stores
+            .retain(|store| store.store_info().name != name);
+        initial_len != self.extension_stores.len()
     }
 
-    /// Get information about all registered stores
-    pub fn list_stores(&self) -> Vec<&dyn Store> {
-        self.stores.iter().map(|s| s.as_ref()).collect()
+    /// Get information about all registered extension stores
+    pub fn list_extension_stores(&self) -> Vec<&dyn Store> {
+        self.extension_stores.iter().map(|s| s.as_ref()).collect()
     }
 
     /// Get a specific store by name
-    pub fn get_store(&self, name: &str) -> Option<&dyn Store> {
-        self.stores
+    /// Get an extension store by name
+    pub fn get_extension_store(&self, name: &str) -> Option<&dyn Store> {
+        self.extension_stores
             .iter()
             .find(|store| store.store_info().name == name)
             .map(|s| s.as_ref())
     }
 
+    /// Get the registry store
+    pub fn registry_store(&self) -> &dyn RegistryStore {
+        self.registry_store.as_ref()
+    }
+
     /// Sort stores by priority (lower number = higher priority)
+    /// Sort extension stores by priority (higher priority first)
     fn sort_stores_by_priority(&mut self) {
-        self.stores.sort_by(|a, b| {
-            a.store_info()
+        self.extension_stores.sort_by(|a, b| {
+            b.store_info()
                 .priority
-                .cmp(&b.store_info().priority)
+                .cmp(&a.store_info().priority)
                 .then_with(|| a.store_info().name.cmp(&b.store_info().name))
         });
     }
@@ -124,9 +111,12 @@ impl StoreManager {
     pub async fn refresh_stores(&mut self) -> Result<Vec<String>> {
         let mut failed_stores = Vec::new();
 
-        info!("Refreshing {} stores", self.stores.len());
+        info!(
+            "Refreshing {} extension stores",
+            self.extension_stores.len()
+        );
 
-        for store in &self.stores {
+        for store in &self.extension_stores {
             let store_name = &store.store_info().name;
             debug!("Checking health of store: {}", store_name);
 
@@ -160,7 +150,7 @@ impl StoreManager {
         let mut all_results = Vec::new();
         let mut search_futures = Vec::new();
 
-        for store in &self.stores {
+        for store in &self.extension_stores {
             if !store.store_info().enabled {
                 continue;
             }
@@ -207,7 +197,7 @@ impl StoreManager {
         let mut all_extensions = Vec::new();
         let mut list_futures = Vec::new();
 
-        for store in &self.stores {
+        for store in &self.extension_stores {
             if !store.store_info().enabled {
                 continue;
             }
@@ -249,7 +239,7 @@ impl StoreManager {
 
     /// Get extension information from the best available store
     pub async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>> {
-        for store in &self.stores {
+        for store in &self.extension_stores {
             if !store.store_info().enabled {
                 continue;
             }
@@ -285,7 +275,7 @@ impl StoreManager {
         let options = options.unwrap_or_default();
 
         // Check if already installed and handle accordingly
-        if let Some(installed) = self.get_installed(name).await {
+        if let Some(installed) = self.get_installed(name).await? {
             if let Some(requested_version) = version {
                 if installed.version == requested_version && !options.force_reinstall {
                     info!("Extension {}@{} already installed", name, requested_version);
@@ -323,7 +313,7 @@ impl StoreManager {
 
         // Try stores in priority order
         let mut last_error = None;
-        for store in &self.stores {
+        for store in &self.extension_stores {
             if !store.store_info().enabled {
                 continue;
             }
@@ -349,7 +339,9 @@ impl StoreManager {
                     }
 
                     // Update registry
-                    self.add_to_registry(installed.clone()).await?;
+                    self.registry_store
+                        .register_installation(installed.clone())
+                        .await?;
                     return Ok(installed);
                 }
                 Err(StoreError::ExtensionNotFound(_)) => {
@@ -419,9 +411,9 @@ impl StoreManager {
 
     // Update Operations
 
-    /// Check for updates across all stores
+    /// Check for updates across all extension stores
     pub async fn check_all_updates(&self) -> Result<Vec<UpdateInfo>> {
-        let installed = self.list_installed().await;
+        let installed = self.registry_store.list_installed().await?;
         if installed.is_empty() {
             return Ok(Vec::new());
         }
@@ -429,13 +421,13 @@ impl StoreManager {
         let mut all_updates = Vec::new();
         let mut update_futures = Vec::new();
 
-        for store in &self.stores {
+        for store in &self.extension_stores {
             if !store.store_info().enabled {
                 continue;
             }
 
             let store_name = store.store_info().name.clone();
-            let installed_slice: Vec<InstalledExtension> = installed.values().cloned().collect();
+            let installed_slice = installed.clone();
 
             let future = async move {
                 match tokio::time::timeout(
@@ -445,35 +437,46 @@ impl StoreManager {
                 .await
                 {
                     Ok(Ok(updates)) => {
-                        debug!("Store '{}' found {} updates", store_name, updates.len());
+                        debug!(
+                            "Found {} updates from extension store {}",
+                            updates.len(),
+                            store_name
+                        );
                         Ok(updates)
                     }
                     Ok(Err(e)) => {
-                        warn!("Update check failed for store '{}': {}", store_name, e);
-                        Err(e)
+                        warn!(
+                            "Update check failed for extension store {}: {}",
+                            store_name, e
+                        );
+                        Ok(Vec::new())
                     }
                     Err(_) => {
-                        warn!("Update check timeout for store '{}'", store_name);
-                        Err(StoreError::Timeout)
+                        warn!("Update check timeout for extension store: {}", store_name);
+                        Ok(Vec::new())
                     }
                 }
             };
             update_futures.push(future);
         }
 
-        let results = join_all(update_futures).await;
+        let results: Vec<Result<Vec<UpdateInfo>>> = join_all(update_futures).await;
+
         for result in results {
             match result {
                 Ok(mut updates) => all_updates.append(&mut updates),
-                Err(e) => {
-                    if !e.is_recoverable() {
-                        return Err(e);
-                    }
-                }
+                Err(e) => warn!("Extension store update check error: {}", e),
             }
         }
 
-        Ok(self.deduplicate_updates(all_updates))
+        // Deduplicate updates (keep the one from the highest priority store)
+        let deduplicated_updates = self.deduplicate_updates(all_updates);
+
+        info!(
+            "Found {} total updates available",
+            deduplicated_updates.len()
+        );
+        Ok(deduplicated_updates)
     }
 
     /// Update a specific extension
@@ -486,12 +489,12 @@ impl StoreManager {
 
         let installed = self
             .get_installed(name)
-            .await
+            .await?
             .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?;
 
         // Find the store that originally provided this extension
         let source_store = self
-            .stores
+            .extension_stores
             .iter()
             .find(|store| store.store_info().name == installed.installed_from);
 
@@ -524,7 +527,9 @@ impl StoreManager {
                     "Successfully updated {} to version {}",
                     name, updated.version
                 );
-                self.add_to_registry(updated.clone()).await?;
+                self.registry_store
+                    .update_installation(updated.clone())
+                    .await?;
                 Ok(updated)
             }
             Err(e) => {
@@ -558,23 +563,47 @@ impl StoreManager {
         Ok(update_results)
     }
 
-    // Registry Management
+    // Registry Management (delegated to registry store)
 
     /// Get information about an installed extension
-    pub async fn get_installed(&self, name: &str) -> Option<InstalledExtension> {
-        self.registry.read().await.extensions.get(name).cloned()
+    pub async fn get_installed(&self, name: &str) -> Result<Option<InstalledExtension>> {
+        self.registry_store.get_installed(name).await
     }
 
     /// List all installed extensions
-    pub async fn list_installed(&self) -> HashMap<String, InstalledExtension> {
-        self.registry.read().await.extensions.clone()
+    pub async fn list_installed(&self) -> Result<Vec<InstalledExtension>> {
+        self.registry_store.list_installed().await
+    }
+
+    /// Search installed extensions
+    pub async fn find_installed(
+        &self,
+        query: &InstallationQuery,
+    ) -> Result<Vec<InstalledExtension>> {
+        self.registry_store.find_installed(query).await
+    }
+
+    /// Get installation statistics
+    pub async fn get_installation_stats(&self) -> Result<crate::registry::InstallationStats> {
+        self.registry_store.get_installation_stats().await
+    }
+
+    /// Validate all installed extensions
+    pub async fn validate_installations(&self) -> Result<Vec<crate::registry::ValidationIssue>> {
+        self.registry_store.validate_installations().await
+    }
+
+    /// Clean up orphaned registry entries
+    pub async fn cleanup_orphaned(&mut self) -> Result<u32> {
+        self.registry_store.cleanup_orphaned().await
     }
 
     /// Remove an installed extension
     pub async fn uninstall(&mut self, name: &str, remove_files: bool) -> Result<()> {
         let installed = self
+            .registry_store
             .get_installed(name)
-            .await
+            .await?
             .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?;
 
         if remove_files {
@@ -584,13 +613,8 @@ impl StoreManager {
             }
         }
 
-        // Remove from registry
-        self.atomic_registry_update(|registry| {
-            registry.extensions.remove(name);
-            registry.last_updated = Utc::now();
-            Ok(())
-        })
-        .await?;
+        // Remove from registry store
+        self.registry_store.unregister_installation(name).await?;
 
         info!("Successfully uninstalled extension '{}'", name);
         Ok(())
@@ -608,102 +632,6 @@ impl StoreManager {
         Ok(())
     }
 
-    async fn add_to_registry(&self, installed: InstalledExtension) -> Result<()> {
-        self.atomic_registry_update(|registry| {
-            registry
-                .extensions
-                .insert(installed.name.clone(), installed);
-            registry.last_updated = Utc::now();
-            Ok(())
-        })
-        .await
-    }
-
-    /// Perform an atomic registry update with backup and rollback support
-    async fn atomic_registry_update<F>(&self, update_fn: F) -> Result<()>
-    where
-        F: FnOnce(&mut ExtensionRegistry) -> Result<()>,
-    {
-        // Create backup of current registry
-        if self.registry_path.exists() {
-            if let Err(e) = fs::copy(&self.registry_path, &self.registry_backup_path).await {
-                warn!("Failed to create registry backup: {}", e);
-            }
-        }
-
-        // Apply the update to the in-memory registry
-        let updated_registry = {
-            let mut registry = self.registry.write().await;
-            update_fn(&mut *registry)?;
-            registry.clone()
-        };
-
-        // Attempt to save the updated registry
-        match self.save_registry_content(&updated_registry).await {
-            Ok(()) => {
-                debug!("Registry updated successfully");
-                Ok(())
-            }
-            Err(e) => {
-                error!("Failed to save registry, attempting rollback: {}", e);
-
-                // Attempt to restore from backup
-                if let Err(rollback_err) = self.rollback_registry().await {
-                    error!("Registry rollback failed: {}", rollback_err);
-                    return Err(StoreError::ConcurrencyError(format!(
-                        "Registry update failed and rollback failed: {} -> {}",
-                        e, rollback_err
-                    )));
-                }
-
-                warn!("Registry rolled back successfully");
-                Err(e)
-            }
-        }
-    }
-
-    async fn save_registry_content(&self, registry: &ExtensionRegistry) -> Result<()> {
-        let content = serde_json::to_string_pretty(registry)?;
-
-        // Write to a temporary file first, then atomically move it
-        let temp_path = self.registry_path.with_extension("json.tmp");
-
-        fs::write(&temp_path, &content).await?;
-
-        // Atomic move (rename) on most filesystems
-        fs::rename(&temp_path, &self.registry_path)
-            .await
-            .map_err(|e| StoreError::IoError(e))?;
-
-        Ok(())
-    }
-
-    async fn rollback_registry(&self) -> Result<()> {
-        if !self.registry_backup_path.exists() {
-            return Err(StoreError::CacheError(
-                "No registry backup available for rollback".to_string(),
-            ));
-        }
-
-        // Restore from backup
-        fs::copy(&self.registry_backup_path, &self.registry_path).await?;
-
-        // Reload the registry in memory
-        let restored_registry = Self::load_registry(&self.registry_path).await?;
-        {
-            let mut registry = self.registry.write().await;
-            *registry = restored_registry;
-        }
-
-        Ok(())
-    }
-
-    async fn load_registry(path: &Path) -> Result<ExtensionRegistry> {
-        let content = fs::read_to_string(path).await?;
-        let registry: ExtensionRegistry = serde_json::from_str(&content)?;
-        Ok(registry)
-    }
-
     fn deduplicate_extensions(&self, mut extensions: Vec<ExtensionInfo>) -> Vec<ExtensionInfo> {
         // Remove duplicates based on name + version, preferring trusted stores
         let mut seen: HashMap<String, String> = HashMap::new();
@@ -711,9 +639,9 @@ impl StoreManager {
             let key = format!("{}@{}", ext.name, ext.version);
             if let Some(existing_store) = seen.get(&key) {
                 // Keep if current store is trusted and existing is not
-                let current_store = self.get_store(&ext.store_source);
+                let current_store = self.get_extension_store(&ext.store_source);
                 let existing_trusted = self
-                    .get_store(existing_store)
+                    .get_extension_store(existing_store)
                     .map(|s| s.store_info().trusted)
                     .unwrap_or(false);
                 let current_trusted = current_store
@@ -731,6 +659,7 @@ impl StoreManager {
                 true
             }
         });
+
         extensions
     }
 
@@ -775,11 +704,11 @@ impl StoreManager {
         updates.retain(|update| {
             if let Some(existing_store) = seen.get(&update.extension_name) {
                 let existing_trusted = self
-                    .get_store(existing_store)
+                    .get_extension_store(existing_store)
                     .map(|s| s.store_info().trusted)
                     .unwrap_or(false);
                 let current_trusted = self
-                    .get_store(&update.store_source)
+                    .get_extension_store(&update.store_source)
                     .map(|s| s.store_info().trusted)
                     .unwrap_or(false);
 
@@ -807,24 +736,38 @@ mod tests {
     async fn test_store_manager_creation() {
         let temp_dir = TempDir::new().unwrap();
         let install_dir = temp_dir.path().join("install");
-        let cache_dir = temp_dir.path().join("cache");
+        let registry_dir = temp_dir.path().join("registry");
 
-        let manager = StoreManager::new(install_dir.clone()).await.unwrap();
+        let registry_store = Box::new(
+            crate::registry::LocalRegistryStore::new(registry_dir)
+                .await
+                .unwrap(),
+        );
+        let manager = StoreManager::new(install_dir.clone(), registry_store)
+            .await
+            .unwrap();
 
         assert!(install_dir.exists());
-        assert_eq!(manager.list_stores().len(), 0);
+        assert_eq!(manager.list_extension_stores().len(), 0);
     }
 
     #[tokio::test]
     async fn test_registry_operations() {
         let temp_dir = TempDir::new().unwrap();
         let install_dir = temp_dir.path().join("install");
-        let _cache_dir = temp_dir.path().join("cache");
+        let registry_dir = temp_dir.path().join("registry");
 
-        let manager = StoreManager::new(install_dir).await.unwrap();
+        let registry_store = Box::new(
+            crate::registry::LocalRegistryStore::new(registry_dir)
+                .await
+                .unwrap(),
+        );
+        let manager = StoreManager::new(install_dir, registry_store)
+            .await
+            .unwrap();
 
         // Initially no extensions
-        assert_eq!(manager.list_installed().await.len(), 0);
-        assert!(manager.get_installed("test").await.is_none());
+        assert_eq!(manager.list_installed().await.unwrap().len(), 0);
+        assert!(manager.get_installed("test").await.unwrap().is_none());
     }
 }

@@ -218,7 +218,7 @@ async fn handle_add_store(store_type: StoreType, manager: &mut StoreManager) -> 
             info!("Adding local store '{}' at path: {:?}", store_name, path);
 
             let local_store = LocalStore::new(&path)?;
-            manager.add_store(local_store);
+            manager.add_extension_store(local_store);
 
             println!("✓ Added local store '{}' successfully", store_name);
         } // StoreType::Git { url, branch, name } => {
@@ -243,7 +243,7 @@ async fn handle_add_store(store_type: StoreType, manager: &mut StoreManager) -> 
 }
 
 async fn handle_list_stores(manager: &StoreManager) -> eyre::Result<()> {
-    let stores = manager.list_stores();
+    let stores = manager.list_extension_stores();
 
     if stores.is_empty() {
         println!("No stores configured.");
@@ -272,7 +272,7 @@ async fn handle_list_stores(manager: &StoreManager) -> eyre::Result<()> {
 }
 
 async fn handle_remove_store(name: String, manager: &mut StoreManager) -> eyre::Result<()> {
-    if manager.remove_store(&name) {
+    if manager.remove_extension_store(&name) {
         println!("✓ Removed store '{}'", name);
     } else {
         println!("✗ Store '{}' not found", name);
@@ -284,7 +284,7 @@ async fn handle_health_check(manager: &mut StoreManager) -> eyre::Result<()> {
     println!("Checking store health...");
 
     let failed_stores = manager.refresh_stores().await?;
-    let all_stores = manager.list_stores();
+    let all_stores = manager.list_extension_stores();
 
     println!("{:<20} {:<10} {:<20}", "STORE", "STATUS", "EXTENSIONS");
     println!("{}", "-".repeat(50));
@@ -540,7 +540,7 @@ async fn handle_uninstall_extension(
 }
 
 async fn handle_list_installed(manager: &StoreManager) -> eyre::Result<()> {
-    let installed = manager.list_installed().await;
+    let installed = manager.list_installed().await?;
 
     if installed.is_empty() {
         println!("No extensions installed.");
@@ -554,7 +554,7 @@ async fn handle_list_installed(manager: &StoreManager) -> eyre::Result<()> {
     );
     println!("{}", "-".repeat(77));
 
-    for (_, ext) in installed {
+    for ext in installed {
         let size_str = if ext.install_size > 0 {
             format_size(ext.install_size)
         } else {
@@ -576,7 +576,7 @@ async fn handle_list_installed(manager: &StoreManager) -> eyre::Result<()> {
 
 async fn handle_extension_info(name: String, manager: &StoreManager) -> eyre::Result<()> {
     // Check if installed first
-    if let Some(installed) = manager.get_installed(&name).await {
+    if let Ok(Some(installed)) = manager.get_installed(&name).await {
         println!("Extension: {}", installed.name);
         println!("Version: {}", installed.version);
         println!("Author: {}", installed.manifest.author);
@@ -615,7 +615,7 @@ async fn handle_extension_info(name: String, manager: &StoreManager) -> eyre::Re
             }
         }
         Ok(_) => {
-            if manager.get_installed(&name).await.is_none() {
+            if manager.get_installed(&name).await?.is_none() {
                 println!("Extension '{}' not found in any store.", name);
             }
         }
