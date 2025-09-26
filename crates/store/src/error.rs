@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::publish::PublishError;
+
 #[derive(Error, Debug)]
 pub enum StoreError {
     #[error("Extension '{0}' not found")]
@@ -64,6 +66,9 @@ pub enum StoreError {
 
     #[error("Corrupted registry: {0}")]
     CorruptedRegistry(String),
+
+    #[error("Publishing error: {0}")]
+    PublishError(#[from] PublishError),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;

@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use semver::Version;
 use tokio::fs;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use walkdir::WalkDir;
 
 use crate::error::{LocalStoreError, Result, StoreError};
@@ -15,6 +15,11 @@ use crate::manifest::ExtensionManifest;
 use crate::models::{
     ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstalledExtension, PackageLayout,
     SearchQuery, StoreHealth, StoreInfo, UpdateInfo,
+};
+use crate::publish::{
+    ExtensionVisibility, PublishError, PublishOptions, PublishPermissions, PublishRequirements,
+    PublishResult, PublishStats, PublishUpdateOptions, PublishableStore, RateLimitStatus,
+    RateLimits, UnpublishOptions, UnpublishResult, ValidationReport,
 };
 use crate::store::{capabilities, Store};
 
@@ -899,9 +904,313 @@ impl LocalStore {
     }
 }
 
+#[async_trait]
+impl PublishableStore for LocalStore {
+    async fn publish_extension(
+        &mut self,
+        package: ExtensionPackage,
+        options: &PublishOptions,
+    ) -> Result<PublishResult> {
+        let name = &package.manifest.name;
+        let version = &package.manifest.version;
+
+        info!("Publishing extension {}@{} to local store", name, version);
+
+        // Check if version already exists
+        if !options.overwrite_existing {
+            if self.version_exists(name, version).await? {
+                return Err(crate::error::StoreError::PublishError(
+                    PublishError::VersionAlreadyExists(version.clone()),
+                ));
+            }
+        }
+
+        // Validate package if not skipped
+        if !options.skip_validation {
+            let validation = self.validate_publish(&package, options).await?;
+            if !validation.passed {
+                let critical_count = validation
+                    .issues
+                    .iter()
+                    .filter(|i| matches!(i.severity, crate::registry::IssueSeverity::Critical))
+                    .count();
+                if critical_count > 0 {
+                    return Err(crate::error::StoreError::PublishError(
+                        PublishError::ValidationFailed(critical_count),
+                    ));
+                }
+            }
+        }
+
+        // Create extension and version directories
+        let extension_path = self.extensions_root().join(name);
+        let version_path = extension_path.join(version);
+
+        fs::create_dir_all(&version_path)
+            .await
+            .map_err(|e| crate::error::StoreError::IoError(e))?;
+
+        // Write manifest
+        let manifest_path = version_path.join(&self.layout.manifest_file);
+        let manifest_content = serde_json::to_string_pretty(&package.manifest)
+            .map_err(|e| crate::error::StoreError::SerializationError(e))?;
+        fs::write(&manifest_path, manifest_content)
+            .await
+            .map_err(|e| crate::error::StoreError::IoError(e))?;
+
+        // Write WASM component
+        let wasm_path = version_path.join(&self.layout.wasm_file);
+        fs::write(&wasm_path, &package.wasm_component)
+            .await
+            .map_err(|e| crate::error::StoreError::IoError(e))?;
+
+        // Write assets
+        for (asset_name, content) in &package.assets {
+            let asset_path = version_path.join(asset_name);
+            if let Some(parent) = asset_path.parent() {
+                fs::create_dir_all(parent)
+                    .await
+                    .map_err(|e| crate::error::StoreError::IoError(e))?;
+            }
+            fs::write(asset_path, content)
+                .await
+                .map_err(|e| crate::error::StoreError::IoError(e))?;
+        }
+
+        // Calculate package size
+        let package_size = package.calculate_total_size();
+        let content_hash = package.manifest.checksum.value.clone();
+
+        // Clear cache to ensure fresh data
+        {
+            let mut cache = self.cache.write().unwrap();
+            cache.remove(name);
+            *self.cache_timestamp.write().unwrap() = None;
+        }
+
+        // Create publication ID
+        let publication_id = format!("{}@{}-{}", name, version, Utc::now().timestamp());
+
+        let result = PublishResult::success(
+            version.clone(),
+            format!("file://{}", wasm_path.display()),
+            publication_id,
+            package_size,
+            content_hash,
+        );
+
+        info!("Successfully published extension {}@{}", name, version);
+        Ok(result)
+    }
+
+    async fn update_extension(
+        &mut self,
+        _name: &str,
+        package: ExtensionPackage,
+        options: &PublishUpdateOptions,
+    ) -> Result<PublishResult> {
+        // For local stores, update is the same as publish with overwrite
+        let mut publish_options = options.publish_options.clone();
+        publish_options.overwrite_existing = true;
+
+        self.publish_extension(package, &publish_options).await
+    }
+
+    async fn unpublish_extension(
+        &mut self,
+        name: &str,
+        version: &str,
+        _options: &UnpublishOptions,
+    ) -> Result<UnpublishResult> {
+        info!("Unpublishing extension {}@{}", name, version);
+
+        let version_path = self
+            .extension_version_path(name, version)
+            .map_err(crate::error::StoreError::from)?;
+
+        if !version_path.exists() {
+            return Err(crate::error::StoreError::ExtensionNotFound(format!(
+                "{}@{}",
+                name, version
+            )));
+        }
+
+        // Remove the version directory
+        fs::remove_dir_all(&version_path)
+            .await
+            .map_err(|e| crate::error::StoreError::IoError(e))?;
+
+        // Check if extension directory is now empty
+        let extension_path = self.root_path.join(name);
+        if extension_path.exists() {
+            let mut entries = fs::read_dir(&extension_path)
+                .await
+                .map_err(|e| crate::error::StoreError::IoError(e))?;
+
+            let has_entries = entries
+                .next_entry()
+                .await
+                .map_err(|e| crate::error::StoreError::IoError(e))?
+                .is_some();
+
+            if !has_entries {
+                fs::remove_dir(&extension_path)
+                    .await
+                    .map_err(|e| crate::error::StoreError::IoError(e))?;
+            }
+        }
+
+        // Clear cache
+        {
+            let mut cache = self.cache.write().unwrap();
+            cache.remove(name);
+            *self.cache_timestamp.write().unwrap() = None;
+        }
+
+        Ok(UnpublishResult {
+            version: version.to_string(),
+            unpublished_at: Utc::now(),
+            tombstone_created: false,
+            users_notified: None,
+        })
+    }
+
+    async fn validate_publish(
+        &self,
+        package: &ExtensionPackage,
+        options: &PublishOptions,
+    ) -> Result<ValidationReport> {
+        let mut issues = Vec::new();
+        let start = Instant::now();
+
+        // Check package requirements
+        let requirements = self.publish_requirements();
+
+        // Check package size
+        if let Some(max_size) = requirements.max_package_size {
+            let package_size = package.calculate_total_size();
+            if package_size > max_size {
+                issues.push(crate::registry::ValidationIssue {
+                    extension_name: package.manifest.name.clone(),
+                    issue_type: crate::registry::ValidationIssueType::InvalidManifest,
+                    description: format!(
+                        "Package size {} exceeds maximum {}",
+                        package_size, max_size
+                    ),
+                    severity: crate::registry::IssueSeverity::Critical,
+                });
+            }
+        }
+
+        // Check required metadata
+        for required_field in &requirements.required_metadata {
+            match required_field.as_str() {
+                "name" => {
+                    if package.manifest.name.is_empty() {
+                        issues.push(crate::registry::ValidationIssue {
+                            extension_name: package.manifest.name.clone(),
+                            issue_type: crate::registry::ValidationIssueType::InvalidManifest,
+                            description: "Extension name is required".to_string(),
+                            severity: crate::registry::IssueSeverity::Critical,
+                        });
+                    }
+                }
+                "version" => {
+                    if package.manifest.version.is_empty() {
+                        issues.push(crate::registry::ValidationIssue {
+                            extension_name: package.manifest.name.clone(),
+                            issue_type: crate::registry::ValidationIssueType::InvalidManifest,
+                            description: "Version is required".to_string(),
+                            severity: crate::registry::IssueSeverity::Critical,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Check visibility support
+        if !requirements
+            .supported_visibility
+            .contains(&options.visibility)
+        {
+            issues.push(crate::registry::ValidationIssue {
+                extension_name: package.manifest.name.clone(),
+                issue_type: crate::registry::ValidationIssueType::InvalidManifest,
+                description: format!("Visibility {:?} not supported", options.visibility),
+                severity: crate::registry::IssueSeverity::Error,
+            });
+        }
+
+        let validation_duration = start.elapsed();
+        let passed = !issues
+            .iter()
+            .any(|i| matches!(i.severity, crate::registry::IssueSeverity::Critical));
+
+        Ok(ValidationReport {
+            passed,
+            issues,
+            validation_duration,
+            validator_version: env!("CARGO_PKG_VERSION").to_string(),
+            metadata: HashMap::new(),
+        })
+    }
+
+    fn publish_requirements(&self) -> PublishRequirements {
+        PublishRequirements {
+            requires_authentication: false,
+            requires_signing: false,
+            max_package_size: Some(100 * 1024 * 1024), // 100MB
+            supported_visibility: vec![ExtensionVisibility::Public, ExtensionVisibility::Unlisted],
+            ..Default::default()
+        }
+    }
+
+    async fn can_publish(&self, _extension_name: &str) -> Result<PublishPermissions> {
+        Ok(PublishPermissions {
+            can_publish: true,
+            can_update: true,
+            can_unpublish: true,
+            allowed_extensions: None, // All extensions allowed
+            max_package_size: Some(100 * 1024 * 1024), // 100MB
+            rate_limits: RateLimits {
+                publications_per_hour: None,
+                publications_per_day: None,
+                bandwidth_per_day: None,
+            },
+        })
+    }
+
+    async fn get_publish_stats(&self) -> Result<PublishStats> {
+        let extensions = self.list_extensions().await?;
+        let total_extensions = extensions.len() as u64;
+
+        // Calculate approximate storage (this is a rough estimate)
+        let mut total_storage = 0u64;
+        for _extension in &extensions {
+            // Rough estimate based on typical extension sizes
+            total_storage += 1024 * 1024; // 1MB per extension as estimate
+        }
+
+        Ok(PublishStats {
+            total_extensions,
+            total_storage_used: total_storage,
+            recent_publications: 0, // Local store doesn't track this
+            storage_quota: None,    // No quota for local store
+            rate_limit_status: RateLimitStatus {
+                publications_remaining: None,
+                reset_time: None,
+                is_limited: false,
+            },
+            store_specific: HashMap::new(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manifest::checksum::{Checksum, ChecksumAlgorithm};
     use tempfile::TempDir;
 
     fn create_test_extension(dir: &Path, name: &str, version: &str) -> std::io::Result<()> {
@@ -1028,5 +1337,137 @@ mod tests {
         for name in valid_names {
             assert!(store.validate_extension_name(name).is_ok());
         }
+    }
+
+    #[tokio::test]
+    async fn test_publish_extension() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = LocalStore::new(temp_dir.path()).unwrap();
+
+        // Create a test extension package
+        let manifest = ExtensionManifest {
+            name: "test-extension".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, b"test wasm content"),
+            signature: None,
+        };
+
+        let package = ExtensionPackage::new(
+            manifest,
+            b"test wasm content".to_vec(),
+            "test-store".to_string(),
+        );
+
+        let options = PublishOptions::default();
+
+        // Test publishing
+        let result = store.publish_extension(package, &options).await.unwrap();
+
+        assert_eq!(result.version, "1.0.0");
+        assert!(result.download_url.contains("test-extension"));
+        assert_eq!(result.package_size, b"test wasm content".len() as u64);
+
+        // Verify the extension was actually published
+        let extension_info = store
+            .get_extension_version_info("test-extension", Some("1.0.0"))
+            .await
+            .unwrap();
+        assert_eq!(extension_info.name, "test-extension");
+        assert_eq!(extension_info.version, "1.0.0");
+    }
+
+    #[tokio::test]
+    async fn test_publish_validation() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::new(temp_dir.path()).unwrap();
+
+        // Create an invalid package (empty name)
+        let manifest = ExtensionManifest {
+            name: "".to_string(), // Invalid empty name
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, b"test wasm content"),
+            signature: None,
+        };
+
+        let package = ExtensionPackage::new(
+            manifest,
+            b"test wasm content".to_vec(),
+            "test-store".to_string(),
+        );
+
+        let options = PublishOptions::default();
+
+        // Test validation
+        let validation = store.validate_publish(&package, &options).await.unwrap();
+
+        assert!(!validation.passed);
+        assert!(!validation.issues.is_empty());
+        assert!(validation.has_critical_issues());
+    }
+
+    #[tokio::test]
+    async fn test_unpublish_extension() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = LocalStore::new(temp_dir.path()).unwrap();
+
+        // First publish an extension
+        let manifest = ExtensionManifest {
+            name: "test-extension".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, b"test wasm content"),
+            signature: None,
+        };
+
+        let package = ExtensionPackage::new(
+            manifest,
+            b"test wasm content".to_vec(),
+            "test-store".to_string(),
+        );
+
+        let options = PublishOptions::default();
+        store.publish_extension(package, &options).await.unwrap();
+
+        // Verify it exists
+        assert!(store
+            .version_exists("test-extension", "1.0.0")
+            .await
+            .unwrap());
+
+        // Now unpublish it
+        let unpublish_options = UnpublishOptions {
+            access_token: None,
+            reason: Some("Test unpublish".to_string()),
+            keep_record: false,
+            notify_users: false,
+        };
+
+        let result = store
+            .unpublish_extension("test-extension", "1.0.0", &unpublish_options)
+            .await
+            .unwrap();
+
+        assert_eq!(result.version, "1.0.0");
+        assert!(!result.tombstone_created);
+
+        // Verify it no longer exists
+        assert!(!store
+            .version_exists("test-extension", "1.0.0")
+            .await
+            .unwrap());
     }
 }

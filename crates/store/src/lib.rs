@@ -64,6 +64,7 @@ pub mod local;
 pub mod manager;
 pub mod manifest;
 pub mod models;
+pub mod publish;
 pub mod registry;
 pub mod store;
 
@@ -79,6 +80,11 @@ pub use models::{
     CompatibilityInfo, ExtensionDependency, ExtensionInfo, ExtensionMetadata, ExtensionPackage,
     InstallOptions, InstalledExtension, PackageLayout, SearchQuery, SearchSortBy, StoreConfig,
     StoreHealth, StoreInfo, UpdateInfo, UpdateOptions,
+};
+pub use publish::{
+    ExtensionVisibility, PublishError, PublishOptions, PublishPermissions, PublishRequirements,
+    PublishResult, PublishStats, PublishUpdateOptions, PublishableStore, RateLimits,
+    UnpublishOptions, UnpublishResult, ValidationReport,
 };
 pub use registry::{
     InstallationQuery, InstallationStats, LocalRegistryStore, RegistryHealth, RegistryStore,
