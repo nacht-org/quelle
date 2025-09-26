@@ -55,6 +55,15 @@ pub enum StoreError {
 
     #[error("Unsupported operation: {0}")]
     UnsupportedOperation(String),
+
+    #[error("Extension '{0}' is already installed")]
+    ExtensionAlreadyInstalled(String),
+
+    #[error("Invalid extension name: {0}")]
+    InvalidExtensionName(String),
+
+    #[error("Corrupted registry: {0}")]
+    CorruptedRegistry(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;

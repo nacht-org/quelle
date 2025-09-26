@@ -13,8 +13,8 @@ use walkdir::WalkDir;
 use crate::error::{LocalStoreError, Result, StoreError};
 use crate::manifest::ExtensionManifest;
 use crate::models::{
-    ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions, InstalledExtension,
-    PackageLayout, SearchQuery, StoreHealth, StoreInfo, UpdateInfo, UpdateOptions,
+    ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstalledExtension, PackageLayout,
+    SearchQuery, StoreHealth, StoreInfo, UpdateInfo,
 };
 use crate::store::{capabilities, Store};
 
@@ -705,91 +705,6 @@ impl Store for LocalStore {
         Ok(package)
     }
 
-    async fn install_extension(
-        &self,
-        name: &str,
-        version: Option<&str>,
-        target_dir: &Path,
-        options: &InstallOptions,
-    ) -> Result<InstalledExtension> {
-        // Validate inputs
-        self.validate_extension_name(name)
-            .map_err(StoreError::from)?;
-        if let Some(v) = version {
-            self.validate_version_string(v).map_err(StoreError::from)?;
-        }
-
-        let package = self.get_extension_package(name, version).await?;
-        let install_version = version.unwrap_or(&package.manifest.version);
-
-        // Create target directory structure
-        let extension_install_dir = target_dir.join(name).join(install_version);
-        fs::create_dir_all(&extension_install_dir).await?;
-
-        // Install manifest
-        let manifest_path = extension_install_dir.join(&package.package_layout.manifest_file);
-        let manifest_content = serde_json::to_string_pretty(&package.manifest)?;
-        fs::write(&manifest_path, manifest_content).await?;
-
-        // Install WASM component
-        let wasm_path = extension_install_dir.join(&package.package_layout.wasm_file);
-        fs::write(&wasm_path, &package.wasm_component).await?;
-
-        // Install metadata if available
-        if let Some(metadata) = &package.metadata {
-            if let Some(metadata_file) = &package.package_layout.metadata_file {
-                let metadata_path = extension_install_dir.join(metadata_file);
-                let metadata_content = serde_json::to_string_pretty(metadata)?;
-                fs::write(&metadata_path, metadata_content).await?;
-            }
-        }
-
-        // Install assets
-        if !package.assets.is_empty() {
-            if let Some(assets_dir) = &package.package_layout.assets_dir {
-                let assets_path = extension_install_dir.join(assets_dir);
-                fs::create_dir_all(&assets_path).await?;
-
-                for (asset_name, content) in &package.assets {
-                    let asset_path = assets_path.join(asset_name);
-                    if let Some(parent) = asset_path.parent() {
-                        fs::create_dir_all(parent).await?;
-                    }
-                    fs::write(&asset_path, content).await?;
-                }
-            }
-        }
-
-        // Verify installation if not skipped
-        if !options.skip_verification {
-            if !self
-                .verify_extension_integrity(name, install_version)
-                .await?
-            {
-                return Err(StoreError::ChecksumMismatch(format!(
-                    "{}@{}",
-                    name, install_version
-                )));
-            }
-        }
-
-        let install_size = package.calculate_total_size();
-
-        let installed = InstalledExtension::new(
-            name.to_string(),
-            install_version.to_string(),
-            extension_install_dir,
-            package.manifest,
-            package.package_layout,
-            self.info.name.clone(),
-        );
-
-        Ok(InstalledExtension {
-            install_size,
-            ..installed
-        })
-    }
-
     async fn check_updates(&self, installed: &[InstalledExtension]) -> Result<Vec<UpdateInfo>> {
         let mut updates = Vec::new();
 
@@ -818,28 +733,6 @@ impl Store for LocalStore {
         self.get_latest_version_internal(name)
             .await
             .map_err(StoreError::from)
-    }
-
-    async fn update_extension(
-        &self,
-        name: &str,
-        target_dir: &Path,
-        options: &UpdateOptions,
-    ) -> Result<InstalledExtension> {
-        let latest_version = self
-            .get_latest_version(name)
-            .await?
-            .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?;
-
-        let install_options = InstallOptions {
-            install_dependencies: options.update_dependencies,
-            force_reinstall: options.force_update,
-            skip_verification: false,
-            ..Default::default()
-        };
-
-        self.install_extension(name, Some(&latest_version), target_dir, &install_options)
-            .await
     }
 
     async fn list_versions(&self, name: &str) -> Result<Vec<String>> {

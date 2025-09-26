@@ -4,8 +4,6 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use uuid::Uuid;
 
 use crate::manifest::ExtensionManifest;
 
@@ -131,68 +129,65 @@ pub struct CompatibilityInfo {
 /// Information about an installed extension
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledExtension {
-    pub id: Uuid,
     pub name: String,
     pub version: String,
     pub install_path: PathBuf,
-    pub manifest: ExtensionManifest,
-    pub package_layout: PackageLayout,
     pub installed_at: DateTime<Utc>,
-    pub installed_from: String,    // Store identifier
-    pub dependencies: Vec<String>, // Names of installed dependencies
+    pub last_updated: Option<DateTime<Utc>>,
+    pub source_store: String, // Store where this was installed from
     pub auto_update: bool,
-    pub install_size: u64,
+    pub size: Option<u64>, // Installation size in bytes
+    pub checksum: Option<crate::manifest::Checksum>, // For integrity verification
 }
 
 impl InstalledExtension {
-    pub fn new(
-        name: String,
-        version: String,
-        install_path: PathBuf,
-        manifest: ExtensionManifest,
-        package_layout: PackageLayout,
-        installed_from: String,
-    ) -> Self {
+    pub fn new(name: String, version: String, install_path: PathBuf, source_store: String) -> Self {
         Self {
-            id: Uuid::new_v4(),
             name,
             version,
             install_path,
-            manifest,
-            package_layout,
             installed_at: Utc::now(),
-            installed_from,
-            dependencies: Vec::new(),
-            auto_update: true,
-            install_size: 0,
+            last_updated: Some(Utc::now()),
+            source_store,
+            auto_update: false,
+            size: None,
+            checksum: None,
         }
     }
 
+    /// Get the expected WASM component path
     pub fn get_wasm_path(&self) -> PathBuf {
-        self.install_path.join(&self.package_layout.wasm_file)
+        self.install_path.join("extension.wasm")
     }
 
+    /// Get the expected manifest path
     pub fn get_manifest_path(&self) -> PathBuf {
-        self.install_path.join(&self.package_layout.manifest_file)
+        self.install_path.join("manifest.json")
     }
 
-    pub fn get_metadata_path(&self) -> Option<PathBuf> {
-        self.package_layout
-            .metadata_file
-            .as_ref()
-            .map(|file| self.install_path.join(file))
+    /// Update the installation timestamp
+    pub fn mark_updated(&mut self) {
+        self.last_updated = Some(Utc::now());
     }
 
-    pub fn load_wasm_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
-        std::fs::read(self.get_wasm_path())
+    /// Check if the installation files exist on disk
+    pub async fn exists_on_disk(&self) -> bool {
+        use tokio::fs;
+        fs::metadata(&self.install_path).await.is_ok()
+            && fs::metadata(self.get_wasm_path()).await.is_ok()
+            && fs::metadata(self.get_manifest_path()).await.is_ok()
     }
 
-    pub fn verify_integrity(&self) -> Result<bool, std::io::Error> {
-        let wasm_bytes = self.load_wasm_bytes()?;
-        let calculated_hash = format!("{:x}", Sha256::digest(&wasm_bytes));
-
-        // Compare with manifest checksum if available
-        Ok(self.manifest.checksum.value == calculated_hash)
+    /// Verify the integrity of the installation if checksum is available
+    pub async fn verify_integrity(&self) -> Result<bool, std::io::Error> {
+        if let Some(ref checksum) = self.checksum {
+            use tokio::fs;
+            let wasm_bytes = fs::read(self.get_wasm_path()).await?;
+            Ok(checksum.verify(&wasm_bytes))
+        } else {
+            // No checksum available, just check if files exist
+            Ok(self.exists_on_disk().await)
+        }
     }
 }
 
@@ -472,21 +467,17 @@ impl Default for StoreConfig {
 /// Installation options
 #[derive(Debug, Clone)]
 pub struct InstallOptions {
-    pub install_dependencies: bool,
-    pub allow_downgrades: bool,
+    pub auto_update: bool,
     pub force_reinstall: bool,
     pub skip_verification: bool,
-    pub target_directory: Option<PathBuf>,
 }
 
 impl Default for InstallOptions {
     fn default() -> Self {
         Self {
-            install_dependencies: true,
-            allow_downgrades: false,
+            auto_update: false,
             force_reinstall: false,
             skip_verification: false,
-            target_directory: None,
         }
     }
 }

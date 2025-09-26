@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use futures::future::join_all;
 use semver::Version;
-use tokio::fs;
+
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
@@ -13,7 +13,7 @@ use crate::models::{
     ExtensionInfo, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy, StoreConfig,
     UpdateInfo, UpdateOptions,
 };
-use crate::registry::{InstallationQuery, RegistryStore};
+use crate::registry::{InstallationQuery, InstallationStats, RegistryStore, ValidationIssue};
 use crate::store::Store;
 
 /// Central manager for handling multiple stores and local installations
@@ -22,8 +22,6 @@ pub struct StoreManager {
     extension_stores: Vec<Box<dyn Store>>,
     /// The authoritative source of truth for installed extensions
     registry_store: Box<dyn RegistryStore>,
-    /// Installation directory
-    install_dir: PathBuf,
     /// Configuration
     config: StoreConfig,
     /// Semaphore for controlling parallel downloads
@@ -32,18 +30,13 @@ pub struct StoreManager {
 
 impl StoreManager {
     /// Create a new StoreManager with the provided registry store
-    pub async fn new(install_dir: PathBuf, registry_store: Box<dyn RegistryStore>) -> Result<Self> {
+    pub async fn new(registry_store: Box<dyn RegistryStore>) -> Result<Self> {
         let config = StoreConfig::default();
-
-        // Ensure directories exist
-        fs::create_dir_all(&install_dir).await?;
-
         let download_semaphore = Arc::new(Semaphore::new(config.parallel_downloads));
 
         Ok(Self {
             extension_stores: Vec::new(),
             registry_store,
-            install_dir,
             config,
             download_semaphore,
         })
@@ -51,15 +44,17 @@ impl StoreManager {
 
     /// Create a StoreManager with custom configuration
     pub async fn with_config(
-        install_dir: PathBuf,
         registry_store: Box<dyn RegistryStore>,
         config: StoreConfig,
     ) -> Result<Self> {
-        let mut manager = Self::new(install_dir, registry_store).await?;
-        let parallel_downloads = config.parallel_downloads;
-        manager.config = config;
-        manager.download_semaphore = Arc::new(Semaphore::new(parallel_downloads));
-        Ok(manager)
+        let download_semaphore = Arc::new(Semaphore::new(config.parallel_downloads));
+
+        Ok(Self {
+            extension_stores: Vec::new(),
+            registry_store,
+            config,
+            download_semaphore,
+        })
     }
 
     /// Add an extension store to the manager (for discovering extensions)
@@ -275,28 +270,15 @@ impl StoreManager {
         let options = options.unwrap_or_default();
 
         // Check if already installed and handle accordingly
-        if let Some(installed) = self.get_installed(name).await? {
+        if let Some(installed) = self.registry_store.get_installed(name).await? {
             if let Some(requested_version) = version {
                 if installed.version == requested_version && !options.force_reinstall {
                     info!("Extension {}@{} already installed", name, requested_version);
                     return Ok(installed);
                 }
-                if !options.allow_downgrades {
-                    if let (Ok(current), Ok(requested)) = (
-                        Version::parse(&installed.version),
-                        Version::parse(requested_version),
-                    ) {
-                        if current > requested {
-                            return Err(StoreError::ValidationError(format!(
-                                "Cannot downgrade {} from {} to {} (use --allow-downgrades)",
-                                name, installed.version, requested_version
-                            )));
-                        }
-                    }
-                }
             } else if !options.force_reinstall {
                 info!(
-                    "Extension {} already installed (version {})",
+                    "Extension {} already installed with version {}",
                     name, installed.version
                 );
                 return Ok(installed);
@@ -311,38 +293,36 @@ impl StoreManager {
             info!("Requested version: {}", v);
         }
 
-        // Try stores in priority order
+        // Find extension package from discovery stores
         let mut last_error = None;
         for store in &self.extension_stores {
             if !store.store_info().enabled {
                 continue;
             }
 
-            let store_name = &store.store_info().name;
+            let store_name = store.store_info().name.clone();
             debug!("Trying to install from store: {}", store_name);
 
-            match store
-                .install_extension(name, version, &self.install_dir, &options)
-                .await
-            {
-                Ok(installed) => {
-                    info!(
-                        "Successfully installed {}@{} from store '{}'",
-                        name, installed.version, store_name
-                    );
-
-                    // Install dependencies if requested
-                    if options.install_dependencies {
-                        if let Err(e) = self.install_dependencies(&installed).await {
-                            warn!("Failed to install dependencies for {}: {}", name, e);
+            match store.get_extension_package(name, version).await {
+                Ok(package) => {
+                    // Install using registry store
+                    match self
+                        .registry_store
+                        .install_extension(package, &options)
+                        .await
+                    {
+                        Ok(installed) => {
+                            info!(
+                                "Successfully installed {}@{} from store '{}'",
+                                name, installed.version, store_name
+                            );
+                            return Ok(installed);
+                        }
+                        Err(e) => {
+                            error!("Registry installation failed: {}", e);
+                            return Err(e);
                         }
                     }
-
-                    // Update registry
-                    self.registry_store
-                        .register_installation(installed.clone())
-                        .await?;
-                    return Ok(installed);
                 }
                 Err(StoreError::ExtensionNotFound(_)) => {
                     debug!("Extension not found in store '{}'", store_name);
@@ -373,7 +353,7 @@ impl StoreManager {
 
         for (name, version) in requests {
             let name = name.clone();
-            let version = version.clone();
+            let _version = version.clone();
             let _options = options.clone().unwrap_or_default();
 
             // Note: In a real implementation, you'd want to handle the async context properly
@@ -381,24 +361,9 @@ impl StoreManager {
             let future = async move {
                 // This would need proper async handling in practice
                 Ok(InstalledExtension::new(
-                    name,
-                    version.unwrap_or_else(|| "latest".to_string()),
+                    name.to_string(),
+                    "1.0.0".to_string(),
                     PathBuf::new(),
-                    crate::manifest::ExtensionManifest {
-                        name: "placeholder".to_string(),
-                        version: "1.0.0".to_string(),
-                        author: "placeholder".to_string(),
-                        langs: vec![],
-                        base_urls: vec![],
-                        rds: vec![],
-                        attrs: vec![],
-                        checksum: crate::manifest::checksum::Checksum {
-                            algorithm: crate::manifest::checksum::ChecksumAlgorithm::Sha256,
-                            value: "placeholder".to_string(),
-                        },
-                        signature: None,
-                    },
-                    crate::models::PackageLayout::default(),
                     "placeholder".to_string(),
                 ))
             };
@@ -496,14 +461,14 @@ impl StoreManager {
         let source_store = self
             .extension_stores
             .iter()
-            .find(|store| store.store_info().name == installed.installed_from);
+            .find(|store| store.store_info().name == installed.source_store);
 
         let store = match source_store {
             Some(store) => store,
             None => {
                 warn!(
                     "Original store '{}' not found for extension '{}', trying all stores",
-                    installed.installed_from, name
+                    installed.source_store, name
                 );
                 // Try to update from any available store
                 return self
@@ -518,22 +483,46 @@ impl StoreManager {
             store.store_info().name
         );
 
+        // For now, we'll get the latest version and reinstall
+        let latest_version = match store.get_latest_version(name).await? {
+            Some(version) => version,
+            None => return Err(StoreError::ExtensionNotFound(name.to_string())),
+        };
+
+        let install_options = InstallOptions {
+            auto_update: options.update_dependencies,
+            force_reinstall: options.force_update,
+            skip_verification: false,
+        };
+
         match store
-            .update_extension(name, &self.install_dir, &options)
+            .get_extension_package(name, Some(&latest_version))
             .await
         {
-            Ok(updated) => {
-                info!(
-                    "Successfully updated {} to version {}",
-                    name, updated.version
-                );
-                self.registry_store
-                    .update_installation(updated.clone())
-                    .await?;
-                Ok(updated)
+            Ok(package) => {
+                match self
+                    .registry_store
+                    .install_extension(package, &install_options)
+                    .await
+                {
+                    Ok(updated) => {
+                        info!(
+                            "Successfully updated {} to version {}",
+                            name, updated.version
+                        );
+                        self.registry_store
+                            .update_installation(updated.clone())
+                            .await?;
+                        Ok(updated)
+                    }
+                    Err(e) => {
+                        error!("Failed to update extension '{}': {}", name, e);
+                        Err(e)
+                    }
+                }
             }
             Err(e) => {
-                error!("Failed to update extension '{}': {}", name, e);
+                error!("Failed to get package for '{}': {}", name, e);
                 Err(e)
             }
         }
@@ -575,7 +564,7 @@ impl StoreManager {
         self.registry_store.list_installed().await
     }
 
-    /// Search installed extensions
+    /// Find installed extensions matching the query
     pub async fn find_installed(
         &self,
         query: &InstallationQuery,
@@ -583,13 +572,13 @@ impl StoreManager {
         self.registry_store.find_installed(query).await
     }
 
-    /// Get installation statistics
-    pub async fn get_installation_stats(&self) -> Result<crate::registry::InstallationStats> {
+    /// Get statistics about installed extensions
+    pub async fn get_installation_stats(&self) -> Result<InstallationStats> {
         self.registry_store.get_installation_stats().await
     }
 
     /// Validate all installed extensions
-    pub async fn validate_installations(&self) -> Result<Vec<crate::registry::ValidationIssue>> {
+    pub async fn validate_installations(&self) -> Result<Vec<ValidationIssue>> {
         self.registry_store.validate_installations().await
     }
 
@@ -598,26 +587,23 @@ impl StoreManager {
         self.registry_store.cleanup_orphaned().await
     }
 
-    /// Remove an installed extension
-    pub async fn uninstall(&mut self, name: &str, remove_files: bool) -> Result<()> {
-        let installed = self
-            .registry_store
-            .get_installed(name)
-            .await?
-            .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?;
+    /// Get the installation directory
+    pub fn install_dir(&self) -> &std::path::Path {
+        self.registry_store.install_dir()
+    }
 
-        if remove_files {
-            info!("Removing files for extension '{}'", name);
-            if installed.install_path.exists() {
-                fs::remove_dir_all(&installed.install_path).await?;
-            }
+    /// Remove an installed extension
+    pub async fn uninstall(&mut self, name: &str) -> Result<bool> {
+        info!("Uninstalling extension '{}'", name);
+        let removed = self.registry_store.uninstall_extension(name).await?;
+
+        if removed {
+            info!("Successfully uninstalled extension '{}'", name);
+        } else {
+            info!("Extension '{}' was not installed", name);
         }
 
-        // Remove from registry store
-        self.registry_store.unregister_installation(name).await?;
-
-        info!("Successfully uninstalled extension '{}'", name);
-        Ok(())
+        Ok(removed)
     }
 
     // Private helper methods
@@ -735,7 +721,7 @@ mod tests {
     #[tokio::test]
     async fn test_store_manager_creation() {
         let temp_dir = TempDir::new().unwrap();
-        let install_dir = temp_dir.path().join("install");
+        let _install_dir = temp_dir.path().join("install");
         let registry_dir = temp_dir.path().join("registry");
 
         let registry_store = Box::new(
@@ -743,18 +729,16 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let manager = StoreManager::new(install_dir.clone(), registry_store)
-            .await
-            .unwrap();
+        let manager = StoreManager::new(registry_store).await.unwrap();
 
-        assert!(install_dir.exists());
+        assert!(manager.install_dir().exists());
         assert_eq!(manager.list_extension_stores().len(), 0);
     }
 
     #[tokio::test]
     async fn test_registry_operations() {
         let temp_dir = TempDir::new().unwrap();
-        let install_dir = temp_dir.path().join("install");
+        let _install_dir = temp_dir.path().join("extensions");
         let registry_dir = temp_dir.path().join("registry");
 
         let registry_store = Box::new(
@@ -762,9 +746,7 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let manager = StoreManager::new(install_dir, registry_store)
-            .await
-            .unwrap();
+        let manager = StoreManager::new(registry_store).await.unwrap();
 
         // Initially no extensions
         assert_eq!(manager.list_installed().await.unwrap().len(), 0);

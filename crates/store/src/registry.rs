@@ -1,9 +1,3 @@
-//! Registry store implementation for managing installed extensions
-//!
-//! This module provides the `RegistryStore` trait and implementations for managing
-//! the authoritative state of installed extensions. The registry store acts as the
-//! single source of truth for installation status, replacing the manager's local registry.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -11,13 +5,12 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::error::{Result, StoreError};
-use crate::models::{InstalledExtension, PackageLayout, StoreHealth, StoreInfo};
-use crate::store::Store;
+use crate::models::{ExtensionPackage, InstallOptions, InstalledExtension};
 
-/// Query parameters for searching installed extensions
+/// Query parameters for finding installed extensions
 #[derive(Debug, Clone, Default)]
 pub struct InstallationQuery {
     pub name_pattern: Option<String>,
@@ -25,7 +18,7 @@ pub struct InstallationQuery {
     pub installed_before: Option<DateTime<Utc>>,
     pub from_store: Option<String>,
     pub version_pattern: Option<String>,
-    pub auto_update_only: bool,
+    pub auto_update_only: Option<bool>,
 }
 
 impl InstallationQuery {
@@ -54,13 +47,13 @@ impl InstallationQuery {
 pub struct InstallationStats {
     pub total_extensions: usize,
     pub total_size: u64,
-    pub stores_used: HashMap<String, usize>,
+    pub stores_used: Vec<String>,
     pub auto_update_enabled: usize,
-    pub last_updated: DateTime<Utc>,
+    pub last_updated: Option<DateTime<Utc>>,
 }
 
-/// Issues found during installation validation
-#[derive(Debug, Clone)]
+/// Validation issue found during installation validation
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationIssue {
     pub extension_name: String,
     pub issue_type: ValidationIssueType,
@@ -68,7 +61,7 @@ pub struct ValidationIssue {
     pub severity: IssueSeverity,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ValidationIssueType {
     MissingFiles,
     CorruptedFiles,
@@ -77,7 +70,7 @@ pub enum ValidationIssueType {
     ChecksumMismatch,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IssueSeverity {
     Info,
     Warning,
@@ -85,9 +78,25 @@ pub enum IssueSeverity {
     Critical,
 }
 
-/// Enhanced store trait that can maintain installation registry state
+/// Core trait for managing installed extensions registry
 #[async_trait]
-pub trait RegistryStore: Store {
+pub trait RegistryStore: Send + Sync {
+    /// Get the installation directory managed by this registry
+    fn install_dir(&self) -> &Path;
+
+    /// Set a new installation directory
+    async fn set_install_dir(&mut self, path: PathBuf) -> Result<()>;
+
+    /// Install an extension package to the registry
+    async fn install_extension(
+        &mut self,
+        package: ExtensionPackage,
+        options: &InstallOptions,
+    ) -> Result<InstalledExtension>;
+
+    /// Uninstall an extension from the registry
+    async fn uninstall_extension(&mut self, name: &str) -> Result<bool>;
+
     /// Register a new installation in the registry
     async fn register_installation(&mut self, installation: InstalledExtension) -> Result<()>;
 
@@ -124,13 +133,13 @@ pub trait RegistryStore: Store {
     fn registry_path(&self) -> Option<PathBuf>;
 }
 
-/// JSON-based registry structure
+/// JSON-based registry data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct JsonRegistry {
     extensions: HashMap<String, InstalledExtension>,
     last_updated: DateTime<Utc>,
     version: String,
-    stats: Option<InstallationStats>,
+    stats: InstallationStats,
 }
 
 impl Default for JsonRegistry {
@@ -138,392 +147,325 @@ impl Default for JsonRegistry {
         Self {
             extensions: HashMap::new(),
             last_updated: Utc::now(),
-            version: "1.1.0".to_string(),
-            stats: None,
+            version: "1.0".to_string(),
+            stats: InstallationStats {
+                total_extensions: 0,
+                total_size: 0,
+                stores_used: Vec::new(),
+                auto_update_enabled: 0,
+                last_updated: None,
+            },
         }
     }
 }
 
-/// Local JSON-based registry store implementation
+/// Local file-system based registry store implementation
 pub struct LocalRegistryStore {
     registry_path: PathBuf,
     backup_path: PathBuf,
+    install_dir: PathBuf,
     registry: JsonRegistry,
-    info: StoreInfo,
-    layout: PackageLayout,
 }
 
 impl LocalRegistryStore {
     /// Create a new LocalRegistryStore
-    pub async fn new<P: AsRef<Path>>(registry_dir: P) -> Result<Self> {
-        let registry_dir = registry_dir.as_ref().to_path_buf();
+    pub async fn new<P: AsRef<Path>>(install_dir: P) -> Result<Self> {
+        let install_dir = install_dir.as_ref().to_path_buf();
+        let registry_path = install_dir.join("registry.json");
+        let backup_path = install_dir.join("registry.json.backup");
 
-        // Ensure registry directory exists
-        fs::create_dir_all(&registry_dir).await?;
+        // Ensure install directory exists
+        fs::create_dir_all(&install_dir).await?;
 
-        let registry_path = registry_dir.join("registry.json");
-        let backup_path = registry_dir.join("registry.json.backup");
-
-        // Load existing registry or create new one
-        let registry = if registry_path.exists() {
-            Self::load_registry(&registry_path).await?
-        } else {
-            JsonRegistry::default()
-        };
-
-        let info = StoreInfo::new("local-registry".to_string(), "registry".to_string())
-            .with_url(format!("file://{}", registry_path.display()))
-            .trusted();
-
-        Ok(Self {
+        let mut store = Self {
             registry_path,
             backup_path,
-            registry,
-            info,
-            layout: PackageLayout::default(),
-        })
+            install_dir,
+            registry: JsonRegistry::default(),
+        };
+
+        // Load existing registry if it exists
+        store.load_registry().await?;
+        Ok(store)
     }
 
-    /// Load registry from file
-    async fn load_registry(path: &Path) -> Result<JsonRegistry> {
-        let content = fs::read_to_string(path).await?;
-        let registry: JsonRegistry = serde_json::from_str(&content)?;
-        debug!(
-            "Loaded registry with {} extensions",
-            registry.extensions.len()
-        );
-        Ok(registry)
-    }
-
-    /// Save registry to file with atomic write
-    async fn save_registry(&self) -> Result<()> {
-        // Create backup first
-        if self.registry_path.exists() {
-            if let Err(e) = fs::copy(&self.registry_path, &self.backup_path).await {
-                warn!("Failed to create registry backup: {}", e);
-            }
+    /// Load registry from disk
+    async fn load_registry(&mut self) -> Result<()> {
+        if !self.registry_path.exists() {
+            info!("No existing registry found, creating new one");
+            return Ok(());
         }
 
-        // Update timestamp and stats
-        let mut registry = self.registry.clone();
-        registry.last_updated = Utc::now();
-        registry.stats = Some(self.calculate_stats(&registry.extensions));
-
-        // Write to temporary file first
-        let temp_path = self.registry_path.with_extension("json.tmp");
-        let content = serde_json::to_string_pretty(&registry)?;
-        fs::write(&temp_path, content).await?;
-
-        // Atomic move
-        fs::rename(&temp_path, &self.registry_path).await?;
-
-        debug!(
-            "Registry saved with {} extensions",
-            registry.extensions.len()
-        );
+        match fs::read_to_string(&self.registry_path).await {
+            Ok(content) => {
+                self.registry = serde_json::from_str(&content)
+                    .map_err(|e| StoreError::CorruptedRegistry(e.to_string()))?;
+                debug!(
+                    "Loaded registry with {} extensions",
+                    self.registry.extensions.len()
+                );
+            }
+            Err(_) => {
+                warn!("Failed to load registry, checking backup");
+                if self.backup_path.exists() {
+                    let backup_content = fs::read_to_string(&self.backup_path).await?;
+                    self.registry = serde_json::from_str(&backup_content)
+                        .map_err(|e| StoreError::CorruptedRegistry(e.to_string()))?;
+                    info!("Restored registry from backup");
+                }
+            }
+        }
         Ok(())
     }
 
-    /// Calculate installation statistics
-    fn calculate_stats(
-        &self,
-        extensions: &HashMap<String, InstalledExtension>,
-    ) -> InstallationStats {
-        let mut stores_used: HashMap<String, usize> = HashMap::new();
-        let mut total_size = 0u64;
-        let mut auto_update_count = 0;
+    /// Save registry to disk with atomic backup
+    async fn save_registry(&mut self) -> Result<()> {
+        // Update stats before saving
+        self.registry.stats = self.calculate_stats().await;
+        self.registry.last_updated = Utc::now();
 
-        for ext in extensions.values() {
-            *stores_used.entry(ext.installed_from.clone()).or_insert(0) += 1;
-            total_size += ext.install_size;
-            if ext.auto_update {
-                auto_update_count += 1;
+        let content =
+            serde_json::to_string_pretty(&self.registry).map_err(StoreError::SerializationError)?;
+
+        // Create backup if registry exists
+        if self.registry_path.exists() {
+            if let Err(e) = fs::copy(&self.registry_path, &self.backup_path).await {
+                warn!("Failed to create backup: {}", e);
+            }
+        }
+
+        // Write new registry
+        fs::write(&self.registry_path, content).await?;
+        debug!("Registry saved successfully");
+        Ok(())
+    }
+
+    /// Calculate current installation statistics
+    async fn calculate_stats(&self) -> InstallationStats {
+        let total_extensions = self.registry.extensions.len();
+        let mut total_size = 0u64;
+        let mut stores_used = std::collections::HashSet::new();
+        let mut auto_update_enabled = 0;
+        let mut last_updated = None;
+
+        for extension in self.registry.extensions.values() {
+            total_size += extension.size.unwrap_or(0);
+            stores_used.insert(extension.source_store.clone());
+            if extension.auto_update {
+                auto_update_enabled += 1;
+            }
+            if let Some(updated) = extension.last_updated {
+                if last_updated.map_or(true, |lu| updated > lu) {
+                    last_updated = Some(updated);
+                }
             }
         }
 
         InstallationStats {
-            total_extensions: extensions.len(),
+            total_extensions,
             total_size,
-            stores_used,
-            auto_update_enabled: auto_update_count,
-            last_updated: Utc::now(),
+            stores_used: stores_used.into_iter().collect(),
+            auto_update_enabled,
+            last_updated,
         }
     }
 
-    /// Check if installation query matches an extension
-    fn matches_query(&self, ext: &InstalledExtension, query: &InstallationQuery) -> bool {
-        // Name pattern matching
-        if let Some(pattern) = &query.name_pattern {
-            if !ext.name.contains(pattern) {
+    /// Check if an extension matches the given query
+    fn matches_query(&self, extension: &InstalledExtension, query: &InstallationQuery) -> bool {
+        if let Some(ref pattern) = query.name_pattern {
+            if !extension.name.contains(pattern) {
                 return false;
             }
         }
 
-        // Date range filtering
         if let Some(after) = query.installed_after {
-            if ext.installed_at < after {
+            if extension.installed_at < after {
                 return false;
             }
         }
 
         if let Some(before) = query.installed_before {
-            if ext.installed_at > before {
+            if extension.installed_at > before {
                 return false;
             }
         }
 
-        // Store filtering
-        if let Some(store) = &query.from_store {
-            if ext.installed_from != *store {
+        if let Some(ref store) = query.from_store {
+            if extension.source_store != *store {
                 return false;
             }
         }
 
-        // Version pattern matching
-        if let Some(version_pattern) = &query.version_pattern {
-            if !ext.version.contains(version_pattern) {
+        if let Some(ref version_pattern) = query.version_pattern {
+            if !extension.version.contains(version_pattern) {
                 return false;
             }
         }
 
-        // Auto-update filter
-        if query.auto_update_only && !ext.auto_update {
-            return false;
+        if let Some(auto_update_only) = query.auto_update_only {
+            if extension.auto_update != auto_update_only {
+                return false;
+            }
         }
 
         true
     }
-}
 
-#[async_trait]
-impl Store for LocalRegistryStore {
-    fn store_info(&self) -> &StoreInfo {
-        &self.info
-    }
-
-    fn package_layout(&self) -> &PackageLayout {
-        &self.layout
-    }
-
-    async fn health_check(&self) -> Result<StoreHealth> {
-        let start = std::time::Instant::now();
-
-        // Check if registry file is accessible
-        match fs::metadata(&self.registry_path).await {
-            Ok(_) => {
-                let response_time = start.elapsed();
-                let extension_count = self.registry.extensions.len();
-
-                Ok(StoreHealth::healthy()
-                    .with_response_time(response_time)
-                    .with_extension_count(extension_count))
-            }
-            Err(e) => Ok(StoreHealth::unhealthy(format!(
-                "Registry file not accessible: {}",
-                e
-            ))),
+    /// Validate extension name for security
+    fn validate_extension_name(name: &str) -> Result<()> {
+        if name.is_empty() {
+            return Err(StoreError::InvalidExtensionName(
+                "Name cannot be empty".to_string(),
+            ));
         }
-    }
 
-    async fn list_extensions(&self) -> Result<Vec<crate::models::ExtensionInfo>> {
-        // Registry store doesn't provide extension discovery - it only tracks installations
-        // This could be enhanced to return info about installed extensions
-        Ok(Vec::new())
-    }
-
-    async fn search_extensions(
-        &self,
-        _query: &crate::models::SearchQuery,
-    ) -> Result<Vec<crate::models::ExtensionInfo>> {
-        // Registry store doesn't provide extension search - it only tracks installations
-        Ok(Vec::new())
-    }
-
-    async fn get_extension_info(&self, _name: &str) -> Result<Vec<crate::models::ExtensionInfo>> {
-        // Registry store doesn't provide extension info - it only tracks installations
-        Ok(Vec::new())
-    }
-
-    async fn get_extension_version_info(
-        &self,
-        name: &str,
-        _version: Option<&str>,
-    ) -> Result<crate::models::ExtensionInfo> {
-        Err(StoreError::ExtensionNotFound(format!(
-            "Registry store does not provide extension info for {}",
-            name
-        )))
-    }
-
-    async fn get_manifest(
-        &self,
-        name: &str,
-        _version: Option<&str>,
-    ) -> Result<crate::manifest::ExtensionManifest> {
-        // Try to get manifest from installed extension
-        if let Some(installed) = self.registry.extensions.get(name) {
-            Ok(installed.manifest.clone())
-        } else {
-            Err(StoreError::ExtensionNotFound(name.to_string()))
+        if name.contains("..") || name.contains('/') || name.contains('\\') {
+            return Err(StoreError::InvalidExtensionName(
+                "Name contains invalid path characters".to_string(),
+            ));
         }
-    }
 
-    async fn get_metadata(
-        &self,
-        _name: &str,
-        _version: Option<&str>,
-    ) -> Result<Option<crate::models::ExtensionMetadata>> {
-        // Registry store doesn't provide metadata
-        Ok(None)
-    }
-
-    async fn get_extension_wasm(&self, name: &str, _version: Option<&str>) -> Result<Vec<u8>> {
-        // Try to load WASM from installed extension
-        if let Some(installed) = self.registry.extensions.get(name) {
-            let wasm_path = installed.get_wasm_path();
-            if wasm_path.exists() {
-                fs::read(&wasm_path).await.map_err(StoreError::from)
-            } else {
-                Err(StoreError::ExtensionNotFound(format!(
-                    "WASM file not found for {}",
-                    name
-                )))
-            }
-        } else {
-            Err(StoreError::ExtensionNotFound(name.to_string()))
+        if name.len() > 255 {
+            return Err(StoreError::InvalidExtensionName(
+                "Name too long".to_string(),
+            ));
         }
+
+        Ok(())
     }
 
-    async fn get_extension_package(
-        &self,
-        name: &str,
-        version: Option<&str>,
-    ) -> Result<crate::models::ExtensionPackage> {
-        if let Some(installed) = self.registry.extensions.get(name) {
-            let manifest = installed.manifest.clone();
-            let wasm_component = self.get_extension_wasm(name, version).await?;
-
-            let package = crate::models::ExtensionPackage::new(
-                manifest,
-                wasm_component,
-                self.info.name.clone(),
-            )
-            .with_layout(installed.package_layout.clone());
-
-            Ok(package)
-        } else {
-            Err(StoreError::ExtensionNotFound(name.to_string()))
-        }
-    }
-
-    async fn install_extension(
-        &self,
-        _name: &str,
-        _version: Option<&str>,
-        _target_dir: &Path,
-        _options: &crate::models::InstallOptions,
-    ) -> Result<InstalledExtension> {
-        Err(StoreError::UnsupportedOperation(
-            "Registry store cannot install extensions directly".to_string(),
-        ))
-    }
-
-    async fn check_updates(
-        &self,
-        _installed: &[InstalledExtension],
-    ) -> Result<Vec<crate::models::UpdateInfo>> {
-        // Registry store doesn't check for updates
-        Ok(Vec::new())
-    }
-
-    async fn get_latest_version(&self, _name: &str) -> Result<Option<String>> {
-        // Registry store doesn't provide version information
-        Ok(None)
-    }
-
-    async fn update_extension(
-        &self,
-        _name: &str,
-        _target_dir: &Path,
-        _options: &crate::models::UpdateOptions,
-    ) -> Result<InstalledExtension> {
-        Err(StoreError::UnsupportedOperation(
-            "Registry store cannot update extensions directly".to_string(),
-        ))
-    }
-
-    async fn list_versions(&self, _name: &str) -> Result<Vec<String>> {
-        // Registry store doesn't provide version listings
-        Ok(Vec::new())
-    }
-
-    async fn version_exists(&self, name: &str, version: &str) -> Result<bool> {
-        // Check if this specific version is installed
-        if let Some(installed) = self.registry.extensions.get(name) {
-            Ok(installed.version == version)
-        } else {
-            Ok(false)
-        }
-    }
-
-    fn supports_capability(&self, capability: &str) -> bool {
-        match capability {
-            crate::store::capabilities::METADATA => false, // No metadata discovery
-            crate::store::capabilities::SEARCH => false,   // No extension search
-            crate::store::capabilities::VERSIONING => false, // No version management
-            crate::store::capabilities::UPDATE_CHECK => false, // No update checking
-            "registry" => true,                            // Registry management
-            "installation_tracking" => true,               // Installation tracking
-            _ => false,
-        }
-    }
-
-    fn capabilities(&self) -> Vec<String> {
-        vec!["registry".to_string(), "installation_tracking".to_string()]
+    /// Get the installation path for an extension
+    fn extension_install_path(&self, name: &str) -> PathBuf {
+        self.install_dir.join(name)
     }
 }
 
 #[async_trait]
 impl RegistryStore for LocalRegistryStore {
-    async fn register_installation(&mut self, installation: InstalledExtension) -> Result<()> {
-        debug!(
-            "Registering installation: {}@{}",
-            installation.name, installation.version
-        );
+    fn install_dir(&self) -> &Path {
+        &self.install_dir
+    }
 
+    async fn set_install_dir(&mut self, path: PathBuf) -> Result<()> {
+        fs::create_dir_all(&path).await?;
+        self.install_dir = path;
+        self.registry_path = self.install_dir.join("registry.json");
+        self.backup_path = self.install_dir.join("registry.json.backup");
+        Ok(())
+    }
+
+    async fn install_extension(
+        &mut self,
+        package: ExtensionPackage,
+        options: &InstallOptions,
+    ) -> Result<InstalledExtension> {
+        let name = &package.manifest.name;
+        Self::validate_extension_name(name)?;
+
+        let install_path = self.extension_install_path(name);
+
+        // Check if already installed
+        if let Some(_existing) = self.registry.extensions.get(name) {
+            if !options.force_reinstall {
+                return Err(StoreError::ExtensionAlreadyInstalled(name.clone()));
+            }
+            // Remove existing installation
+            if install_path.exists() {
+                fs::remove_dir_all(&install_path).await?;
+            }
+        }
+
+        // Create installation directory
+        fs::create_dir_all(&install_path).await?;
+
+        // Write WASM component
+        let wasm_path = install_path.join("extension.wasm");
+        fs::write(&wasm_path, &package.wasm_component).await?;
+
+        // Write manifest
+        let manifest_path = install_path.join("manifest.json");
+        let manifest_content = serde_json::to_string_pretty(&package.manifest)?;
+        fs::write(&manifest_path, manifest_content).await?;
+
+        // Write additional assets
+        for (asset_name, content) in &package.assets {
+            let asset_path = install_path.join(asset_name);
+            if let Some(parent) = asset_path.parent() {
+                fs::create_dir_all(parent).await?;
+            }
+            fs::write(asset_path, content).await?;
+        }
+
+        // Calculate size before moving package
+        let package_size = package.calculate_total_size();
+
+        // Create installation record
+        let installed = InstalledExtension {
+            name: name.clone(),
+            version: package.manifest.version.clone(),
+            install_path,
+            installed_at: Utc::now(),
+            last_updated: Some(Utc::now()),
+            source_store: package.source_store,
+            auto_update: options.auto_update,
+            size: Some(package_size),
+            checksum: Some(package.manifest.checksum.clone()),
+        };
+
+        // Register installation
+        self.register_installation(installed.clone()).await?;
+
+        info!(
+            "Successfully installed extension: {}@{}",
+            name, installed.version
+        );
+        Ok(installed)
+    }
+
+    async fn uninstall_extension(&mut self, name: &str) -> Result<bool> {
+        Self::validate_extension_name(name)?;
+
+        if let Some(installed) = self.registry.extensions.remove(name) {
+            // Remove files from disk
+            if installed.install_path.exists() {
+                fs::remove_dir_all(&installed.install_path).await?;
+            }
+
+            // Save updated registry
+            self.save_registry().await?;
+
+            info!("Successfully uninstalled extension: {}", name);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    async fn register_installation(&mut self, installation: InstalledExtension) -> Result<()> {
+        Self::validate_extension_name(&installation.name)?;
         self.registry
             .extensions
             .insert(installation.name.clone(), installation);
         self.save_registry().await?;
-
         Ok(())
     }
 
     async fn unregister_installation(&mut self, name: &str) -> Result<bool> {
-        debug!("Unregistering installation: {}", name);
-
+        Self::validate_extension_name(name)?;
         let removed = self.registry.extensions.remove(name).is_some();
         if removed {
             self.save_registry().await?;
         }
-
         Ok(removed)
     }
 
     async fn update_installation(&mut self, installation: InstalledExtension) -> Result<()> {
-        if self.registry.extensions.contains_key(&installation.name) {
-            debug!(
-                "Updating installation: {}@{}",
-                installation.name, installation.version
-            );
-            self.registry
-                .extensions
-                .insert(installation.name.clone(), installation);
-            self.save_registry().await?;
-            Ok(())
-        } else {
-            Err(StoreError::ExtensionNotFound(installation.name))
-        }
+        Self::validate_extension_name(&installation.name)?;
+        self.registry
+            .extensions
+            .insert(installation.name.clone(), installation);
+        self.save_registry().await?;
+        Ok(())
     }
 
     async fn list_installed(&self) -> Result<Vec<InstalledExtension>> {
@@ -531,94 +473,74 @@ impl RegistryStore for LocalRegistryStore {
     }
 
     async fn get_installed(&self, name: &str) -> Result<Option<InstalledExtension>> {
+        Self::validate_extension_name(name)?;
         Ok(self.registry.extensions.get(name).cloned())
     }
 
     async fn find_installed(&self, query: &InstallationQuery) -> Result<Vec<InstalledExtension>> {
-        let mut results = Vec::new();
-
-        for ext in self.registry.extensions.values() {
-            if self.matches_query(ext, query) {
-                results.push(ext.clone());
-            }
-        }
-
-        // Sort by installation date (newest first)
-        results.sort_by(|a, b| b.installed_at.cmp(&a.installed_at));
-
-        Ok(results)
+        Ok(self
+            .registry
+            .extensions
+            .values()
+            .filter(|ext| self.matches_query(ext, query))
+            .cloned()
+            .collect())
     }
 
     async fn get_installation_stats(&self) -> Result<InstallationStats> {
-        Ok(self.calculate_stats(&self.registry.extensions))
+        Ok(self.calculate_stats().await)
     }
 
     async fn validate_installations(&self) -> Result<Vec<ValidationIssue>> {
         let mut issues = Vec::new();
 
-        for ext in self.registry.extensions.values() {
-            // Check if installation directory exists
-            if !ext.install_path.exists() {
+        for extension in self.registry.extensions.values() {
+            // Check if installation path exists
+            if !extension.install_path.exists() {
                 issues.push(ValidationIssue {
-                    extension_name: ext.name.clone(),
+                    extension_name: extension.name.clone(),
                     issue_type: ValidationIssueType::MissingFiles,
-                    description: format!(
-                        "Installation directory not found: {}",
-                        ext.install_path.display()
-                    ),
+                    description: "Installation directory not found".to_string(),
                     severity: IssueSeverity::Error,
                 });
                 continue;
             }
 
-            // Check if WASM file exists
-            let wasm_path = ext.get_wasm_path();
+            // Check for required files
+            let wasm_path = extension.install_path.join("extension.wasm");
+            let manifest_path = extension.install_path.join("manifest.json");
+
             if !wasm_path.exists() {
                 issues.push(ValidationIssue {
-                    extension_name: ext.name.clone(),
+                    extension_name: extension.name.clone(),
                     issue_type: ValidationIssueType::MissingFiles,
-                    description: "WASM component file not found".to_string(),
+                    description: "WASM component file missing".to_string(),
                     severity: IssueSeverity::Critical,
                 });
             }
 
-            // Check if manifest file exists
-            let manifest_path = ext.get_manifest_path();
             if !manifest_path.exists() {
                 issues.push(ValidationIssue {
-                    extension_name: ext.name.clone(),
+                    extension_name: extension.name.clone(),
                     issue_type: ValidationIssueType::MissingFiles,
-                    description: "Manifest file not found".to_string(),
+                    description: "Manifest file missing".to_string(),
                     severity: IssueSeverity::Error,
                 });
-            } else {
-                // Validate manifest can be parsed
-                if let Err(_) = fs::read_to_string(&manifest_path)
-                    .await
-                    .and_then(|content| {
-                        serde_json::from_str::<crate::manifest::ExtensionManifest>(&content)
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-                    })
-                {
-                    issues.push(ValidationIssue {
-                        extension_name: ext.name.clone(),
-                        issue_type: ValidationIssueType::InvalidManifest,
-                        description: "Manifest file is corrupted or invalid".to_string(),
-                        severity: IssueSeverity::Error,
-                    });
-                }
             }
 
-            // Validate checksum if possible
-            if wasm_path.exists() {
-                if let Ok(wasm_content) = fs::read(&wasm_path).await {
-                    if !ext.manifest.checksum.verify(&wasm_content) {
-                        issues.push(ValidationIssue {
-                            extension_name: ext.name.clone(),
-                            issue_type: ValidationIssueType::ChecksumMismatch,
-                            description: "WASM file checksum does not match manifest".to_string(),
-                            severity: IssueSeverity::Warning,
-                        });
+            // Validate checksum if available
+            if let Some(ref checksum) = extension.checksum {
+                if wasm_path.exists() {
+                    if let Ok(wasm_content) = fs::read(&wasm_path).await {
+                        if !checksum.verify(&wasm_content) {
+                            issues.push(ValidationIssue {
+                                extension_name: extension.name.clone(),
+                                issue_type: ValidationIssueType::ChecksumMismatch,
+                                description: "WASM component checksum verification failed"
+                                    .to_string(),
+                                severity: IssueSeverity::Critical,
+                            });
+                        }
                     }
                 }
             }
@@ -628,27 +550,26 @@ impl RegistryStore for LocalRegistryStore {
     }
 
     async fn cleanup_orphaned(&mut self) -> Result<u32> {
-        let mut removed_count = 0;
+        let mut removed = 0;
         let mut to_remove = Vec::new();
 
-        for (name, ext) in &self.registry.extensions {
-            if !ext.install_path.exists() {
-                warn!("Found orphaned registry entry for extension: {}", name);
+        for (name, extension) in &self.registry.extensions {
+            if !extension.install_path.exists() {
                 to_remove.push(name.clone());
             }
         }
 
         for name in to_remove {
             self.registry.extensions.remove(&name);
-            removed_count += 1;
+            removed += 1;
         }
 
-        if removed_count > 0 {
+        if removed > 0 {
             self.save_registry().await?;
-            debug!("Cleaned up {} orphaned registry entries", removed_count);
+            info!("Cleaned up {} orphaned registry entries", removed);
         }
 
-        Ok(removed_count)
+        Ok(removed)
     }
 
     fn registry_path(&self) -> Option<PathBuf> {
@@ -662,28 +583,25 @@ mod tests {
     use crate::manifest::{Checksum, ChecksumAlgorithm, ExtensionManifest};
     use tempfile::TempDir;
 
-    fn create_test_installed_extension(name: &str, version: &str) -> InstalledExtension {
+    fn create_test_extension_package(name: &str, version: &str) -> ExtensionPackage {
         let manifest = ExtensionManifest {
             name: name.to_string(),
             version: version.to_string(),
-            author: "test-author".to_string(),
+            author: "Test Author".to_string(),
             langs: vec!["en".to_string()],
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![],
             attrs: vec![],
             checksum: Checksum {
                 algorithm: ChecksumAlgorithm::Sha256,
-                value: "test_hash".to_string(),
+                value: "dummy_hash".to_string(),
             },
             signature: None,
         };
 
-        InstalledExtension::new(
-            name.to_string(),
-            version.to_string(),
-            PathBuf::from(format!("/tmp/{}", name)),
+        ExtensionPackage::new(
             manifest,
-            PackageLayout::default(),
+            b"dummy wasm content".to_vec(),
             "test-store".to_string(),
         )
     }
@@ -691,76 +609,72 @@ mod tests {
     #[tokio::test]
     async fn test_registry_store_creation() {
         let temp_dir = TempDir::new().unwrap();
-        let store = LocalRegistryStore::new(temp_dir.path()).await.unwrap();
+        let registry = LocalRegistryStore::new(temp_dir.path()).await.unwrap();
 
-        assert_eq!(store.store_info().store_type, "registry");
-        // Registry file is created on first save, so just check the path is valid
-        assert!(store.registry_path().is_some());
-
-        // Test that we can save and then the file exists
-        store.save_registry().await.unwrap();
-        assert!(store.registry_path().unwrap().exists());
+        assert_eq!(registry.install_dir(), temp_dir.path());
+        assert!(registry.registry_path().is_some());
     }
 
     #[tokio::test]
-    async fn test_register_and_get_installation() {
+    async fn test_install_and_uninstall_extension() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = LocalRegistryStore::new(temp_dir.path()).await.unwrap();
+        let mut registry = LocalRegistryStore::new(temp_dir.path()).await.unwrap();
 
-        let ext = create_test_installed_extension("test-ext", "1.0.0");
-        store.register_installation(ext.clone()).await.unwrap();
+        let package = create_test_extension_package("test-ext", "1.0.0");
+        let options = InstallOptions::default();
 
-        let retrieved = store.get_installed("test-ext").await.unwrap();
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().version, "1.0.0");
-    }
+        // Install extension
+        let installed = registry.install_extension(package, &options).await.unwrap();
+        assert_eq!(installed.name, "test-ext");
+        assert_eq!(installed.version, "1.0.0");
 
-    #[tokio::test]
-    async fn test_unregister_installation() {
-        let temp_dir = TempDir::new().unwrap();
-        let mut store = LocalRegistryStore::new(temp_dir.path()).await.unwrap();
+        // Verify it's registered
+        assert!(registry.is_installed("test-ext").await.unwrap());
 
-        let ext = create_test_installed_extension("test-ext", "1.0.0");
-        store.register_installation(ext).await.unwrap();
-
-        let removed = store.unregister_installation("test-ext").await.unwrap();
+        // Uninstall extension
+        let removed = registry.uninstall_extension("test-ext").await.unwrap();
         assert!(removed);
 
-        let retrieved = store.get_installed("test-ext").await.unwrap();
-        assert!(retrieved.is_none());
+        // Verify it's no longer registered
+        assert!(!registry.is_installed("test-ext").await.unwrap());
     }
 
     #[tokio::test]
     async fn test_installation_query() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = LocalRegistryStore::new(temp_dir.path()).await.unwrap();
+        let mut registry = LocalRegistryStore::new(temp_dir.path()).await.unwrap();
 
-        let ext1 = create_test_installed_extension("ext-a", "1.0.0");
-        let ext2 = create_test_installed_extension("ext-b", "2.0.0");
+        let package1 = create_test_extension_package("ext1", "1.0.0");
+        let package2 = create_test_extension_package("ext2", "2.0.0");
 
-        store.register_installation(ext1).await.unwrap();
-        store.register_installation(ext2).await.unwrap();
+        let options = InstallOptions::default();
+        registry
+            .install_extension(package1, &options)
+            .await
+            .unwrap();
+        registry
+            .install_extension(package2, &options)
+            .await
+            .unwrap();
 
-        let query = InstallationQuery::new().with_name_pattern("ext-a".to_string());
-        let results = store.find_installed(&query).await.unwrap();
-
+        // Test name pattern query
+        let query = InstallationQuery::new().with_name_pattern("ext1".to_string());
+        let results = registry.find_installed(&query).await.unwrap();
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].name, "ext-a");
+        assert_eq!(results[0].name, "ext1");
     }
 
     #[tokio::test]
     async fn test_installation_stats() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = LocalRegistryStore::new(temp_dir.path()).await.unwrap();
+        let mut registry = LocalRegistryStore::new(temp_dir.path()).await.unwrap();
 
-        let ext1 = create_test_installed_extension("ext-a", "1.0.0");
-        let ext2 = create_test_installed_extension("ext-b", "2.0.0");
+        let package = create_test_extension_package("test-ext", "1.0.0");
+        let options = InstallOptions::default();
+        registry.install_extension(package, &options).await.unwrap();
 
-        store.register_installation(ext1).await.unwrap();
-        store.register_installation(ext2).await.unwrap();
-
-        let stats = store.get_installation_stats().await.unwrap();
-        assert_eq!(stats.total_extensions, 2);
-        assert_eq!(stats.stores_used.get("test-store"), Some(&2));
+        let stats = registry.get_installation_stats().await.unwrap();
+        assert_eq!(stats.total_extensions, 1);
+        assert!(stats.stores_used.contains(&"test-store".to_string()));
     }
 }

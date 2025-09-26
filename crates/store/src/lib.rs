@@ -17,53 +17,49 @@
 //!
 //! ## Basic Usage
 //!
-//! ```rust
-//! use quelle_store::{StoreManager, LocalRegistryStore, local::LocalStore};
-//! use std::path::PathBuf;
-//!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create a registry store
-//! let registry_store: Box<dyn quelle_store::RegistryStore> =
-//!     Box::new(LocalRegistryStore::new("./registry").await?);
-//!
-//! // Create a store manager
-//! let mut manager = StoreManager::new(
-//!     PathBuf::from("./extensions"),
-//!     registry_store
-//! ).await?;
-//!
-//! // Add a local extension store
-//! let local_store = LocalStore::new("./local-repo")?;
-//! manager.add_extension_store(local_store);
-//!
-//! // Install an extension
-//! let installed = manager.install("dragontea", None, None).await?;
-//! println!("Installed: {}@{}", installed.name, installed.version);
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## Search and Discovery
-//!
-//! ```rust
-//! use quelle_store::{StoreManager, SearchQuery, SearchSortBy};
-//!
-//! # async fn search_example(manager: &StoreManager) -> Result<(), Box<dyn std::error::Error>> {
-//! // Search for novel scrapers
-//! let query = SearchQuery::new()
-//!     .with_text("novel".to_string())
-//!     .with_tags(vec!["scraper".to_string()])
-//!     .sort_by(SearchSortBy::Relevance)
-//!     .limit(10);
-//!
-//! let results = manager.search_all_stores(&query).await?;
-//! for ext in results {
-//!     println!("Found: {} by {} - {}", ext.name, ext.author, ext.description.unwrap_or_default());
-//! }
-//! # Ok(())
-//! # }
-//! ```
-
+/// ```rust
+/// use quelle_store::{StoreManager, LocalRegistryStore, local::LocalStore};
+/// use std::path::PathBuf;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// // Create a registry store (manages installation state)
+/// let registry_store: Box<dyn quelle_store::RegistryStore> =
+///     Box::new(LocalRegistryStore::new("./extensions").await?);
+///
+/// // Create a store manager
+/// let mut manager = StoreManager::new(registry_store).await?;
+///
+/// // Add a local extension store (for discovery)
+/// let local_store = LocalStore::new("./local-repo")?;
+/// manager.add_extension_store(local_store);
+///
+/// // Install an extension
+/// let installed = manager.install("dragontea", None, None).await?;
+/// println!("Installed: {}@{}", installed.name, installed.version);
+/// # Ok(())
+/// # }
+/// ```
+///
+/// ## Search and Discovery
+///
+/// ```rust
+/// use quelle_store::{StoreManager, SearchQuery, SearchSortBy};
+///
+/// # async fn search_example(manager: &StoreManager) -> Result<(), Box<dyn std::error::Error>> {
+/// // Search for novel scrapers
+/// let query = SearchQuery::new()
+///     .with_text("novel".to_string())
+///     .with_tags(vec!["scraper".to_string()])
+///     .sort_by(SearchSortBy::Relevance)
+///     .limit(10);
+///
+/// let results = manager.search_all_stores(&query).await?;
+/// for ext in results {
+///     println!("Found: {} by {} - {}", ext.name, ext.author, ext.description.unwrap_or_default());
+/// }
+/// # Ok(())
+/// # }
+/// ```
 pub mod error;
 pub mod local;
 pub mod manager;
@@ -99,18 +95,16 @@ pub const NAME: &str = env!("CARGO_PKG_NAME");
 /// This is a convenience function that sets up a basic store manager
 /// with sensible defaults for most use cases.
 pub async fn init_default(install_dir: std::path::PathBuf) -> Result<StoreManager> {
-    let registry_dir = install_dir.join(".registry");
-    let registry_store = Box::new(LocalRegistryStore::new(registry_dir).await?);
-    StoreManager::new(install_dir, registry_store).await
+    let registry_store = Box::new(LocalRegistryStore::new(install_dir).await?);
+    StoreManager::new(registry_store).await
 }
 
 /// Create a store manager with custom configuration
 pub async fn init_with_config(
-    install_dir: std::path::PathBuf,
     registry_store: Box<dyn RegistryStore>,
     config: StoreConfig,
 ) -> Result<StoreManager> {
-    StoreManager::with_config(install_dir, registry_store, config).await
+    StoreManager::with_config(registry_store, config).await
 }
 
 #[cfg(test)]
@@ -125,7 +119,7 @@ mod tests {
 
         let manager = init_default(install_dir.clone()).await.unwrap();
 
-        assert!(install_dir.exists());
+        assert!(manager.install_dir().exists());
         assert_eq!(manager.list_extension_stores().len(), 0);
     }
 

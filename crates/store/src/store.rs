@@ -6,7 +6,7 @@ use crate::error::Result;
 use crate::manifest::ExtensionManifest;
 use crate::models::{
     ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions, InstalledExtension,
-    PackageLayout, SearchQuery, StoreHealth, StoreInfo, UpdateInfo, UpdateOptions,
+    PackageLayout, SearchQuery, StoreHealth, StoreInfo, UpdateInfo,
 };
 
 /// Core trait defining the interface for all store implementations
@@ -63,15 +63,6 @@ pub trait Store: Send + Sync {
         version: Option<&str>,
     ) -> Result<ExtensionPackage>;
 
-    /// Install an extension to the specified directory
-    async fn install_extension(
-        &self,
-        name: &str,
-        version: Option<&str>,
-        target_dir: &Path,
-        options: &InstallOptions,
-    ) -> Result<InstalledExtension>;
-
     // Update Operations
 
     /// Check for updates for the given installed extensions
@@ -79,14 +70,6 @@ pub trait Store: Send + Sync {
 
     /// Get the latest version available for an extension
     async fn get_latest_version(&self, name: &str) -> Result<Option<String>>;
-
-    /// Update an extension to the latest version
-    async fn update_extension(
-        &self,
-        name: &str,
-        target_dir: &Path,
-        options: &UpdateOptions,
-    ) -> Result<InstalledExtension>;
 
     // Version Management
 
@@ -335,18 +318,6 @@ mod tests {
             ))
         }
 
-        async fn install_extension(
-            &self,
-            _name: &str,
-            _version: Option<&str>,
-            _target_dir: &Path,
-            _options: &InstallOptions,
-        ) -> Result<InstalledExtension> {
-            Err(crate::error::StoreError::ExtensionNotFound(
-                "mock".to_string(),
-            ))
-        }
-
         async fn check_updates(
             &self,
             _installed: &[InstalledExtension],
@@ -356,17 +327,6 @@ mod tests {
 
         async fn get_latest_version(&self, _name: &str) -> Result<Option<String>> {
             Ok(None)
-        }
-
-        async fn update_extension(
-            &self,
-            _name: &str,
-            _target_dir: &Path,
-            _options: &UpdateOptions,
-        ) -> Result<InstalledExtension> {
-            Err(crate::error::StoreError::ExtensionNotFound(
-                "mock".to_string(),
-            ))
         }
 
         async fn list_versions(&self, _name: &str) -> Result<Vec<String>> {
