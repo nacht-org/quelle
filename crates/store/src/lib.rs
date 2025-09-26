@@ -66,6 +66,7 @@ pub mod manifest;
 pub mod models;
 pub mod publish;
 pub mod registry;
+pub mod source;
 pub mod store;
 pub mod validation;
 
@@ -90,6 +91,9 @@ pub use publish::{
 pub use registry::{
     InstallationQuery, InstallationStats, LocalRegistryStore, RegistryHealth, RegistryStore,
     ValidationIssue,
+};
+pub use source::{
+    create_store_from_source, ExtensionSource, LocalSourceStore, SourceStore, StoreType,
 };
 pub use store::{capabilities, Store};
 pub use validation::{

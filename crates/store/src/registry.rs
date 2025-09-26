@@ -305,8 +305,12 @@ impl LocalRegistryStore {
         self.registry.stats = self.calculate_stats().await;
         self.registry.last_updated = Utc::now();
 
-        let content =
-            serde_json::to_string_pretty(&self.registry).map_err(StoreError::SerializationError)?;
+        let content = serde_json::to_string_pretty(&self.registry).map_err(|e| {
+            StoreError::SerializationErrorWithContext {
+                operation: "serialize registry".to_string(),
+                source: e,
+            }
+        })?;
 
         // Create backup if registry exists
         if self.registry_path.exists() {

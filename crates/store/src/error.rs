@@ -38,9 +38,6 @@ pub enum StoreError {
         source: std::io::Error,
     },
 
-    #[error("Serialization error: {0}")]
-    SerializationError(#[from] serde_json::Error),
-
     #[error("Store '{0}' is unhealthy: {1}")]
     StoreUnhealthy(String, String),
 
@@ -52,6 +49,24 @@ pub enum StoreError {
 
     #[error("Concurrent access error: {0}")]
     ConcurrencyError(String),
+
+    #[error("Configuration error: {message}")]
+    ConfigurationError { message: String },
+
+    #[error("Serialization error: {0}")]
+    SerializationError(#[from] serde_json::Error),
+
+    #[error("Serialization operation '{operation}' failed: {source}")]
+    SerializationErrorWithContext {
+        operation: String,
+        source: serde_json::Error,
+    },
+
+    #[error("Failed to create store of type '{store_type}': {source}")]
+    StoreCreationError {
+        store_type: String,
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
 
     #[error("Configuration error: {0}")]
     ConfigError(String),

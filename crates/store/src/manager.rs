@@ -66,6 +66,13 @@ impl StoreManager {
         self.sort_stores_by_priority();
     }
 
+    /// Add a boxed extension store to the manager (for discovering extensions)
+    pub fn add_boxed_extension_store(&mut self, store: Box<dyn Store>) {
+        info!("Adding extension store: {}", store.store_info().name);
+        self.extension_stores.push(store);
+        self.sort_stores_by_priority();
+    }
+
     /// Remove an extension store by name
     pub fn remove_extension_store(&mut self, name: &str) -> bool {
         let initial_len = self.extension_stores.len();

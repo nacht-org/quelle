@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use clap::Subcommand;
 use quelle_store::{
-    ExtensionVisibility, SearchQuery, SearchSortBy, StoreManager,
+    ExtensionSource, ExtensionVisibility, SearchQuery, SearchSortBy, SourceStore, StoreManager,
     local::LocalStore,
     models::{ExtensionPackage, InstallOptions},
     publish::{PublishOptions, PublishUpdateOptions, UnpublishOptions},
@@ -256,16 +256,17 @@ impl From<SortOption> for SearchSortBy {
 pub async fn handle_store_command(
     cmd: StoreCommands,
     manager: &mut StoreManager,
+    source_store: &dyn SourceStore,
 ) -> eyre::Result<()> {
     match cmd {
         StoreCommands::Add { store_type } => {
-            handle_add_store(store_type, manager).await?;
+            handle_add_store(store_type, manager, source_store).await?;
         }
         StoreCommands::List => {
-            handle_list_stores(manager).await?;
+            handle_list_stores(manager, source_store).await?;
         }
         StoreCommands::Remove { name } => {
-            handle_remove_store(name, manager).await?;
+            handle_remove_store(name, manager, source_store).await?;
         }
         StoreCommands::Health => {
             handle_health_check(manager).await?;
@@ -410,7 +411,11 @@ pub async fn handle_extension_command(
     Ok(())
 }
 
-async fn handle_add_store(store_type: StoreType, manager: &mut StoreManager) -> eyre::Result<()> {
+async fn handle_add_store(
+    store_type: StoreType,
+    manager: &mut StoreManager,
+    source_store: &dyn SourceStore,
+) -> eyre::Result<()> {
     match store_type {
         StoreType::Local { path, name } => {
             let store_name = name.unwrap_or_else(|| {
@@ -427,12 +432,27 @@ async fn handle_add_store(store_type: StoreType, manager: &mut StoreManager) -> 
                 return Err(eyre::eyre!("Store path does not exist"));
             }
 
+            // Check if store already exists
+            if source_store.has_source(&store_name).await? {
+                error!("Store '{}' already exists", store_name);
+                return Err(eyre::eyre!("Store '{}' already exists", store_name));
+            }
+
             // Create local store
             let local_store = LocalStore::new(&path)
                 .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
 
+            // Create source configuration
+            let source = ExtensionSource::local(store_name.clone(), path);
+
             // Add to manager
             manager.add_extension_store(local_store);
+
+            // Persist the configuration
+            source_store
+                .add_source(&source)
+                .await
+                .map_err(|e| eyre::eyre!("Failed to save store configuration: {}", e))?;
 
             println!("✅ Successfully added local store '{}'", store_name);
         }
@@ -440,32 +460,63 @@ async fn handle_add_store(store_type: StoreType, manager: &mut StoreManager) -> 
     Ok(())
 }
 
-async fn handle_list_stores(manager: &StoreManager) -> eyre::Result<()> {
-    let stores = manager.list_extension_stores();
+async fn handle_list_stores(
+    manager: &StoreManager,
+    source_store: &dyn SourceStore,
+) -> eyre::Result<()> {
+    let sources = source_store.load_sources().await?;
+    let active_stores = manager.list_extension_stores();
 
-    if stores.is_empty() {
+    if sources.is_empty() {
         println!("No extension stores configured.");
         println!("Use 'quelle store add' to add a store.");
         return Ok(());
     }
 
     println!("Configured extension stores:");
-    for store in stores {
-        let info = store.store_info();
-        println!("  📦 {} ({})", info.name, info.store_type);
-        if let Some(desc) = &info.description {
-            println!("     {}", desc);
+    for source in sources {
+        let status = if active_stores
+            .iter()
+            .any(|s| s.store_info().name == source.name)
+        {
+            "✅ Active"
+        } else if !source.enabled {
+            "⏸️  Disabled"
+        } else {
+            "❌ Failed to load"
+        };
+
+        println!("  📦 {} ({}) - {}", source.name, source.store_type, status);
+
+        if let Some(path) = source.get_path() {
+            println!("     Path: {}", path.display());
         }
-        println!("     Priority: {}", info.priority);
+
+        println!(
+            "     Priority: {} | Trusted: {} | Added: {}",
+            source.priority,
+            if source.trusted { "Yes" } else { "No" },
+            source.added_at.format("%Y-%m-%d %H:%M UTC")
+        );
     }
     Ok(())
 }
 
-async fn handle_remove_store(name: String, manager: &mut StoreManager) -> eyre::Result<()> {
-    if manager.remove_extension_store(&name) {
+async fn handle_remove_store(
+    name: String,
+    manager: &mut StoreManager,
+    source_store: &dyn SourceStore,
+) -> eyre::Result<()> {
+    let removed_from_manager = manager.remove_extension_store(&name);
+    let removed_from_config = source_store
+        .remove_source(&name)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to remove store configuration: {}", e))?;
+
+    if removed_from_manager || removed_from_config {
         println!("✅ Successfully removed store '{}'", name);
     } else {
-        error!("Store '{}' not found", name);
+        println!("❌ Store '{}' not found", name);
     }
     Ok(())
 }

@@ -57,6 +57,12 @@ impl LocalStore {
         self
     }
 
+    /// Create a LocalStore with a custom name
+    pub fn with_name(mut self, name: String) -> Self {
+        self.info.name = name;
+        self
+    }
+
     /// Validate extension name to prevent path traversal attacks
     fn validate_extension_name(&self, name: &str) -> std::result::Result<(), LocalStoreError> {
         if name.is_empty() {

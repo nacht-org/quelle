@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use clap::Parser;
 use quelle_engine::{ExtensionEngine, bindings::SimpleSearchQuery, http::HeadlessChromeExecutor};
-use quelle_store::StoreManager;
+use quelle_store::{LocalSourceStore, SourceStore, StoreManager, create_store_from_source};
 
 use crate::cli::Commands;
 use crate::store_commands::{handle_extension_command, handle_store_command};
@@ -19,14 +19,35 @@ async fn main() -> eyre::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
+    // Initialize source store for persistence (using ./local for easier testing)
+    let config_dir = PathBuf::from("./local");
+    let config_file = config_dir.join("sources.json");
+    let source_store = LocalSourceStore::new(config_file).await?;
+
     // Initialize store manager
     let registry_dir = PathBuf::from("./registry");
     let registry_store = Box::new(quelle_store::LocalRegistryStore::new(registry_dir).await?);
     let mut store_manager = StoreManager::new(registry_store).await?;
 
+    // Load and restore previously configured stores
+    let saved_sources = source_store.load_sources().await?;
+    for source in saved_sources {
+        if source.enabled {
+            match create_store_from_source(&source).await {
+                Ok(store) => {
+                    tracing::info!("Restored store: {} ({})", source.name, source.store_type);
+                    store_manager.add_boxed_extension_store(store);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to restore store '{}': {}", source.name, e);
+                }
+            }
+        }
+    }
+
     match cli.command {
         Commands::Store { command } => {
-            handle_store_command(command, &mut store_manager).await?;
+            handle_store_command(command, &mut store_manager, &source_store).await?;
         }
         Commands::Extension { command } => {
             handle_extension_command(command, &mut store_manager).await?;
