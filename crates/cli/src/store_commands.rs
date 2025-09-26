@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use clap::Subcommand;
 use quelle_store::{
-    ExtensionSource, ExtensionVisibility, SearchQuery, SearchSortBy, SourceStore, StoreManager,
+    ConfigStore, ExtensionSource, ExtensionVisibility, SearchQuery, SearchSortBy, StoreManager,
     local::LocalStore,
     models::{ExtensionPackage, InstallOptions},
     publish::{PublishOptions, PublishUpdateOptions, UnpublishOptions},
@@ -256,17 +256,17 @@ impl From<SortOption> for SearchSortBy {
 pub async fn handle_store_command(
     cmd: StoreCommands,
     manager: &mut StoreManager,
-    source_store: &dyn SourceStore,
+    config_store: &dyn ConfigStore,
 ) -> eyre::Result<()> {
     match cmd {
         StoreCommands::Add { store_type } => {
-            handle_add_store(store_type, manager, source_store).await?;
+            handle_add_store(store_type, manager, config_store).await?;
         }
         StoreCommands::List => {
-            handle_list_stores(manager, source_store).await?;
+            handle_list_stores(manager, config_store).await?;
         }
         StoreCommands::Remove { name } => {
-            handle_remove_store(name, manager, source_store).await?;
+            handle_remove_store(name, manager, config_store).await?;
         }
         StoreCommands::Health => {
             handle_health_check(manager).await?;
@@ -414,7 +414,7 @@ pub async fn handle_extension_command(
 async fn handle_add_store(
     store_type: StoreType,
     manager: &mut StoreManager,
-    source_store: &dyn SourceStore,
+    config_store: &dyn ConfigStore,
 ) -> eyre::Result<()> {
     match store_type {
         StoreType::Local { path, name } => {
@@ -432,8 +432,9 @@ async fn handle_add_store(
                 return Err(eyre::eyre!("Store path does not exist"));
             }
 
-            // Check if store already exists
-            if source_store.has_source(&store_name).await? {
+            // Load config and check if store already exists
+            let mut config = config_store.load().await?;
+            if config.has_source(&store_name) {
                 error!("Store '{}' already exists", store_name);
                 return Err(eyre::eyre!("Store '{}' already exists", store_name));
             }
@@ -449,8 +450,9 @@ async fn handle_add_store(
             manager.add_extension_store(local_store);
 
             // Persist the configuration
-            source_store
-                .add_source(&source)
+            config.add_source(source);
+            config_store
+                .save(&config)
                 .await
                 .map_err(|e| eyre::eyre!("Failed to save store configuration: {}", e))?;
 
@@ -462,9 +464,10 @@ async fn handle_add_store(
 
 async fn handle_list_stores(
     manager: &StoreManager,
-    source_store: &dyn SourceStore,
+    config_store: &dyn ConfigStore,
 ) -> eyre::Result<()> {
-    let sources = source_store.load_sources().await?;
+    let config = config_store.load().await?;
+    let sources = &config.extension_sources;
     let active_stores = manager.list_extension_stores();
 
     if sources.is_empty() {
@@ -505,13 +508,19 @@ async fn handle_list_stores(
 async fn handle_remove_store(
     name: String,
     manager: &mut StoreManager,
-    source_store: &dyn SourceStore,
+    config_store: &dyn ConfigStore,
 ) -> eyre::Result<()> {
     let removed_from_manager = manager.remove_extension_store(&name);
-    let removed_from_config = source_store
-        .remove_source(&name)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to remove store configuration: {}", e))?;
+
+    let mut config = config_store.load().await?;
+    let removed_from_config = config.remove_source(&name);
+
+    if removed_from_config {
+        config_store
+            .save(&config)
+            .await
+            .map_err(|e| eyre::eyre!("Failed to save store configuration: {}", e))?;
+    }
 
     if removed_from_manager || removed_from_config {
         println!("✅ Successfully removed store '{}'", name);

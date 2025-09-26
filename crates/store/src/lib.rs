@@ -93,7 +93,8 @@ pub use registry::{
     ValidationIssue,
 };
 pub use source::{
-    create_store_from_source, ExtensionSource, LocalSourceStore, SourceStore, StoreType,
+    create_store_from_source, ConfigStore, ExtensionSource, LocalConfigStore, RegistryConfig,
+    StoreType,
 };
 pub use store::{capabilities, Store};
 pub use validation::{

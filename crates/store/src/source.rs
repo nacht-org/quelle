@@ -1,8 +1,8 @@
-//! Source Store - Persistence for extension store configurations
+//! Config Store - Persistence for registry configuration
 //!
-//! This module provides traits and implementations for persisting the configuration
-//! of extension stores. When stores are added via CLI, their configuration is saved
-//! so they can be restored on the next startup.
+//! This module provides traits and implementations for persisting registry configuration,
+//! including extension store preferences. When stores are added via CLI, their
+//! configuration is saved so they can be restored on the next startup.
 
 use std::path::PathBuf;
 
@@ -42,23 +42,75 @@ impl std::fmt::Display for StoreType {
     }
 }
 
-/// Trait for persisting extension store configurations
+/// Registry configuration containing extension sources and other settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryConfig {
+    pub extension_sources: Vec<ExtensionSource>,
+    // Future: add other registry settings here
+    // pub default_timeout: Duration,
+    // pub parallel_downloads: usize,
+    // pub auto_update: bool,
+}
+
+impl Default for RegistryConfig {
+    fn default() -> Self {
+        Self {
+            extension_sources: Vec::new(),
+        }
+    }
+}
+
+impl RegistryConfig {
+    pub fn add_source(&mut self, source: ExtensionSource) {
+        // Remove existing source with same name
+        self.extension_sources.retain(|s| s.name != source.name);
+
+        // Add the new source
+        self.extension_sources.push(source);
+
+        // Sort by priority (lower numbers = higher priority)
+        self.extension_sources.sort_by_key(|s| s.priority);
+    }
+
+    pub fn remove_source(&mut self, name: &str) -> bool {
+        let initial_len = self.extension_sources.len();
+        self.extension_sources.retain(|s| s.name != name);
+        initial_len != self.extension_sources.len()
+    }
+
+    pub fn has_source(&self, name: &str) -> bool {
+        self.extension_sources.iter().any(|s| s.name == name)
+    }
+
+    /// Apply configuration to an existing StoreManager
+    pub async fn apply(&self, store_manager: &mut crate::StoreManager) -> Result<()> {
+        // Add all configured extension sources
+        for source in &self.extension_sources {
+            if source.enabled {
+                match crate::source::create_store_from_source(source).await {
+                    Ok(store) => {
+                        tracing::info!("Restored store: {} ({})", source.name, source.store_type);
+                        store_manager.add_boxed_extension_store(store);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to restore store '{}': {}", source.name, e);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Trait for persisting registry configuration
 #[async_trait::async_trait]
-pub trait SourceStore: Send + Sync {
-    /// Load all saved extension source configurations
-    async fn load_sources(&self) -> Result<Vec<ExtensionSource>>;
+pub trait ConfigStore: Send + Sync {
+    /// Load registry configuration
+    async fn load(&self) -> Result<RegistryConfig>;
 
-    /// Save all extension source configurations
-    async fn save_sources(&self, sources: &[ExtensionSource]) -> Result<()>;
-
-    /// Add a new extension source configuration
-    async fn add_source(&self, source: &ExtensionSource) -> Result<()>;
-
-    /// Remove an extension source configuration by name
-    async fn remove_source(&self, name: &str) -> Result<bool>;
-
-    /// Check if a source with the given name exists
-    async fn has_source(&self, name: &str) -> Result<bool>;
+    /// Save registry configuration
+    async fn save(&self, config: &RegistryConfig) -> Result<()>;
 }
 
 /// Configuration for an extension source
@@ -115,13 +167,13 @@ impl ExtensionSource {
     }
 }
 
-/// Local file-based implementation of SourceStore
-pub struct LocalSourceStore {
+/// Local file-based implementation of ConfigStore
+pub struct LocalConfigStore {
     config_file: PathBuf,
 }
 
-impl LocalSourceStore {
-    /// Create a new LocalSourceStore with a custom config file path
+impl LocalConfigStore {
+    /// Create a new LocalConfigStore with a custom config file path
     pub async fn new<P: Into<PathBuf>>(config_file: P) -> Result<Self> {
         let config_file = config_file.into();
 
@@ -139,10 +191,10 @@ impl LocalSourceStore {
         Ok(Self { config_file })
     }
 
-    /// Create a new LocalSourceStore using OS-specific default directories
+    /// Create a new LocalConfigStore using OS-specific default directories
     pub async fn new_with_defaults() -> Result<Self> {
         let config_dir = get_default_config_dir()?;
-        let config_file = config_dir.join("sources.json");
+        let config_file = config_dir.join("config.json");
         Self::new(config_file).await
     }
 
@@ -153,35 +205,35 @@ impl LocalSourceStore {
 }
 
 #[async_trait::async_trait]
-impl SourceStore for LocalSourceStore {
-    async fn load_sources(&self) -> Result<Vec<ExtensionSource>> {
+impl ConfigStore for LocalConfigStore {
+    async fn load(&self) -> Result<RegistryConfig> {
         if !self.config_file.exists() {
-            return Ok(Vec::new());
+            return Ok(RegistryConfig::default());
         }
 
         let contents =
             fs::read_to_string(&self.config_file)
                 .await
                 .map_err(|e| StoreError::IoOperation {
-                    operation: "read sources config".to_string(),
+                    operation: "read registry config".to_string(),
                     path: self.config_file.clone(),
                     source: e,
                 })?;
 
-        let sources: Vec<ExtensionSource> = serde_json::from_str(&contents).map_err(|e| {
+        let config: RegistryConfig = serde_json::from_str(&contents).map_err(|e| {
             StoreError::SerializationErrorWithContext {
-                operation: "deserialize sources config".to_string(),
+                operation: "deserialize registry config".to_string(),
                 source: e,
             }
         })?;
 
-        Ok(sources)
+        Ok(config)
     }
 
-    async fn save_sources(&self, sources: &[ExtensionSource]) -> Result<()> {
-        let contents = serde_json::to_string_pretty(sources).map_err(|e| {
+    async fn save(&self, config: &RegistryConfig) -> Result<()> {
+        let contents = serde_json::to_string_pretty(config).map_err(|e| {
             StoreError::SerializationErrorWithContext {
-                operation: "serialize sources config".to_string(),
+                operation: "serialize registry config".to_string(),
                 source: e,
             }
         })?;
@@ -189,46 +241,12 @@ impl SourceStore for LocalSourceStore {
         fs::write(&self.config_file, contents)
             .await
             .map_err(|e| StoreError::IoOperation {
-                operation: "write sources config".to_string(),
+                operation: "write registry config".to_string(),
                 path: self.config_file.clone(),
                 source: e,
             })?;
 
         Ok(())
-    }
-
-    async fn add_source(&self, source: &ExtensionSource) -> Result<()> {
-        let mut sources = self.load_sources().await?;
-
-        // Remove existing source with same name
-        sources.retain(|s| s.name != source.name);
-
-        // Add the new source
-        sources.push(source.clone());
-
-        // Sort by priority (lower numbers = higher priority)
-        sources.sort_by_key(|s| s.priority);
-
-        self.save_sources(&sources).await
-    }
-
-    async fn remove_source(&self, name: &str) -> Result<bool> {
-        let mut sources = self.load_sources().await?;
-        let initial_len = sources.len();
-
-        sources.retain(|s| s.name != name);
-        let removed = sources.len() != initial_len;
-
-        if removed {
-            self.save_sources(&sources).await?;
-        }
-
-        Ok(removed)
-    }
-
-    async fn has_source(&self, name: &str) -> Result<bool> {
-        let sources = self.load_sources().await?;
-        Ok(sources.iter().any(|s| s.name == name))
     }
 }
 
@@ -269,45 +287,50 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
-    async fn test_local_source_store_basic_operations() {
+    async fn test_local_config_store_basic_operations() {
         let temp_dir = TempDir::new().unwrap();
-        let config_file = temp_dir.path().join("test_sources.json");
+        let config_file = temp_dir.path().join("test_config.json");
 
-        let source_store = LocalSourceStore::new(config_file).await.unwrap();
+        let config_store = LocalConfigStore::new(config_file).await.unwrap();
 
-        // Initially no sources
-        let sources = source_store.load_sources().await.unwrap();
-        assert_eq!(sources.len(), 0);
+        // Initially empty config
+        let config = config_store.load().await.unwrap();
+        assert_eq!(config.extension_sources.len(), 0);
 
         // Add a source
+        let mut config = config_store.load().await.unwrap();
         let source = ExtensionSource::local("test-store".to_string(), PathBuf::from("/test/path"));
-        source_store.add_source(&source).await.unwrap();
+        config.add_source(source);
+        config_store.save(&config).await.unwrap();
 
         // Verify it was saved
-        let sources = source_store.load_sources().await.unwrap();
-        assert_eq!(sources.len(), 1);
-        assert_eq!(sources[0].name, "test-store");
+        let config = config_store.load().await.unwrap();
+        assert_eq!(config.extension_sources.len(), 1);
+        assert_eq!(config.extension_sources[0].name, "test-store");
         assert_eq!(
-            sources[0].store_type,
+            config.extension_sources[0].store_type,
             StoreType::Local {
                 path: PathBuf::from("/test/path")
             }
         );
 
         // Check if source exists
-        assert!(source_store.has_source("test-store").await.unwrap());
-        assert!(!source_store.has_source("non-existent").await.unwrap());
+        assert!(config.has_source("test-store"));
+        assert!(!config.has_source("non-existent"));
 
         // Remove the source
-        let removed = source_store.remove_source("test-store").await.unwrap();
+        let mut config = config_store.load().await.unwrap();
+        let removed = config.remove_source("test-store");
         assert!(removed);
+        config_store.save(&config).await.unwrap();
 
         // Verify it was removed
-        let sources = source_store.load_sources().await.unwrap();
-        assert_eq!(sources.len(), 0);
+        let config = config_store.load().await.unwrap();
+        assert_eq!(config.extension_sources.len(), 0);
 
         // Try removing non-existent source
-        let removed = source_store.remove_source("non-existent").await.unwrap();
+        let mut config = config_store.load().await.unwrap();
+        let removed = config.remove_source("non-existent");
         assert!(!removed);
     }
 
@@ -333,8 +356,10 @@ mod tests {
     #[tokio::test]
     async fn test_source_priority_sorting() {
         let temp_dir = TempDir::new().unwrap();
-        let config_file = temp_dir.path().join("test_sources.json");
-        let source_store = LocalSourceStore::new(config_file).await.unwrap();
+        let config_file = temp_dir.path().join("test_config.json");
+        let config_store = LocalConfigStore::new(config_file).await.unwrap();
+
+        let mut config = RegistryConfig::default();
 
         // Add sources with different priorities
         let source1 = ExtensionSource::local("store1".to_string(), PathBuf::from("/path1"))
@@ -344,16 +369,18 @@ mod tests {
         let source3 =
             ExtensionSource::local("store3".to_string(), PathBuf::from("/path3")).with_priority(75);
 
-        source_store.add_source(&source1).await.unwrap();
-        source_store.add_source(&source2).await.unwrap();
-        source_store.add_source(&source3).await.unwrap();
+        config.add_source(source1);
+        config.add_source(source2);
+        config.add_source(source3);
 
-        let sources = source_store.load_sources().await.unwrap();
-        assert_eq!(sources.len(), 3);
+        config_store.save(&config).await.unwrap();
+        let loaded_config = config_store.load().await.unwrap();
+
+        assert_eq!(loaded_config.extension_sources.len(), 3);
 
         // Should be sorted by priority (lower = higher priority)
-        assert_eq!(sources[0].name, "store2"); // priority 50
-        assert_eq!(sources[1].name, "store3"); // priority 75
-        assert_eq!(sources[2].name, "store1"); // priority 100
+        assert_eq!(loaded_config.extension_sources[0].name, "store2"); // priority 50
+        assert_eq!(loaded_config.extension_sources[1].name, "store3"); // priority 75
+        assert_eq!(loaded_config.extension_sources[2].name, "store1"); // priority 100
     }
 }
