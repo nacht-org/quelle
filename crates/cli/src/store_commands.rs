@@ -259,6 +259,7 @@ pub async fn handle_store_command(
 
 pub async fn handle_extension_command(
     command: ExtensionCommands,
+    config: &RegistryConfig,
     manager: &mut StoreManager,
 ) -> eyre::Result<()> {
     match command {
@@ -301,7 +302,7 @@ pub async fn handle_extension_command(
                 token,
                 timeout,
                 dev,
-                manager,
+                config,
             )
             .await
         }
@@ -322,7 +323,7 @@ pub async fn handle_extension_command(
                 keep_record,
                 notify_users,
                 token,
-                manager,
+                config,
             )
             .await
         }
@@ -1106,43 +1107,31 @@ async fn handle_publish_extension(
     }
 
     // Actually publish the extension
-    match store.publish(package, options).await? {
-        Some(result) => match result {
-            Ok(publish_result) => {
-                println!("✅ Successfully published extension:");
-                println!("  Version: {}", publish_result.version);
-                println!("  Download URL: {}", publish_result.download_url);
-                println!(
-                    "  Published at: {}",
-                    publish_result.published_at.format("%Y-%m-%d %H:%M:%S")
-                );
-                println!("  Publication ID: {}", publish_result.publication_id);
-                println!(
-                    "  Package size: {}",
-                    format_size(publish_result.package_size)
-                );
-                println!("  Content hash: {}", publish_result.content_hash);
-                if !publish_result.warnings.is_empty() {
-                    println!("  Warnings:");
-                    for warning in &publish_result.warnings {
-                        println!("    - {}", warning);
-                    }
+    match store.publish(package, options).await {
+        Ok(publish_result) => {
+            println!("✅ Successfully published extension:");
+            println!("  Version: {}", publish_result.version);
+            println!("  Download URL: {}", publish_result.download_url);
+            println!(
+                "  Published at: {}",
+                publish_result.published_at.format("%Y-%m-%d %H:%M:%S")
+            );
+            println!("  Publication ID: {}", publish_result.publication_id);
+            println!(
+                "  Package size: {}",
+                format_size(publish_result.package_size)
+            );
+            println!("  Content hash: {}", publish_result.content_hash);
+            if !publish_result.warnings.is_empty() {
+                println!("  Warnings:");
+                for warning in &publish_result.warnings {
+                    println!("    - {}", warning);
                 }
             }
-            Err(e) => {
-                error!("Failed to publish extension: {}", e);
-                return Err(e.into());
-            }
-        },
-        None => {
-            error!(
-                "Store '{}' does not support publishing or was not found",
-                store_name
-            );
-            return Err(eyre::eyre!(
-                "Store '{}' does not support publishing operations",
-                store_name
-            ));
+        }
+        Err(e) => {
+            error!("Failed to publish extension: {}", e);
+            return Err(e.into());
         }
     }
 
@@ -1159,7 +1148,7 @@ async fn handle_unpublish_extension(
     token: Option<String>,
     config: &RegistryConfig,
 ) -> eyre::Result<()> {
-    let Some(mut store) = config
+    let Some(store) = config
         .get_writable_source(&store_name)
         .map_err(|e| eyre::eyre!(e))
         .wrap_err("Failed to get writable store manager")?
@@ -1190,49 +1179,35 @@ async fn handle_unpublish_extension(
     // Create unpublish options
     let unpublish_options = UnpublishOptions {
         access_token: token,
+        version: Some(version.clone()),
         reason,
         keep_record,
         notify_users,
     };
 
     // Actually unpublish the extension
-    match manager
-        .unpublish_extension_from_store(&store_name, &id, &version, &unpublish_options)
-        .await
-    {
-        Some(result) => match result {
-            Ok(unpublish_result) => {
-                println!("✅ Successfully unpublished extension version:");
-                println!("  ID: {}", id);
-                println!("  Version: {}", unpublish_result.version);
-                println!(
-                    "  Unpublished at: {}",
-                    unpublish_result.unpublished_at.format("%Y-%m-%d %H:%M:%S")
-                );
-                println!(
-                    "  Tombstone created: {}",
-                    unpublish_result.tombstone_created
-                );
-                if let Some(users_notified) = unpublish_result.users_notified {
-                    if users_notified > 0 {
-                        println!("  Users notified: {}", users_notified);
-                    }
+    match store.unpublish(&id, unpublish_options).await {
+        Ok(unpublish_result) => {
+            println!("✅ Successfully unpublished extension version:");
+            println!("  ID: {}", id);
+            println!("  Version: {}", unpublish_result.version);
+            println!(
+                "  Unpublished at: {}",
+                unpublish_result.unpublished_at.format("%Y-%m-%d %H:%M:%S")
+            );
+            println!(
+                "  Tombstone created: {}",
+                unpublish_result.tombstone_created
+            );
+            if let Some(users_notified) = unpublish_result.users_notified {
+                if users_notified > 0 {
+                    println!("  Users notified: {}", users_notified);
                 }
             }
-            Err(e) => {
-                error!("Failed to unpublish extension '{}': {}", id, e);
-                return Err(e.into());
-            }
-        },
-        None => {
-            error!(
-                "Store '{}' does not support publishing or was not found",
-                store_name
-            );
-            return Err(eyre::eyre!(
-                "Store '{}' does not support publishing operations",
-                store_name
-            ));
+        }
+        Err(e) => {
+            error!("Failed to unpublish extension: {}", e);
+            return Err(e.into());
         }
     }
 
