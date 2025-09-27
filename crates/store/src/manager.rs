@@ -56,10 +56,10 @@ impl ManagedStore {
     }
 
     /// Try to check publish permissions if this store supports publishing
-    pub async fn can_publish(&self, extension_name: &str) -> Option<Result<PublishPermissions>> {
+    pub async fn can_publish(&self, extension_id: &str) -> Option<Result<PublishPermissions>> {
         let store_any = self.store.as_ref() as &dyn std::any::Any;
         if let Some(local_store) = store_any.downcast_ref::<LocalStore>() {
-            Some(local_store.can_publish(extension_name).await)
+            Some(local_store.can_publish(extension_id).await)
         } else {
             None
         }
@@ -337,13 +337,13 @@ impl StoreManager {
     }
 
     /// Get extension information from the best available store
-    pub async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>> {
+    pub async fn get_extension_info(&self, id: &str) -> Result<Vec<ExtensionInfo>> {
         for managed_store in &self.extension_stores {
             if !managed_store.config.enabled {
                 continue;
             }
 
-            match managed_store.store.get_extension_info(name).await {
+            match managed_store.store.get_extension_info(id).await {
                 Ok(info) if !info.is_empty() => return Ok(info),
                 Ok(_) => continue, // Empty result, try next store
                 Err(StoreError::ExtensionNotFound(_)) => continue,
@@ -358,13 +358,13 @@ impl StoreManager {
             }
         }
 
-        Err(StoreError::ExtensionNotFound(name.to_string()))
+        Err(StoreError::ExtensionNotFound(id.to_string()))
     }
 
     /// Get extension manifest from the best available store
     pub async fn get_extension_manifest(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&str>,
     ) -> Result<ExtensionManifest> {
         for managed_store in &self.extension_stores {
@@ -372,7 +372,7 @@ impl StoreManager {
                 continue;
             }
 
-            match managed_store.store.get_manifest(name, version).await {
+            match managed_store.store.get_manifest(id, version).await {
                 Ok(manifest) => return Ok(manifest),
                 Err(StoreError::ExtensionNotFound(_)) => continue,
                 Err(e) if e.is_recoverable() => {
@@ -386,10 +386,11 @@ impl StoreManager {
             }
         }
 
-        Err(StoreError::ExtensionNotFound(name.to_string()))
+        Err(StoreError::ExtensionNotFound(id.to_string()))
     }
 
     /// Find an extension that can handle the given URL
+    /// Returns (id, store_name) if found
     pub async fn find_extension_for_url(&self, url: &str) -> Result<Option<(String, String)>> {
         // Check each store for URL matching using the store's implementation
         for managed_store in &self.extension_stores {
@@ -400,11 +401,9 @@ impl StoreManager {
             if let Ok(matching_extensions) = managed_store.store.find_extensions_for_url(url).await
             {
                 if !matching_extensions.is_empty() {
-                    // Return the first match with highest priority
-                    return Ok(Some((
-                        matching_extensions[0].clone(),
-                        managed_store.config.store_name.clone(),
-                    )));
+                    // Return the first match with highest priority - now returns (id, name)
+                    let (id, _name) = &matching_extensions[0];
+                    return Ok(Some((id.clone(), managed_store.config.store_name.clone())));
                 }
             }
         }
@@ -415,13 +414,13 @@ impl StoreManager {
         for ext in extensions {
             // Try to get the manifest for this extension to check base_urls
             if let Ok(manifest) = self
-                .get_extension_manifest(&ext.name, Some(&ext.version))
+                .get_extension_manifest(&ext.id, Some(&ext.version))
                 .await
             {
                 // Check if any of the extension's base URLs match the given URL
                 for base_url in &manifest.base_urls {
                     if url.starts_with(base_url) {
-                        return Ok(Some((ext.name.clone(), ext.store_source.clone())));
+                        return Ok(Some((ext.id.clone(), ext.store_source.clone())));
                     }
                 }
             }
@@ -435,23 +434,23 @@ impl StoreManager {
     /// Install an extension from the best available store
     pub async fn install(
         &mut self,
-        name: &str,
+        id: &str,
         version: Option<&str>,
         options: Option<InstallOptions>,
     ) -> Result<InstalledExtension> {
         let options = options.unwrap_or_default();
 
         // Check if already installed and handle accordingly
-        if let Some(installed) = self.registry_store.get_installed(name).await? {
+        if let Some(installed) = self.registry_store.get_installed(id).await? {
             if let Some(requested_version) = version {
                 if installed.version == requested_version && !options.force_reinstall {
-                    info!("Extension {}@{} already installed", name, requested_version);
+                    info!("Extension {}@{} already installed", id, requested_version);
                     return Ok(installed);
                 }
             } else if !options.force_reinstall {
                 info!(
                     "Extension {} already installed with version {}",
-                    name, installed.version
+                    id, installed.version
                 );
                 return Ok(installed);
             }
@@ -460,7 +459,7 @@ impl StoreManager {
         // Acquire download semaphore
         let _permit = self.download_semaphore.acquire().await.unwrap();
 
-        info!("Installing extension: {}", name);
+        info!("Installing extension: {}", id);
         if let Some(v) = version {
             info!("Requested version: {}", v);
         }
@@ -476,11 +475,7 @@ impl StoreManager {
             let store_name = managed_store.config.store_name.clone();
             debug!("Trying to install from store: {}", store_name);
 
-            match managed_store
-                .store
-                .get_extension_package(name, version)
-                .await
-            {
+            match managed_store.store.get_extension_package(id, version).await {
                 Ok(package) => {
                     // Install using registry store
                     match self
@@ -491,7 +486,7 @@ impl StoreManager {
                         Ok(installed) => {
                             info!(
                                 "Successfully installed {}@{} from store '{}'",
-                                name, installed.version, store_name
+                                id, installed.version, store_name
                             );
                             return Ok(installed);
                         }
@@ -517,7 +512,7 @@ impl StoreManager {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| StoreError::ExtensionNotFound(name.to_string())))
+        Err(last_error.unwrap_or_else(|| StoreError::ExtensionNotFound(id.to_string())))
     }
 
     /// Install multiple extensions in parallel
@@ -538,6 +533,7 @@ impl StoreManager {
             let future = async move {
                 // This would need proper async handling in practice
                 Ok(InstalledExtension::new(
+                    "placeholder_id".to_string(),
                     name.to_string(),
                     "1.0.0".to_string(),
                     PathBuf::new(),
@@ -625,15 +621,15 @@ impl StoreManager {
     /// Update a specific extension
     pub async fn update(
         &mut self,
-        name: &str,
+        id: &str,
         options: Option<UpdateOptions>,
     ) -> Result<InstalledExtension> {
         let options = options.unwrap_or_default();
 
         let installed = self
-            .get_installed(name)
+            .get_installed(id)
             .await?
-            .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?;
+            .ok_or_else(|| StoreError::ExtensionNotFound(id.to_string()))?;
 
         // Find the store that originally provided this extension
         // Find the source store to check for updates
@@ -644,24 +640,24 @@ impl StoreManager {
             None => {
                 warn!(
                     "Source store '{}' not found for extension '{}'",
-                    installed.source_store, name
+                    installed.source_store, id
                 );
                 // Try to update from any available store
                 return self
-                    .install(name, None, Some(InstallOptions::default()))
+                    .install(id, None, Some(InstallOptions::default()))
                     .await;
             }
         };
 
         info!(
             "Updating extension '{}' from store '{}'",
-            name, managed_store.config.store_name
+            id, managed_store.config.store_name
         );
 
         // For now, we'll get the latest version and reinstall
-        let latest_version = match managed_store.store.get_latest_version(name).await? {
+        let latest_version = match managed_store.store.get_latest_version(id).await? {
             Some(version) => version,
-            None => return Err(StoreError::ExtensionNotFound(name.to_string())),
+            None => return Err(StoreError::ExtensionNotFound(id.to_string())),
         };
 
         let install_options = InstallOptions {
@@ -670,11 +666,7 @@ impl StoreManager {
             skip_verification: false,
         };
 
-        match managed_store
-            .store
-            .get_extension_package(name, Some(&latest_version))
-            .await
-        {
+        match managed_store.store.get_extension_package(id, None).await {
             Ok(package) => {
                 match self
                     .registry_store
@@ -682,23 +674,20 @@ impl StoreManager {
                     .await
                 {
                     Ok(updated) => {
-                        info!(
-                            "Successfully updated {} to version {}",
-                            name, updated.version
-                        );
+                        info!("Successfully updated {} to version {}", id, updated.version);
                         self.registry_store
                             .update_installation(updated.clone())
                             .await?;
                         Ok(updated)
                     }
                     Err(e) => {
-                        error!("Failed to update extension '{}': {}", name, e);
+                        error!("Failed to update extension '{}': {}", id, e);
                         Err(e)
                     }
                 }
             }
             Err(e) => {
-                error!("Failed to get package for '{}': {}", name, e);
+                error!("Failed to get package for '{}': {}", id, e);
                 Err(e)
             }
         }
@@ -731,8 +720,8 @@ impl StoreManager {
     // Registry Management (delegated to registry store)
 
     /// Get information about an installed extension
-    pub async fn get_installed(&self, name: &str) -> Result<Option<InstalledExtension>> {
-        self.registry_store.get_installed(name).await
+    pub async fn get_installed(&self, id: &str) -> Result<Option<InstalledExtension>> {
+        self.registry_store.get_installed(id).await
     }
 
     /// List all installed extensions
@@ -769,14 +758,14 @@ impl StoreManager {
     }
 
     /// Remove an installed extension
-    pub async fn uninstall(&mut self, name: &str) -> Result<bool> {
-        info!("Uninstalling extension '{}'", name);
-        let removed = self.registry_store.uninstall_extension(name).await?;
+    pub async fn uninstall(&mut self, id: &str) -> Result<bool> {
+        info!("Uninstalling extension '{}'", id);
+        let removed = self.registry_store.uninstall_extension(id).await?;
 
         if removed {
-            info!("Successfully uninstalled extension '{}'", name);
+            info!("Successfully uninstalled extension '{}'", id);
         } else {
-            info!("Extension '{}' was not installed", name);
+            warn!("Extension '{}' was not installed", id);
         }
 
         Ok(removed)
@@ -899,10 +888,10 @@ impl StoreManager {
     pub async fn check_store_publish_permissions(
         &self,
         store_name: &str,
-        extension_name: &str,
+        extension_id: &str,
     ) -> Option<Result<PublishPermissions>> {
         if let Some(managed_store) = self.get_extension_store(store_name) {
-            managed_store.can_publish(extension_name).await
+            managed_store.can_publish(extension_id).await
         } else {
             None
         }
@@ -948,7 +937,7 @@ impl StoreManager {
     pub async fn unpublish_extension_from_store(
         &mut self,
         store_name: &str,
-        name: &str,
+        id: &str,
         version: &str,
         options: &UnpublishOptions,
     ) -> Option<Result<UnpublishResult>> {
@@ -956,11 +945,7 @@ impl StoreManager {
             if managed_store.config.store_name == store_name {
                 let store_any = managed_store.store.as_mut() as &mut dyn std::any::Any;
                 if let Some(local_store) = store_any.downcast_mut::<LocalStore>() {
-                    return Some(
-                        local_store
-                            .unpublish_extension(name, version, options)
-                            .await,
-                    );
+                    return Some(local_store.unpublish_extension(id, version, options).await);
                 }
             }
         }

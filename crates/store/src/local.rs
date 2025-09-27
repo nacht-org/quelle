@@ -102,13 +102,20 @@ impl LocalStoreManifest {
     }
 
     /// Find extensions that can handle the given URL
-    pub(crate) fn find_extensions_for_url(&self, url: &str) -> Vec<String> {
+    /// Returns (id, name) pairs
+    pub(crate) fn find_extensions_for_url(&self, url: &str) -> Vec<(String, String)> {
         let mut matches = Vec::new();
 
         // Check URL patterns first (sorted by priority)
         for pattern in &self.url_patterns {
             if url.starts_with(&pattern.url_prefix) {
-                matches.extend(pattern.extensions.clone());
+                // Convert extension names in patterns to (id, name) pairs
+                for ext_name in &pattern.extensions {
+                    // Find the extension to get its ID
+                    if let Some(ext) = self.extensions.iter().find(|e| &e.name == ext_name) {
+                        matches.push((ext.id.clone(), ext.name.clone()));
+                    }
+                }
             }
         }
 
@@ -117,8 +124,7 @@ impl LocalStoreManifest {
             for ext in &self.extensions {
                 for base_url in &ext.base_urls {
                     if url.starts_with(base_url) {
-                        matches.push(ext.name.clone());
-                        break; // Don't add the same extension multiple times
+                        matches.push((ext.id.clone(), ext.name.clone()));
                     }
                 }
             }
@@ -235,35 +241,35 @@ impl LocalStore {
         Ok(())
     }
 
-    /// Validate extension name to prevent path traversal attacks
-    fn validate_extension_name(&self, name: &str) -> std::result::Result<(), LocalStoreError> {
-        if name.is_empty() {
+    /// Validate extension id to prevent path traversal attacks
+    fn validate_extension_id(&self, id: &str) -> std::result::Result<(), LocalStoreError> {
+        if id.is_empty() {
             return Err(LocalStoreError::InvalidStructure(
-                "Extension name cannot be empty".to_string(),
+                "Extension id cannot be empty".to_string(),
             ));
         }
 
         // Check for path traversal attempts
-        if name.contains("..") || name.contains('/') || name.contains('\\') {
+        if id.contains("..") || id.contains('/') || id.contains('\\') {
             return Err(LocalStoreError::InvalidStructure(format!(
-                "Invalid extension name '{}': contains path separators or traversal sequences",
-                name
+                "Invalid extension id '{}': contains path separators or traversal sequences",
+                id
             )));
         }
 
         // Check for reserved names and characters
-        if name.starts_with('.') || name.contains('\0') {
+        if id.starts_with('.') || id.contains('\0') {
             return Err(LocalStoreError::InvalidStructure(format!(
-                "Invalid extension name '{}': starts with dot or contains null bytes",
-                name
+                "Invalid extension id '{}': starts with dot or contains null bytes",
+                id
             )));
         }
 
         // Prevent extremely long names that could cause filesystem issues
-        if name.len() > 255 {
+        if id.len() > 255 {
             return Err(LocalStoreError::InvalidStructure(format!(
-                "Extension name '{}' is too long (max 255 characters)",
-                name
+                "Extension id '{}' is too long (max 255 characters)",
+                id
             )));
         }
 
@@ -306,20 +312,20 @@ impl LocalStore {
     }
 
     /// Get the path to an extension directory
-    fn extension_path(&self, name: &str) -> std::result::Result<PathBuf, LocalStoreError> {
-        self.validate_extension_name(name)?;
-        Ok(self.extensions_root().join(name))
+    fn extension_path(&self, id: &str) -> std::result::Result<PathBuf, LocalStoreError> {
+        self.validate_extension_id(id)?;
+        Ok(self.extensions_root().join(id))
     }
 
     /// Get the path to a specific version of an extension
     fn extension_version_path(
         &self,
-        name: &str,
+        id: &str,
         version: &str,
     ) -> std::result::Result<PathBuf, LocalStoreError> {
-        self.validate_extension_name(name)?;
+        self.validate_extension_id(id)?;
         self.validate_version_string(version)?;
-        Ok(self.extension_path(name)?.join(version))
+        Ok(self.extension_path(id)?.join(version))
     }
 
     /// Get the path to the extensions directory
@@ -352,8 +358,8 @@ impl LocalStore {
 
             if let (Some(extension_name), Some(version)) = (extension_dir, version_dir) {
                 // Validate names before processing
-                if self.validate_extension_name(extension_name).is_err() {
-                    warn!("Skipping invalid extension name: {}", extension_name);
+                if self.validate_extension_id(extension_name).is_err() {
+                    warn!("Skipping invalid extension id: {}", extension_name);
                     continue;
                 }
 
@@ -452,6 +458,7 @@ impl LocalStore {
         };
 
         Ok(ExtensionInfo {
+            id: manifest.id.clone(),
             name: manifest.name.clone(),
             version: manifest.version.clone(),
             description: None, // Could be loaded from metadata if available
@@ -470,9 +477,9 @@ impl LocalStore {
     /// Get the latest version for an extension (internal helper)
     async fn get_latest_version_internal(
         &self,
-        name: &str,
+        id: &str,
     ) -> std::result::Result<Option<String>, LocalStoreError> {
-        let extension_dir = self.extension_path(name)?;
+        let extension_dir = self.extension_path(id)?;
         if !extension_dir.exists() {
             return Ok(None);
         }
@@ -706,7 +713,7 @@ impl Store for LocalStore {
         })
     }
 
-    async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<String>> {
+    async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<(String, String)>> {
         let local_manifest = self.get_local_store_manifest().await?;
         Ok(local_manifest.find_extensions_for_url(url))
     }
@@ -770,12 +777,10 @@ impl Store for LocalStore {
                     .and_then(|n| n.to_str())
                     .unwrap_or("unknown");
 
-                // Validate extension name
-                if let Err(e) = self.validate_extension_name(extension_name) {
-                    validation_errors.push(format!(
-                        "Invalid extension name '{}': {}",
-                        extension_name, e
-                    ));
+                // Validate extension id
+                if let Err(e) = self.validate_extension_id(extension_name) {
+                    validation_errors
+                        .push(format!("Invalid extension id '{}': {}", extension_name, e));
                     continue;
                 }
 
@@ -890,26 +895,23 @@ impl Store for LocalStore {
         self.load_extension_info(name, version).await
     }
 
-    async fn get_manifest(&self, name: &str, version: Option<&str>) -> Result<ExtensionManifest> {
+    async fn get_manifest(&self, id: &str, version: Option<&str>) -> Result<ExtensionManifest> {
         let version = match version {
             Some(v) => v.to_string(),
             None => self
-                .get_latest_version_internal(name)
+                .get_latest_version_internal(id)
                 .await
                 .map_err(StoreError::from)?
-                .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?,
+                .ok_or_else(|| StoreError::ExtensionNotFound(id.to_string()))?,
         };
 
         let version_path = self
-            .extension_version_path(name, &version)
+            .extension_version_path(id, &version)
             .map_err(StoreError::from)?;
         let manifest_path = version_path.join(&self.layout.manifest_file);
 
         if !manifest_path.exists() {
-            return Err(StoreError::ExtensionNotFound(format!(
-                "{}@{}",
-                name, version
-            )));
+            return Err(StoreError::ExtensionNotFound(format!("{}@{}", id, version)));
         }
 
         let manifest_content = fs::read_to_string(&manifest_path).await?;
@@ -920,13 +922,13 @@ impl Store for LocalStore {
 
     async fn get_metadata(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&str>,
     ) -> Result<Option<ExtensionMetadata>> {
         let version = match version {
             Some(v) => v.to_string(),
             None => match self
-                .get_latest_version_internal(name)
+                .get_latest_version_internal(id)
                 .await
                 .map_err(StoreError::from)?
             {
@@ -936,7 +938,7 @@ impl Store for LocalStore {
         };
 
         let version_path = self
-            .extension_version_path(name, &version)
+            .extension_version_path(id, &version)
             .map_err(StoreError::from)?;
 
         if let Some(metadata_file) = &self.layout.metadata_file {
@@ -956,12 +958,12 @@ impl Store for LocalStore {
 
     async fn get_extension_package(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&str>,
     ) -> Result<ExtensionPackage> {
-        let manifest = self.get_manifest(name, version).await?;
-        let wasm_component = self.get_extension_wasm_internal(name, version).await?;
-        let metadata = self.get_metadata(name, version).await?;
+        let manifest = self.get_manifest(id, version).await?;
+        let wasm_component = self.get_extension_wasm_internal(id, version).await?;
+        let metadata = self.get_metadata(id, version).await?;
 
         let mut package = ExtensionPackage::new(manifest, wasm_component, "local".to_string())
             .with_layout(self.layout.clone());
@@ -973,7 +975,7 @@ impl Store for LocalStore {
         // Load additional assets if assets directory exists
         let version_str = version.unwrap_or(&package.manifest.version);
         let version_path = self
-            .extension_version_path(name, version_str)
+            .extension_version_path(id, version_str)
             .map_err(StoreError::from)?;
 
         if let Some(assets_dir) = &self.layout.assets_dir {
@@ -1028,14 +1030,14 @@ impl Store for LocalStore {
         Ok(updates)
     }
 
-    async fn get_latest_version(&self, name: &str) -> Result<Option<String>> {
-        self.get_latest_version_internal(name)
+    async fn get_latest_version(&self, id: &str) -> Result<Option<String>> {
+        self.get_latest_version_internal(id)
             .await
             .map_err(StoreError::from)
     }
 
-    async fn list_versions(&self, name: &str) -> Result<Vec<String>> {
-        let extension_dir = self.extension_path(name).map_err(StoreError::from)?;
+    async fn list_versions(&self, id: &str) -> Result<Vec<String>> {
+        let extension_dir = self.extension_path(id).map_err(StoreError::from)?;
         if !extension_dir.exists() {
             return Ok(Vec::new());
         }
@@ -1065,9 +1067,9 @@ impl Store for LocalStore {
         Ok(versions)
     }
 
-    async fn version_exists(&self, name: &str, version: &str) -> Result<bool> {
+    async fn version_exists(&self, id: &str, version: &str) -> Result<bool> {
         let version_path = self
-            .extension_version_path(name, version)
+            .extension_version_path(id, version)
             .map_err(StoreError::from)?;
         let manifest_path = version_path.join(&self.layout.manifest_file);
         let wasm_path = version_path.join(&self.layout.wasm_file);
@@ -1172,6 +1174,7 @@ impl LocalStore {
                 .await
             {
                 let summary = ExtensionSummary {
+                    id: ext_manifest.id.clone(),
                     name: ext_info.name.clone(),
                     version: ext_info.version.clone(),
                     base_urls: ext_manifest.base_urls.clone(),
@@ -1212,38 +1215,34 @@ impl LocalStore {
     /// Internal method to get WASM bytes
     async fn get_extension_wasm_internal(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&str>,
     ) -> Result<Vec<u8>> {
         let version = match version {
             Some(v) => v.to_string(),
             None => self
-                .get_latest_version_internal(name)
-                .await
-                .map_err(StoreError::from)?
-                .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?,
+                .get_latest_version_internal(id)
+                .await?
+                .ok_or_else(|| StoreError::ExtensionNotFound(id.to_string()))?,
         };
 
-        let version_path = self
-            .extension_version_path(name, &version)
-            .map_err(StoreError::from)?;
+        let version_path = self.extension_version_path(id, &version)?;
         let wasm_path = version_path.join(&self.layout.wasm_file);
 
         if !wasm_path.exists() {
             return Err(StoreError::ExtensionNotFound(format!(
-                "WASM file for {}@{}",
-                name, version
+                "WASM file not found for {}@{}",
+                id, version
             )));
         }
 
-        let wasm_content = fs::read(&wasm_path).await?;
-        Ok(wasm_content)
+        let wasm_bytes = fs::read(&wasm_path).await?;
+        Ok(wasm_bytes)
     }
 
     /// Get the raw WASM bytes for an extension (LocalStore specific)
     pub async fn get_extension_wasm(&self, name: &str, version: Option<&str>) -> Result<Vec<u8>> {
-        self.validate_extension_name(name)
-            .map_err(StoreError::from)?;
+        self.validate_extension_id(name).map_err(StoreError::from)?;
         if let Some(v) = version {
             self.validate_version_string(v).map_err(StoreError::from)?;
         }
@@ -1334,14 +1333,18 @@ impl PublishableStore for LocalStore {
         package: ExtensionPackage,
         options: &PublishOptions,
     ) -> Result<PublishResult> {
+        let id = &package.manifest.id;
         let name = &package.manifest.name;
         let version = &package.manifest.version;
 
-        info!("Publishing extension {}@{} to local store", name, version);
+        info!(
+            "Publishing extension {} (id: {})@{} to local store",
+            name, id, version
+        );
 
         // Check if version already exists
         if !options.overwrite_existing {
-            if self.version_exists(name, version).await? {
+            if self.version_exists(id, version).await? {
                 return Err(crate::error::StoreError::PublishError(
                     PublishError::VersionAlreadyExists(version.clone()),
                 ));
@@ -1365,9 +1368,9 @@ impl PublishableStore for LocalStore {
             }
         }
 
-        // Create extension and version directories
-        let extension_path = self.extensions_root().join(name);
-        let version_path = extension_path.join(version);
+        // Create extension and version directories using id
+        let extension_dir = self.extensions_root().join(id);
+        let version_path = extension_dir.join(version);
 
         fs::create_dir_all(&version_path)
             .await
@@ -1450,20 +1453,20 @@ impl PublishableStore for LocalStore {
 
     async fn unpublish_extension(
         &mut self,
-        name: &str,
+        id: &str,
         version: &str,
         _options: &UnpublishOptions,
     ) -> Result<UnpublishResult> {
-        info!("Unpublishing extension {}@{}", name, version);
+        info!("Unpublishing extension {}@{}", id, version);
 
         let version_path = self
-            .extension_version_path(name, version)
+            .extension_version_path(id, version)
             .map_err(crate::error::StoreError::from)?;
 
         if !version_path.exists() {
             return Err(crate::error::StoreError::ExtensionNotFound(format!(
                 "{}@{}",
-                name, version
+                id, version
             )));
         }
 
@@ -1473,7 +1476,7 @@ impl PublishableStore for LocalStore {
             .map_err(|e| crate::error::StoreError::IoError(e))?;
 
         // Check if extension directory is now empty
-        let extension_path = self.root_path.join(name);
+        let extension_path = self.root_path.join(id);
         if extension_path.exists() {
             let mut entries = fs::read_dir(&extension_path)
                 .await
@@ -1495,7 +1498,7 @@ impl PublishableStore for LocalStore {
         // Clear cache
         {
             let mut cache = self.cache.write().unwrap();
-            cache.remove(name);
+            cache.remove(id);
             *self.cache_timestamp.write().unwrap() = None;
         }
 
@@ -1505,7 +1508,7 @@ impl PublishableStore for LocalStore {
                 std::io::ErrorKind::Other,
                 format!(
                     "Failed to update store manifest after unpublishing {}: {}",
-                    name, e
+                    id, e
                 ),
             )));
         }
@@ -1591,7 +1594,7 @@ impl PublishableStore for LocalStore {
         }
     }
 
-    async fn can_publish(&self, _extension_name: &str) -> Result<PublishPermissions> {
+    async fn can_publish(&self, _extension_id: &str) -> Result<PublishPermissions> {
         Ok(PublishPermissions {
             can_publish: true,
             can_update: true,
@@ -1643,6 +1646,7 @@ mod tests {
         std::fs::create_dir_all(&ext_dir)?;
 
         let manifest = ExtensionManifest {
+            id: format!("test-{}", name),
             name: name.to_string(),
             version: version.to_string(),
             author: "test-author".to_string(),
@@ -1755,13 +1759,13 @@ mod tests {
         ];
 
         for name in malicious_names {
-            assert!(store.validate_extension_name(name).is_err());
+            assert!(store.validate_extension_id(name).is_err());
         }
 
         // Test valid names
         let valid_names = vec!["test", "test_extension", "test-extension", "test123"];
         for name in valid_names {
-            assert!(store.validate_extension_name(name).is_ok());
+            assert!(store.validate_extension_id(name).is_ok());
         }
     }
 
@@ -1779,6 +1783,7 @@ mod tests {
 
         // Create a test extension package
         let manifest = ExtensionManifest {
+            id: "test-extension".to_string(),
             name: "test-extension".to_string(),
             version: "1.0.0".to_string(),
             author: "Test Author".to_string(),
@@ -1818,6 +1823,7 @@ mod tests {
 
         // Create an invalid package (empty name)
         let manifest = ExtensionManifest {
+            id: "".to_string(),   // Invalid empty id
             name: "".to_string(), // Invalid empty name
             version: "1.0.0".to_string(),
             author: "Test Author".to_string(),
@@ -1860,6 +1866,7 @@ mod tests {
 
         // First publish an extension
         let manifest = ExtensionManifest {
+            id: "test-extension".to_string(),
             name: "test-extension".to_string(),
             version: "1.0.0".to_string(),
             author: "Test Author".to_string(),
@@ -1919,6 +1926,7 @@ mod tests {
         ];
 
         let valid_manifest = ExtensionManifest {
+            id: "valid-extension".to_string(),
             name: "valid-extension".to_string(),
             version: "1.0.0".to_string(),
             author: "Test Author".to_string(),
@@ -1948,6 +1956,7 @@ mod tests {
         let invalid_wasm = [0x12, 0x34, 0x56, 0x78]; // Invalid magic number
 
         let invalid_manifest = ExtensionManifest {
+            id: "invalid-extension".to_string(),
             name: "invalid-extension".to_string(),
             version: "1.0.0".to_string(),
             author: "Test Author".to_string(),
@@ -1982,6 +1991,7 @@ mod tests {
 
         // Test 3: Extension with forbidden files should fail validation
         let forbidden_manifest = ExtensionManifest {
+            id: "forbidden-extension".to_string(),
             name: "forbidden-extension".to_string(),
             version: "1.0.0".to_string(),
             author: "Test Author".to_string(),
@@ -2014,6 +2024,7 @@ mod tests {
 
         // Test 4: Skip validation should allow invalid content
         let invalid_manifest_skip = ExtensionManifest {
+            id: "skip-validation".to_string(),
             name: "skip-validation".to_string(),
             version: "1.0.0".to_string(),
             author: "Test Author".to_string(),

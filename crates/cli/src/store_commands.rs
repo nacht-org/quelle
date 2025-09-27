@@ -87,8 +87,8 @@ pub enum StoreType {
 pub enum ExtensionCommands {
     /// Install an extension
     Install {
-        /// Extension name
-        name: String,
+        /// Extension ID
+        id: String,
         /// Specific version to install
         #[arg(long)]
         version: Option<String>,
@@ -101,8 +101,8 @@ pub enum ExtensionCommands {
     },
     /// Update an extension
     Update {
-        /// Extension name (or 'all' for all extensions)
-        name: String,
+        /// Extension ID (or 'all' for all extensions)
+        id: String,
         /// Include pre-release versions
         #[arg(long)]
         prerelease: bool,
@@ -112,8 +112,8 @@ pub enum ExtensionCommands {
     },
     /// Uninstall an extension
     Uninstall {
-        /// Extension name
-        name: String,
+        /// Extension ID
+        id: String,
         /// Remove all files (not just registry entry)
         #[arg(long)]
         remove_files: bool,
@@ -122,8 +122,8 @@ pub enum ExtensionCommands {
     List,
     /// Show extension information
     Info {
-        /// Extension name
-        name: String,
+        /// Extension ID
+        id: String,
     },
     /// Check for available updates
     CheckUpdates,
@@ -165,8 +165,8 @@ pub enum ExtensionCommands {
 
     /// Remove a published extension version
     Unpublish {
-        /// Extension name
-        name: String,
+        /// Extension ID
+        id: String,
         /// Version to unpublish
         version: String,
         /// Target store name
@@ -278,37 +278,27 @@ pub async fn handle_store_command(
 }
 
 pub async fn handle_extension_command(
-    cmd: ExtensionCommands,
+    command: ExtensionCommands,
     manager: &mut StoreManager,
 ) -> eyre::Result<()> {
-    match cmd {
+    match command {
         ExtensionCommands::Install {
-            name,
+            id,
             version,
             force,
             no_deps,
-        } => {
-            handle_install_extension(name, version, force, !no_deps, manager).await?;
-        }
+        } => handle_install_extension(id, version, force, !no_deps, manager).await,
         ExtensionCommands::Update {
-            name,
+            id,
             prerelease,
             force,
-        } => {
-            handle_update_extension(name, prerelease, force, manager).await?;
+        } => handle_update_extension(id, prerelease, force, manager).await,
+        ExtensionCommands::Uninstall { id, remove_files } => {
+            handle_uninstall_extension(id, remove_files, manager).await
         }
-        ExtensionCommands::Uninstall { name, remove_files } => {
-            handle_uninstall_extension(name, remove_files, manager).await?;
-        }
-        ExtensionCommands::List => {
-            handle_list_installed(manager).await?;
-        }
-        ExtensionCommands::Info { name } => {
-            handle_extension_info(name, manager).await?;
-        }
-        ExtensionCommands::CheckUpdates => {
-            handle_check_updates(manager).await?;
-        }
+        ExtensionCommands::List => handle_list_installed(manager).await,
+        ExtensionCommands::Info { id } => handle_extension_info(id, manager).await,
+        ExtensionCommands::CheckUpdates => handle_check_updates(manager).await,
         ExtensionCommands::Publish {
             package_path,
             store,
@@ -336,11 +326,10 @@ pub async fn handle_extension_command(
                 dev,
                 manager,
             )
-            .await?;
+            .await
         }
-
         ExtensionCommands::Unpublish {
-            name,
+            id,
             version,
             store,
             reason,
@@ -349,7 +338,7 @@ pub async fn handle_extension_command(
             token,
         } => {
             handle_unpublish_extension(
-                name,
+                id,
                 version,
                 store,
                 reason,
@@ -358,18 +347,15 @@ pub async fn handle_extension_command(
                 token,
                 manager,
             )
-            .await?;
+            .await
         }
         ExtensionCommands::Validate {
             package_path,
             store,
             strict,
             verbose,
-        } => {
-            handle_validate_extension(package_path, store, strict, verbose, manager).await?;
-        }
+        } => handle_validate_extension(package_path, store, strict, verbose, manager).await,
     }
-    Ok(())
 }
 
 async fn handle_add_store(
@@ -715,13 +701,13 @@ async fn handle_list_extensions(manager: &StoreManager) -> eyre::Result<()> {
 }
 
 async fn handle_install_extension(
-    name: String,
+    id: String,
     version: Option<String>,
     force: bool,
     install_deps: bool,
     manager: &mut StoreManager,
 ) -> eyre::Result<()> {
-    info!("Installing extension: {}", name);
+    info!("Installing extension: {}", id);
 
     let options = InstallOptions {
         auto_update: false,
@@ -729,7 +715,7 @@ async fn handle_install_extension(
         skip_verification: false,
     };
 
-    println!("Installing extension '{}'...", name);
+    println!("Installing extension '{}'...", id);
     if let Some(v) = &version {
         println!("  Requested version: {}", v);
     }
@@ -737,11 +723,12 @@ async fn handle_install_extension(
     println!("  Install dependencies: {}", install_deps);
 
     match manager
-        .install(&name, version.as_deref(), Some(options))
+        .install(&id, version.as_deref(), Some(options))
         .await
     {
         Ok(installed) => {
             println!("✅ Successfully installed extension:");
+            println!("  ID: {}", installed.id);
             println!("  Name: {}", installed.name);
             println!("  Version: {}", installed.version);
             println!("  Source store: {}", installed.source_store);
@@ -756,7 +743,7 @@ async fn handle_install_extension(
             }
         }
         Err(e) => {
-            error!("Failed to install extension '{}': {}", name, e);
+            error!("Failed to install extension '{}': {}", id, e);
             return Err(e.into());
         }
     }
@@ -765,19 +752,19 @@ async fn handle_install_extension(
 }
 
 async fn handle_update_extension(
-    name: String,
+    id: String,
     prerelease: bool,
     force: bool,
     manager: &mut StoreManager,
 ) -> eyre::Result<()> {
-    info!("Updating extension: {}", name);
+    info!("Updating extension: {}", id);
 
-    println!("Updating extension '{}'...", name);
+    println!("Updating extension '{}'...", id);
     println!("  Include prerelease: {}", prerelease);
     println!("  Force update: {}", force);
 
-    // Check if extension is installed
-    match manager.get_installed(&name).await? {
+    // Check if extension is installed first
+    match manager.get_installed(&id).await? {
         Some(installed) => {
             let options = quelle_store::models::UpdateOptions {
                 include_prereleases: prerelease,
@@ -785,9 +772,10 @@ async fn handle_update_extension(
                 ..Default::default()
             };
 
-            match manager.update(&name, Some(options)).await {
+            match manager.update(&id, Some(options)).await {
                 Ok(updated) => {
                     println!("✅ Successfully updated extension:");
+                    println!("  ID: {}", updated.id);
                     println!("  Name: {}", updated.name);
                     println!("  Version: {} → {}", installed.version, updated.version);
                     println!("  Source store: {}", updated.source_store);
@@ -803,18 +791,15 @@ async fn handle_update_extension(
                     );
                 }
                 Err(e) => {
-                    error!("Failed to update extension '{}': {}", name, e);
+                    error!("Failed to update extension '{}': {}", id, e);
                     return Err(e.into());
                 }
             }
         }
         None => {
-            error!("Extension '{}' is not installed", name);
-            println!(
-                "Run 'quelle extension install {}' to install it first.",
-                name
-            );
-            return Err(eyre::eyre!("Extension '{}' is not installed", name));
+            error!("Extension '{}' is not installed", id);
+            println!("Run 'quelle extension install {}' to install it first.", id);
+            return Err(eyre::eyre!("Extension '{}' is not installed", id));
         }
     }
 
@@ -822,25 +807,25 @@ async fn handle_update_extension(
 }
 
 async fn handle_uninstall_extension(
-    name: String,
+    id: String,
     remove_files: bool,
     manager: &mut StoreManager,
 ) -> eyre::Result<()> {
-    info!("Uninstalling extension: {}", name);
+    info!("Uninstalling extension: {}", id);
 
-    println!("Uninstalling extension '{}'...", name);
+    println!("Uninstalling extension '{}'...", id);
     println!("  Remove files: {}", remove_files);
 
     // Check if extension is installed
-    match manager.get_installed(&name).await? {
+    match manager.get_installed(&id).await? {
         Some(installed) => {
             println!("  Current version: {}", installed.version);
             println!("  Install path: {}", installed.install_path.display());
 
-            match manager.uninstall(&name).await {
+            match manager.uninstall(&id).await {
                 Ok(removed) => {
                     if removed {
-                        println!("✅ Successfully uninstalled extension '{}'", name);
+                        println!("✅ Successfully uninstalled extension '{}'", id);
                         if remove_files {
                             println!("  Files removed from disk");
                         } else {
@@ -849,22 +834,19 @@ async fn handle_uninstall_extension(
                             );
                         }
                     } else {
-                        error!("Extension '{}' was not found in registry", name);
-                        return Err(eyre::eyre!(
-                            "Extension '{}' was not found in registry",
-                            name
-                        ));
+                        error!("Extension '{}' was not found in registry", id);
+                        return Err(eyre::eyre!("Extension '{}' was not found in registry", id));
                     }
                 }
                 Err(e) => {
-                    error!("Failed to uninstall extension '{}': {}", name, e);
+                    error!("Failed to uninstall extension '{}': {}", id, e);
                     return Err(e.into());
                 }
             }
         }
         None => {
-            error!("Extension '{}' is not installed", name);
-            return Err(eyre::eyre!("Extension '{}' is not installed", name));
+            error!("Extension '{}' is not installed", id);
+            return Err(eyre::eyre!("Extension '{}' is not installed", id));
         }
     }
 
@@ -881,7 +863,7 @@ async fn handle_list_installed(manager: &StoreManager) -> eyre::Result<()> {
             } else {
                 println!("Installed extensions ({}):", installed.len());
                 for ext in &installed {
-                    println!("  {} v{}", ext.name, ext.version);
+                    println!("  {} ({}) v{}", ext.name, ext.id, ext.version);
                     println!("    Source: {}", ext.source_store);
                     println!(
                         "    Installed: {}",
@@ -907,15 +889,17 @@ async fn handle_list_installed(manager: &StoreManager) -> eyre::Result<()> {
     Ok(())
 }
 
-async fn handle_extension_info(name: String, manager: &StoreManager) -> eyre::Result<()> {
-    info!("Getting extension info: {}", name);
+async fn handle_extension_info(id: String, manager: &StoreManager) -> eyre::Result<()> {
+    info!("Getting extension info: {}", id);
 
-    println!("Extension information for '{}':", name);
+    println!("Extension information for '{}':", id);
 
     // Check if extension is installed
-    match manager.get_installed(&name).await {
+    match manager.get_installed(&id).await {
         Ok(Some(installed)) => {
             println!("  Status: ✅ Installed");
+            println!("  ID: {}", installed.id);
+            println!("  Name: {}", installed.name);
             println!("  Version: {}", installed.version);
             println!("  Source store: {}", installed.source_store);
             println!(
@@ -936,10 +920,12 @@ async fn handle_extension_info(name: String, manager: &StoreManager) -> eyre::Re
 
             // Search for extension in available stores
             println!("  Searching in available stores...");
-            match manager.get_extension_info(&name).await {
+            match manager.get_extension_info(&id).await {
                 Ok(infos) if !infos.is_empty() => {
                     let info = &infos[0]; // Use the first (best) match
                     println!("  Found in store: {}", info.store_source);
+                    println!("  ID: {}", info.id);
+                    println!("  Name: {}", info.name);
                     println!("  Latest version: {}", info.version);
                     println!("  Author: {}", info.author);
                     if let Some(desc) = &info.description {
@@ -1322,7 +1308,7 @@ async fn handle_publish_extension(
 }
 
 async fn handle_unpublish_extension(
-    name: String,
+    id: String,
     version: String,
     store_name: String,
     reason: Option<String>,
@@ -1332,12 +1318,12 @@ async fn handle_unpublish_extension(
     manager: &mut StoreManager,
 ) -> eyre::Result<()> {
     info!(
-        "Unpublishing extension '{}' version '{}' from store '{}'",
-        name, version, store_name
+        "Unpublishing extension: {} v{} from store: {}",
+        id, version, store_name
     );
 
     println!("Unpublish configuration:");
-    println!("  Extension: {}", name);
+    println!("  Extension: {}", id);
     println!("  Version: {}", version);
     println!("  Store: {}", store_name);
     println!("  Keep record: {}", keep_record);
@@ -1360,13 +1346,13 @@ async fn handle_unpublish_extension(
 
     // Actually unpublish the extension
     match manager
-        .unpublish_extension_from_store(&store_name, &name, &version, &unpublish_options)
+        .unpublish_extension_from_store(&store_name, &id, &version, &unpublish_options)
         .await
     {
         Some(result) => match result {
             Ok(unpublish_result) => {
                 println!("✅ Successfully unpublished extension version:");
-                println!("  Name: {}", name);
+                println!("  ID: {}", id);
                 println!("  Version: {}", unpublish_result.version);
                 println!(
                     "  Unpublished at: {}",
@@ -1383,7 +1369,7 @@ async fn handle_unpublish_extension(
                 }
             }
             Err(e) => {
-                error!("Failed to unpublish extension: {}", e);
+                error!("Failed to unpublish extension '{}': {}", id, e);
                 return Err(e.into());
             }
         },

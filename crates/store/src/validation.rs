@@ -561,6 +561,7 @@ mod tests {
 
     fn create_test_package(name: &str, wasm_content: &[u8]) -> ExtensionPackage {
         let manifest = ExtensionManifest {
+            id: format!("test-{}", name),
             name: name.to_string(),
             version: "1.0.0".to_string(),
             author: "Test Author".to_string(),

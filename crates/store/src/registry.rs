@@ -120,7 +120,7 @@ pub trait RegistryStore: Send + Sync {
     ) -> Result<InstalledExtension>;
 
     /// Uninstall an extension from the registry
-    async fn uninstall_extension(&mut self, name: &str) -> Result<bool>;
+    async fn uninstall_extension(&mut self, id: &str) -> Result<bool>;
 
     /// Register a new installation in the registry
     async fn register_installation(&mut self, installation: InstalledExtension) -> Result<()>;
@@ -135,7 +135,7 @@ pub trait RegistryStore: Send + Sync {
     async fn list_installed(&self) -> Result<Vec<InstalledExtension>>;
 
     /// Get a specific installed extension
-    async fn get_installed(&self, name: &str) -> Result<Option<InstalledExtension>>;
+    async fn get_installed(&self, id: &str) -> Result<Option<InstalledExtension>>;
 
     /// Find installed extensions matching the query
     async fn find_installed(&self, query: &InstallationQuery) -> Result<Vec<InstalledExtension>>;
@@ -147,8 +147,8 @@ pub trait RegistryStore: Send + Sync {
     async fn get_registry_health(&self) -> Result<RegistryHealth>;
 
     /// Check if an extension is registered as installed
-    async fn is_installed(&self, name: &str) -> Result<bool> {
-        Ok(self.get_installed(name).await?.is_some())
+    async fn is_installed(&self, id: &str) -> Result<bool> {
+        Ok(self.get_installed(id).await?.is_some())
     }
 
     /// Validate all registered installations
@@ -419,9 +419,30 @@ impl LocalRegistryStore {
         Ok(())
     }
 
+    /// Validate extension ID for security
+    fn validate_extension_id(id: &str) -> Result<()> {
+        if id.is_empty() {
+            return Err(StoreError::InvalidExtensionName(
+                "ID cannot be empty".to_string(),
+            ));
+        }
+
+        if id.contains("..") || id.contains('/') || id.contains('\\') {
+            return Err(StoreError::InvalidExtensionName(
+                "ID contains invalid path characters".to_string(),
+            ));
+        }
+
+        if id.len() > 255 {
+            return Err(StoreError::InvalidExtensionName("ID too long".to_string()));
+        }
+
+        Ok(())
+    }
+
     /// Get the installation path for an extension
-    fn extension_install_path(&self, name: &str) -> PathBuf {
-        self.install_dir.join(name)
+    fn extension_install_path(&self, id: &str) -> PathBuf {
+        self.install_dir.join(id)
     }
 }
 
@@ -432,15 +453,15 @@ impl RegistryStore for LocalRegistryStore {
         package: ExtensionPackage,
         options: &InstallOptions,
     ) -> Result<InstalledExtension> {
-        let name = &package.manifest.name;
-        Self::validate_extension_name(name)?;
+        let id = &package.manifest.id;
+        Self::validate_extension_id(id)?;
 
-        let install_path = self.extension_install_path(name);
+        let install_path = self.extension_install_path(id);
 
         // Check if already installed
-        if let Some(_existing) = self.registry.extensions.get(name) {
+        if let Some(_existing) = self.registry.extensions.get(id) {
             if !options.force_reinstall {
-                return Err(StoreError::ExtensionAlreadyInstalled(name.clone()));
+                return Err(StoreError::ExtensionAlreadyInstalled(id.clone()));
             }
             // Remove existing installation
             if install_path.exists() {
@@ -474,7 +495,8 @@ impl RegistryStore for LocalRegistryStore {
 
         // Create installation record
         let installed = InstalledExtension {
-            name: name.clone(),
+            id: id.clone(),
+            name: package.manifest.name.clone(),
             version: package.manifest.version.clone(),
             install_path,
             installed_at: Utc::now(),
@@ -490,15 +512,15 @@ impl RegistryStore for LocalRegistryStore {
 
         info!(
             "Successfully installed extension: {}@{}",
-            name, installed.version
+            installed.name, installed.version
         );
         Ok(installed)
     }
 
-    async fn uninstall_extension(&mut self, name: &str) -> Result<bool> {
-        Self::validate_extension_name(name)?;
+    async fn uninstall_extension(&mut self, id: &str) -> Result<bool> {
+        Self::validate_extension_id(id)?;
 
-        if let Some(installed) = self.registry.extensions.remove(name) {
+        if let Some(installed) = self.registry.extensions.remove(id) {
             // Remove files from disk
             if installed.install_path.exists() {
                 fs::remove_dir_all(&installed.install_path).await?;
@@ -507,7 +529,7 @@ impl RegistryStore for LocalRegistryStore {
             // Save updated registry
             self.save_registry().await?;
 
-            info!("Successfully uninstalled extension: {}", name);
+            info!("Successfully uninstalled extension: {}", installed.id);
             Ok(true)
         } else {
             Ok(false)
@@ -515,10 +537,10 @@ impl RegistryStore for LocalRegistryStore {
     }
 
     async fn register_installation(&mut self, installation: InstalledExtension) -> Result<()> {
-        Self::validate_extension_name(&installation.name)?;
+        Self::validate_extension_id(&installation.id)?;
         self.registry
             .extensions
-            .insert(installation.name.clone(), installation);
+            .insert(installation.id.clone(), installation);
         self.save_registry().await?;
         Ok(())
     }
@@ -545,9 +567,9 @@ impl RegistryStore for LocalRegistryStore {
         Ok(self.registry.extensions.values().cloned().collect())
     }
 
-    async fn get_installed(&self, name: &str) -> Result<Option<InstalledExtension>> {
-        Self::validate_extension_name(name)?;
-        Ok(self.registry.extensions.get(name).cloned())
+    async fn get_installed(&self, id: &str) -> Result<Option<InstalledExtension>> {
+        Self::validate_extension_id(id)?;
+        Ok(self.registry.extensions.get(id).cloned())
     }
 
     async fn find_installed(&self, query: &InstallationQuery) -> Result<Vec<InstalledExtension>> {
@@ -677,6 +699,7 @@ mod tests {
 
     fn create_test_extension_package(name: &str, version: &str) -> ExtensionPackage {
         let manifest = ExtensionManifest {
+            id: format!("test-{}", name),
             name: name.to_string(),
             version: version.to_string(),
             author: "Test Author".to_string(),
@@ -723,14 +746,14 @@ mod tests {
         assert_eq!(installed.version, "1.0.0");
 
         // Verify it's registered
-        assert!(registry.is_installed("test-ext").await.unwrap());
+        assert!(registry.is_installed("test-test-ext").await.unwrap());
 
         // Uninstall extension
-        let removed = registry.uninstall_extension("test-ext").await.unwrap();
+        let removed = registry.uninstall_extension("test-test-ext").await.unwrap();
         assert!(removed);
 
         // Verify it's no longer registered
-        assert!(!registry.is_installed("test-ext").await.unwrap());
+        assert!(!registry.is_installed("test-test-ext").await.unwrap());
     }
 
     #[tokio::test]

@@ -71,22 +71,21 @@ async fn handle_fetch_command(
         FetchCommands::Novel { url } => {
             // Find extension that can handle this URL
             match find_extension_for_url(&url.to_string(), store_manager).await? {
-                Some((extension_name, _store_name)) => {
-                    println!("Using extension: {}", extension_name);
+                Some((extension_id, _store_name)) => {
+                    println!("Found extension with ID: {}", extension_id);
 
                     // Install extension if not already installed
-                    if store_manager
-                        .get_installed(&extension_name)
-                        .await?
-                        .is_none()
-                    {
-                        println!("Installing extension {}...", extension_name);
-                        match store_manager.install(&extension_name, None, None).await {
+                    if store_manager.get_installed(&extension_id).await?.is_none() {
+                        println!("Installing extension {}...", extension_id);
+                        match store_manager.install(&extension_id, None, None).await {
                             Ok(installed) => {
-                                println!("✅ Installed {}@{}", installed.name, installed.version);
+                                println!(
+                                    "✅ Installed {} ({}) v{}",
+                                    installed.name, installed.id, installed.version
+                                );
                             }
                             Err(e) => {
-                                eprintln!("❌ Failed to install {}: {}", extension_name, e);
+                                eprintln!("❌ Failed to install {}: {}", extension_id, e);
                                 return Err(e.into());
                             }
                         }
@@ -95,7 +94,7 @@ async fn handle_fetch_command(
                     // Use the installed extension to fetch novel info
                     println!("📖 Fetching novel info from: {}", url);
 
-                    if let Some(installed) = store_manager.get_installed(&extension_name).await? {
+                    if let Some(installed) = store_manager.get_installed(&extension_id).await? {
                         match fetch_novel_with_extension(&installed, &url.to_string()).await {
                             Ok(novel) => {
                                 println!("✅ Successfully fetched novel information:");
@@ -118,7 +117,7 @@ async fn handle_fetch_command(
                             }
                         }
                     } else {
-                        eprintln!("❌ Extension {} not found in registry", extension_name);
+                        eprintln!("❌ Extension {} not found in registry", extension_id);
                     }
                 }
                 None => {
@@ -130,22 +129,21 @@ async fn handle_fetch_command(
         FetchCommands::Chapter { url } => {
             // Find extension that can handle this URL
             match find_extension_for_url(&url.to_string(), store_manager).await? {
-                Some((extension_name, _store_name)) => {
-                    println!("Using extension: {}", extension_name);
+                Some((extension_id, _store_name)) => {
+                    println!("Found extension with ID: {}", extension_id);
 
                     // Install extension if not already installed
-                    if store_manager
-                        .get_installed(&extension_name)
-                        .await?
-                        .is_none()
-                    {
-                        println!("Installing extension {}...", extension_name);
-                        match store_manager.install(&extension_name, None, None).await {
+                    if store_manager.get_installed(&extension_id).await?.is_none() {
+                        println!("Installing extension {}...", extension_id);
+                        match store_manager.install(&extension_id, None, None).await {
                             Ok(installed) => {
-                                println!("✅ Installed {}@{}", installed.name, installed.version);
+                                println!(
+                                    "✅ Installed {} ({}) v{}",
+                                    installed.name, installed.id, installed.version
+                                );
                             }
                             Err(e) => {
-                                eprintln!("❌ Failed to install {}: {}", extension_name, e);
+                                eprintln!("❌ Failed to install {}: {}", extension_id, e);
                                 return Err(e.into());
                             }
                         }
@@ -154,7 +152,7 @@ async fn handle_fetch_command(
                     // Use the installed extension to fetch chapter
                     println!("📄 Fetching chapter from: {}", url);
 
-                    if let Some(installed) = store_manager.get_installed(&extension_name).await? {
+                    if let Some(installed) = store_manager.get_installed(&extension_id).await? {
                         match fetch_chapter_with_extension(&installed, &url.to_string()).await {
                             Ok(chapter) => {
                                 println!("✅ Successfully fetched chapter:");
@@ -174,7 +172,7 @@ async fn handle_fetch_command(
                             }
                         }
                     } else {
-                        eprintln!("❌ Extension {} not found in registry", extension_name);
+                        eprintln!("❌ Extension {} not found in registry", extension_id);
                     }
                 }
                 None => {

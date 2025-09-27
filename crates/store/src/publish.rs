@@ -37,7 +37,7 @@ pub trait PublishableStore: Store {
     /// Remove an extension version from the store
     async fn unpublish_extension(
         &mut self,
-        name: &str,
+        id: &str,
         version: &str,
         options: &UnpublishOptions,
     ) -> Result<UnpublishResult>;
@@ -53,7 +53,7 @@ pub trait PublishableStore: Store {
     fn publish_requirements(&self) -> PublishRequirements;
 
     /// Check if the current credentials allow publishing
-    async fn can_publish(&self, extension_name: &str) -> Result<PublishPermissions>;
+    async fn can_publish(&self, extension_id: &str) -> Result<PublishPermissions>;
 
     /// Get publishing statistics and quotas
     async fn get_publish_stats(&self) -> Result<PublishStats>;

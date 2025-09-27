@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExtensionManifest {
     // Common Fields
+    pub id: String,
     pub name: String,
     pub version: String,
     pub author: String,

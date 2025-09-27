@@ -21,7 +21,8 @@ pub trait Store: Send + Sync + Any {
     async fn health_check(&self) -> Result<StoreHealth>;
 
     /// Find extensions that can handle the given URL
-    async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<String>>;
+    /// Returns (id, name) pairs
+    async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<(String, String)>>;
 
     /// Find extensions that support a specific domain
     async fn find_extensions_for_domain(&self, domain: &str) -> Result<Vec<String>>;
@@ -59,9 +60,10 @@ pub trait Store: Send + Sync + Any {
     // Package Operations
 
     /// Get the complete extension package including all files
+    /// Get extension package for installation
     async fn get_extension_package(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&str>,
     ) -> Result<ExtensionPackage>;
 
@@ -71,15 +73,15 @@ pub trait Store: Send + Sync + Any {
     async fn check_updates(&self, installed: &[InstalledExtension]) -> Result<Vec<UpdateInfo>>;
 
     /// Get the latest version available for an extension
-    async fn get_latest_version(&self, name: &str) -> Result<Option<String>>;
+    async fn get_latest_version(&self, id: &str) -> Result<Option<String>>;
 
     // Version Management
 
     /// List all available versions for an extension
-    async fn list_versions(&self, name: &str) -> Result<Vec<String>>;
+    async fn list_versions(&self, id: &str) -> Result<Vec<String>>;
 
     /// Check if a specific version exists for an extension
-    async fn version_exists(&self, name: &str, version: &str) -> Result<bool>;
+    async fn version_exists(&self, id: &str, version: &str) -> Result<bool>;
 
     // Capability Queries
 
@@ -224,7 +226,7 @@ mod tests {
             Ok(StoreHealth::healthy())
         }
 
-        async fn find_extensions_for_url(&self, _url: &str) -> Result<Vec<String>> {
+        async fn find_extensions_for_url(&self, _url: &str) -> Result<Vec<(String, String)>> {
             Ok(vec![])
         }
 
@@ -274,7 +276,7 @@ mod tests {
 
         async fn get_extension_package(
             &self,
-            _name: &str,
+            _id: &str,
             _version: Option<&str>,
         ) -> Result<ExtensionPackage> {
             Err(crate::error::StoreError::ExtensionNotFound(
@@ -289,15 +291,15 @@ mod tests {
             Ok(vec![])
         }
 
-        async fn get_latest_version(&self, _name: &str) -> Result<Option<String>> {
+        async fn get_latest_version(&self, _id: &str) -> Result<Option<String>> {
             Ok(None)
         }
 
-        async fn list_versions(&self, _name: &str) -> Result<Vec<String>> {
+        async fn list_versions(&self, _id: &str) -> Result<Vec<String>> {
             Ok(vec![])
         }
 
-        async fn version_exists(&self, _name: &str, _version: &str) -> Result<bool> {
+        async fn version_exists(&self, _id: &str, _version: &str) -> Result<bool> {
             Ok(false)
         }
 

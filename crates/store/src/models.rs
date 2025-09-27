@@ -11,6 +11,7 @@ use crate::manifest::ExtensionManifest;
 /// Information about an available extension in a store
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtensionInfo {
+    pub id: String,
     pub name: String,
     pub version: String,
     pub description: Option<String>,
@@ -115,6 +116,7 @@ impl ExtensionPackage {
 
         // Convert the engine metadata to our manifest format
         let manifest = ExtensionManifest {
+            id: extension_meta.id.clone(),
             name: extension_meta.name.clone(),
             version: extension_meta.version.clone(),
             author: extension_meta.id.clone(), // Use ID as author for now
@@ -294,6 +296,7 @@ pub struct CompatibilityInfo {
 /// Information about an installed extension
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledExtension {
+    pub id: String,
     pub name: String,
     pub version: String,
     pub install_path: PathBuf,
@@ -306,8 +309,15 @@ pub struct InstalledExtension {
 }
 
 impl InstalledExtension {
-    pub fn new(name: String, version: String, install_path: PathBuf, source_store: String) -> Self {
+    pub fn new(
+        id: String,
+        name: String,
+        version: String,
+        install_path: PathBuf,
+        source_store: String,
+    ) -> Self {
         Self {
+            id,
             name,
             version,
             install_path,

@@ -35,6 +35,7 @@ pub struct UrlPattern {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExtensionSummary {
+    pub id: String,
     pub name: String,
     pub version: String,
     pub base_urls: Vec<String>,
