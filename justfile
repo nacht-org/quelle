@@ -9,3 +9,6 @@ reset-store:
     just build-extension scribblehub
     rm -rf ./data
     cargo run -p quelle_cli -- store add local ./data/stores/local
+
+run *ARGS:
+    cargo run -p quelle_cli -- {{ARGS}}
