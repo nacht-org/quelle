@@ -429,53 +429,89 @@ async fn handle_add_store(
 
             info!("Adding local store '{}' at path: {:?}", store_name, path);
 
-            if !path.exists() {
-                error!("Store path does not exist: {:?}", path);
-                return Err(eyre::eyre!("Store path does not exist"));
-            }
-
-            // Load config and check if store already exists
-            // Check if store already exists
+            // Check if store already exists in config
             let mut config = config_store.load().await?;
             if config.has_source(&store_name) {
                 error!("Store '{}' already exists", store_name);
                 return Err(eyre::eyre!("Store '{}' already exists", store_name));
             }
 
-            // Create local store
-            let local_store = LocalStore::new(&path)
-                .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
+            // Handle path according to its current state
+            if path.exists() {
+                // Check if path is a file - this is an error
+                if path.is_file() {
+                    error!("Path is a file, not a directory: {:?}", path);
+                    return Err(eyre::eyre!("Path must be a directory, not a file"));
+                }
 
-            // Initialize store with proper metadata
-            info!("Initializing store manifest...");
-            local_store
-                .initialize_store(store_name.clone(), None)
-                .await
-                .map_err(|e| eyre::eyre!("Failed to initialize store manifest: {}", e))?;
+                // Path exists and is a directory - check if it's empty or has store content
+                let mut dir_entries = std::fs::read_dir(&path)
+                    .map_err(|e| eyre::eyre!("Cannot read directory: {}", e))?;
 
-            // Validate store using health check
-            info!("Validating store structure...");
-            match local_store.health_check().await {
-                Ok(health) => {
-                    if !health.healthy {
-                        let error_msg = health.error.unwrap_or_default();
-                        error!("Store validation failed: {}", error_msg);
-                        return Err(eyre::eyre!("Store validation failed: {}", error_msg));
-                    }
+                let is_empty = dir_entries.next().is_none();
 
-                    if let Some(count) = health.extension_count {
-                        if count == 0 {
-                            warn!("Store appears to be empty (no extensions found)");
-                        } else {
-                            info!("Found {} extensions in store", count);
+                if is_empty {
+                    // Empty directory - initialize it
+                    info!("Directory is empty, initializing as new store...");
+
+                    let local_store = LocalStore::new(&path)
+                        .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
+
+                    local_store
+                        .initialize_store(store_name.clone(), None)
+                        .await
+                        .map_err(|e| eyre::eyre!("Failed to initialize store: {}", e))?;
+
+                    info!("Successfully initialized new store");
+                } else {
+                    // Directory has content - validate it as an existing store
+                    info!("Directory exists with content, validating as existing store...");
+
+                    let local_store = LocalStore::new(&path)
+                        .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
+
+                    // Validate existing store - don't write anything to it
+                    match local_store.health_check().await {
+                        Ok(health) => {
+                            if !health.healthy {
+                                let error_msg = health.error.unwrap_or_default();
+                                error!("Existing store validation failed: {}", error_msg);
+                                return Err(eyre::eyre!("Store validation failed: {}", error_msg));
+                            }
+
+                            if let Some(count) = health.extension_count {
+                                info!("Validated existing store with {} extensions", count);
+                            } else {
+                                info!("Validated existing store structure");
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to validate existing store: {}", e);
+                            return Err(eyre::eyre!("Store validation failed: {}", e));
                         }
                     }
                 }
-                Err(e) => {
-                    error!("Failed to validate store: {}", e);
-                    return Err(eyre::eyre!("Failed to validate store: {}", e));
-                }
+            } else {
+                // Path doesn't exist - create the directory and initialize
+                info!("Path doesn't exist, creating directory and initializing store...");
+
+                std::fs::create_dir_all(&path)
+                    .map_err(|e| eyre::eyre!("Failed to create directory: {}", e))?;
+
+                let local_store = LocalStore::new(&path)
+                    .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
+
+                local_store
+                    .initialize_store(store_name.clone(), None)
+                    .await
+                    .map_err(|e| eyre::eyre!("Failed to initialize store: {}", e))?;
+
+                info!("Successfully created and initialized new store");
             }
+
+            // Create the final store instance for adding to manager
+            let local_store = LocalStore::new(&path)
+                .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
 
             // Create source configuration
             let source = ExtensionSource::local(store_name.clone(), path);

@@ -19,7 +19,7 @@ async fn main() -> eyre::Result<()> {
         .init();
 
     // Initialize config store for persistence (using ./local for easier testing)
-    let config_dir = PathBuf::from("./data/local");
+    let config_dir = PathBuf::from("./data");
     let config_file = config_dir.join("config.json");
     let config_store = LocalConfigStore::new(config_file).await?;
 
