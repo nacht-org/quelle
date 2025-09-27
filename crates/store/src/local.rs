@@ -22,8 +22,124 @@ use crate::publish::{
     RateLimits, UnpublishOptions, UnpublishResult, ValidationReport,
 };
 use crate::store::{capabilities, Store};
-use crate::store_manifest::{ExtensionSummary, StoreManifest};
+use crate::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
 use crate::validation::{create_default_validator, ValidationEngine};
+
+/// Local store manifest that extends the base StoreManifest with URL routing
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct LocalStoreManifest {
+    /// Base store manifest
+    #[serde(flatten)]
+    pub base: StoreManifest,
+
+    /// URL Routing & Domain Support
+    pub url_patterns: Vec<UrlPattern>,
+    pub supported_domains: Vec<String>,
+
+    /// Extension Index for Fast Lookups
+    pub extension_count: u32,
+    pub extensions: Vec<ExtensionSummary>,
+}
+
+impl LocalStoreManifest {
+    /// Create a new local store manifest
+    pub fn new(base: StoreManifest) -> Self {
+        Self {
+            base,
+            url_patterns: Vec::new(),
+            supported_domains: Vec::new(),
+            extension_count: 0,
+            extensions: Vec::new(),
+        }
+    }
+
+    /// Add a URL pattern for extension matching
+    pub fn add_url_pattern(&mut self, url_prefix: String, extensions: Vec<String>, priority: u8) {
+        self.url_patterns.push(UrlPattern {
+            url_prefix,
+            extensions,
+            priority,
+        });
+
+        // Sort patterns by priority (highest first)
+        self.url_patterns
+            .sort_by(|a, b| b.priority.cmp(&a.priority));
+    }
+
+    /// Add an extension summary to the manifest
+    pub fn add_extension(&mut self, extension: ExtensionSummary) {
+        // Update supported domains from extension base URLs
+        for base_url in &extension.base_urls {
+            if let Ok(parsed) = url::Url::parse(base_url) {
+                if let Some(domain) = parsed.domain() {
+                    let domain = domain.to_string();
+                    if !self.supported_domains.contains(&domain) {
+                        self.supported_domains.push(domain);
+                    }
+                }
+            }
+        }
+
+        self.extensions.push(extension);
+        self.extension_count = self.extensions.len() as u32;
+        self.supported_domains.sort();
+        self.base.last_updated = chrono::Utc::now();
+    }
+
+    /// Find extensions that can handle the given URL
+    pub fn find_extensions_for_url(&self, url: &str) -> Vec<String> {
+        let mut matches = Vec::new();
+
+        // Check URL patterns first (sorted by priority)
+        for pattern in &self.url_patterns {
+            if url.starts_with(&pattern.url_prefix) {
+                matches.extend(pattern.extensions.clone());
+            }
+        }
+
+        // If no pattern matches, check individual extension base URLs
+        if matches.is_empty() {
+            for ext in &self.extensions {
+                for base_url in &ext.base_urls {
+                    if url.starts_with(base_url) {
+                        matches.push(ext.name.clone());
+                        break; // Don't add the same extension multiple times
+                    }
+                }
+            }
+        }
+
+        // Remove duplicates while preserving order
+        let mut unique_matches = Vec::new();
+        for m in matches {
+            if !unique_matches.contains(&m) {
+                unique_matches.push(m);
+            }
+        }
+
+        unique_matches
+    }
+
+    /// Get extensions that support a specific domain
+    pub fn find_extensions_for_domain(&self, domain: &str) -> Vec<String> {
+        let mut matches = Vec::new();
+
+        for ext in &self.extensions {
+            for base_url in &ext.base_urls {
+                if let Ok(parsed) = url::Url::parse(base_url) {
+                    if let Some(url_domain) = parsed.domain() {
+                        if url_domain == domain {
+                            matches.push(ext.name.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        matches
+    }
+}
 
 /// Local file system-based store implementation
 pub struct LocalStore {
@@ -520,8 +636,8 @@ impl Store for LocalStore {
         // Try to read existing manifest
         if manifest_path.exists() {
             match fs::read_to_string(&manifest_path).await {
-                Ok(content) => match serde_json::from_str::<StoreManifest>(&content) {
-                    Ok(manifest) => return Ok(manifest),
+                Ok(content) => match serde_json::from_str::<LocalStoreManifest>(&content) {
+                    Ok(local_manifest) => return Ok(local_manifest.base),
                     Err(e) => {
                         warn!("Failed to parse store manifest: {}", e);
                     }
@@ -533,7 +649,18 @@ impl Store for LocalStore {
         }
 
         // Generate manifest from current store state
-        self.generate_store_manifest().await
+        let local_manifest = self.generate_local_store_manifest().await?;
+        Ok(local_manifest.base)
+    }
+
+    async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<String>> {
+        let local_manifest = self.get_local_store_manifest().await?;
+        Ok(local_manifest.find_extensions_for_url(url))
+    }
+
+    async fn find_extensions_for_domain(&self, domain: &str) -> Result<Vec<String>> {
+        let local_manifest = self.get_local_store_manifest().await?;
+        Ok(local_manifest.find_extensions_for_domain(domain))
     }
 
     async fn health_check(&self) -> Result<StoreHealth> {
@@ -925,14 +1052,38 @@ impl Store for LocalStore {
 }
 
 impl LocalStore {
-    /// Generate a store manifest from the current state of the store
-    async fn generate_store_manifest(&self) -> Result<StoreManifest> {
-        let mut manifest = StoreManifest::new(
+    /// Get the local store manifest (internal method)
+    async fn get_local_store_manifest(&self) -> Result<LocalStoreManifest> {
+        let manifest_path = self.root_path.join("store.json");
+
+        // Try to read existing manifest
+        if manifest_path.exists() {
+            match fs::read_to_string(&manifest_path).await {
+                Ok(content) => match serde_json::from_str::<LocalStoreManifest>(&content) {
+                    Ok(manifest) => return Ok(manifest),
+                    Err(e) => {
+                        warn!("Failed to parse local store manifest: {}", e);
+                    }
+                },
+                Err(e) => {
+                    warn!("Failed to read local store manifest: {}", e);
+                }
+            }
+        }
+
+        // Generate manifest from current store state
+        self.generate_local_store_manifest().await
+    }
+    /// Generate a local store manifest from the current state of the store
+    async fn generate_local_store_manifest(&self) -> Result<LocalStoreManifest> {
+        let base_manifest = StoreManifest::new(
             "local".to_string(),
             "local".to_string(),
             "1.0.0".to_string(), // Store version, not manifest version
         )
         .with_url(format!("file://{}", self.root_path.display()));
+
+        let mut local_manifest = LocalStoreManifest::new(base_manifest);
 
         // Scan for extensions and build manifest
         let extensions = self.list_extensions().await?;
@@ -951,16 +1102,16 @@ impl LocalStore {
                     last_updated: ext_info.last_updated.unwrap_or_else(|| Utc::now()),
                 };
 
-                manifest.add_extension(summary);
+                local_manifest.add_extension(summary);
             }
         }
 
-        Ok(manifest)
+        Ok(local_manifest)
     }
 
     /// Save the store manifest to disk
     pub async fn save_store_manifest(&self) -> Result<()> {
-        let manifest = self.generate_store_manifest().await?;
+        let manifest = self.generate_local_store_manifest().await?;
         let manifest_path = self.root_path.join("store.json");
 
         let content =

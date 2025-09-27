@@ -336,14 +336,14 @@ impl StoreManager {
 
     /// Find an extension that can handle the given URL
     pub async fn find_extension_for_url(&self, url: &str) -> Result<Option<(String, String)>> {
-        // 1. First check store manifests for fast URL pattern matching
+        // Check each store for URL matching using the store's implementation
         for managed_store in &self.extension_stores {
             if !managed_store.config.enabled {
                 continue;
             }
 
-            if let Ok(manifest) = managed_store.store.get_store_manifest().await {
-                let matching_extensions = manifest.find_extensions_for_url(url);
+            if let Ok(matching_extensions) = managed_store.store.find_extensions_for_url(url).await
+            {
                 if !matching_extensions.is_empty() {
                     // Return the first match with highest priority
                     return Ok(Some((

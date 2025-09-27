@@ -19,6 +19,12 @@ pub trait Store: Send + Sync {
     /// Check the health status of this store
     async fn health_check(&self) -> Result<StoreHealth>;
 
+    /// Find extensions that can handle the given URL
+    async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<String>>;
+
+    /// Find extensions that support a specific domain
+    async fn find_extensions_for_domain(&self, domain: &str) -> Result<Vec<String>>;
+
     // Discovery Operations
 
     /// List all available extensions in this store
@@ -215,6 +221,14 @@ mod tests {
 
         async fn health_check(&self) -> Result<StoreHealth> {
             Ok(StoreHealth::healthy())
+        }
+
+        async fn find_extensions_for_url(&self, _url: &str) -> Result<Vec<String>> {
+            Ok(vec![])
+        }
+
+        async fn find_extensions_for_domain(&self, _domain: &str) -> Result<Vec<String>> {
+            Ok(vec![])
         }
 
         async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
