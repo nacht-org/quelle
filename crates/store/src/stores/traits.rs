@@ -243,11 +243,20 @@ pub enum RefType {
 pub trait StoreExt {
     /// Try to downcast to a specific store implementation
     fn as_any(&self) -> &dyn Any;
+
+    /// Attempt to downcast to a specific type
+    fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+        self.as_any().downcast_ref::<T>()
+    }
 }
 
 // Default implementation of StoreExt for all BaseStore implementations
 impl<T: BaseStore> StoreExt for T {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn downcast_ref<U: 'static>(&self) -> Option<&U> {
+        self.as_any().downcast_ref::<U>()
     }
 }

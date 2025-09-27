@@ -21,7 +21,7 @@ use crate::models::{
 use crate::publish::{
     ExtensionVisibility, PublishOptions, PublishPermissions, PublishRequirements, PublishResult,
     PublishStats, PublishUpdateOptions, RateLimitStatus, RateLimits, UnpublishOptions,
-    UnpublishResult, ValidationReport,
+    UnpublishResult,
 };
 use crate::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
 use crate::stores::traits::{
@@ -768,7 +768,6 @@ impl BaseStore for LocalStore {
                 )),
                 extension_count: Some(0),
                 store_version: None,
-                capabilities: self.capabilities(),
             });
         }
 
@@ -780,7 +779,6 @@ impl BaseStore for LocalStore {
                 error: Some("Store path is not a directory".to_string()),
                 extension_count: Some(0),
                 store_version: None,
-                capabilities: self.capabilities(),
             });
         }
 
@@ -805,7 +803,6 @@ impl BaseStore for LocalStore {
                         error: Some("Cannot read extensions directory".to_string()),
                         extension_count: Some(0),
                         store_version: None,
-                        capabilities: self.capabilities(),
                     });
                 }
             }
@@ -818,7 +815,6 @@ impl BaseStore for LocalStore {
             error: None,
             extension_count: Some(extension_count),
             store_version: Some("1.0.0".to_string()),
-            capabilities: self.capabilities(),
         })
     }
 }
@@ -985,7 +981,9 @@ impl ReadableStore for LocalStore {
     }
 
     async fn get_extension_latest_version(&self, id: &str) -> Result<Option<String>> {
-        self.get_latest_version_internal(id).await
+        self.get_latest_version_internal(id)
+            .await
+            .map_err(StoreError::from)
     }
 
     async fn list_extension_versions(&self, id: &str) -> Result<Vec<String>> {
@@ -1272,7 +1270,7 @@ impl WritableStore for LocalStore {
         }
     }
 
-    async fn can_publish(&self, extension_id: &str) -> Result<PublishPermissions> {
+    async fn can_publish(&self, _extension_id: &str) -> Result<PublishPermissions> {
         if self.readonly {
             return Ok(PublishPermissions {
                 can_publish: false,
@@ -1302,7 +1300,7 @@ impl WritableStore for LocalStore {
         })
     }
 
-    async fn get_rate_limit_status(&self, user_id: &str) -> Result<RateLimitStatus> {
+    async fn get_rate_limit_status(&self, _user_id: &str) -> Result<RateLimitStatus> {
         // For local stores, no rate limiting
         Ok(RateLimitStatus {
             publications_remaining: Some(10),
@@ -1380,9 +1378,9 @@ impl WritableStore for LocalStore {
 
     async fn update_published(
         &self,
-        extension_id: &str,
+        _extension_id: &str,
         package: ExtensionPackage,
-        options: PublishUpdateOptions,
+        _options: PublishUpdateOptions,
     ) -> Result<PublishResult> {
         // For local stores, updating is the same as publishing
         let publish_options = PublishOptions {
@@ -1453,11 +1451,11 @@ impl WritableStore for LocalStore {
     async fn get_publish_stats(&self) -> Result<PublishStats> {
         let extensions = self.get_cached_extensions().await?;
         let total_extensions = extensions.len();
-        let mut total_versions = 0;
+        let mut _total_versions = 0;
         let mut total_size = 0u64;
 
         for versions in extensions.values() {
-            total_versions += versions.len();
+            _total_versions += versions.len();
             for ext in versions {
                 total_size += ext.size.unwrap_or(0);
             }
@@ -1480,9 +1478,16 @@ impl WritableStore for LocalStore {
     async fn validate_package(
         &self,
         package: &ExtensionPackage,
-        options: &PublishOptions,
-    ) -> Result<ValidationReport> {
-        self.validator.validate(package).await
+        _options: &PublishOptions,
+    ) -> Result<crate::publish::ValidationReport> {
+        let validation_result = self.validator.validate(package).await?;
+        Ok(crate::publish::ValidationReport {
+            passed: validation_result.passed,
+            issues: validation_result.issues,
+            validation_duration: validation_result.validation_duration,
+            validator_version: env!("CARGO_PKG_VERSION").to_string(),
+            metadata: std::collections::HashMap::new(),
+        })
     }
 }
 
@@ -1717,7 +1722,7 @@ mod tests {
     #[tokio::test]
     async fn test_publish_extension() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = LocalStore::new(temp_dir.path()).unwrap();
+        let store = LocalStore::new(temp_dir.path()).unwrap();
 
         // Valid WASM magic number + version + minimal content
         let valid_wasm = [
@@ -1746,7 +1751,7 @@ mod tests {
         let options = PublishOptions::default();
 
         // Test publishing
-        let result = store.publish_extension(package, &options).await.unwrap();
+        let result = store.publish(package.clone(), options).await.unwrap();
 
         assert_eq!(result.version, "1.0.0");
         assert!(result.download_url.contains("test-extension"));
@@ -1790,7 +1795,7 @@ mod tests {
         let options = PublishOptions::default();
 
         // Test validation
-        let validation = store.validate_publish(&package, &options).await.unwrap();
+        let validation = store.validate_package(&package, &options).await.unwrap();
 
         assert!(!validation.passed);
         assert!(!validation.issues.is_empty());
@@ -1800,7 +1805,7 @@ mod tests {
     #[tokio::test]
     async fn test_unpublish_extension() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = LocalStore::new(temp_dir.path()).unwrap();
+        let store = LocalStore::new(temp_dir.path()).unwrap();
 
         // Valid WASM magic number + version + minimal content
         let valid_wasm = [
@@ -1827,7 +1832,7 @@ mod tests {
             ExtensionPackage::new(manifest, valid_wasm.to_vec(), "test-store".to_string());
 
         let options = PublishOptions::default();
-        store.publish_extension(package, &options).await.unwrap();
+        store.publish(package, options).await.unwrap();
 
         // Verify it exists
         assert!(store
@@ -1838,13 +1843,14 @@ mod tests {
         // Now unpublish it
         let unpublish_options = UnpublishOptions {
             access_token: None,
+            version: Some("1.0.0".to_string()),
             reason: Some("Test unpublish".to_string()),
             keep_record: false,
             notify_users: false,
         };
 
         let result = store
-            .unpublish_extension("test-extension", "1.0.0", &unpublish_options)
+            .unpublish("test-extension", unpublish_options)
             .await
             .unwrap();
 
@@ -1861,7 +1867,7 @@ mod tests {
     #[tokio::test]
     async fn test_validation_integration() {
         let temp_dir = TempDir::new().unwrap();
-        let mut store = LocalStore::new(temp_dir.path()).unwrap();
+        let store = LocalStore::new(temp_dir.path()).unwrap();
 
         // Test 1: Valid extension should pass validation and publish
         let valid_wasm = [
@@ -1890,7 +1896,7 @@ mod tests {
         );
 
         let result = store
-            .publish_extension(valid_package, &PublishOptions::default())
+            .publish(valid_package, PublishOptions::default())
             .await;
         assert!(
             result.is_ok(),
@@ -1920,7 +1926,7 @@ mod tests {
         );
 
         let result = store
-            .publish_extension(invalid_package, &PublishOptions::default())
+            .publish(invalid_package, PublishOptions::default())
             .await;
         assert!(result.is_err(), "Invalid extension should fail to publish");
 
@@ -1960,7 +1966,7 @@ mod tests {
             .insert("malware.exe".to_string(), vec![0x4d, 0x5a]); // PE header
 
         let result = store
-            .publish_extension(forbidden_package, &PublishOptions::default())
+            .publish(forbidden_package, PublishOptions::default())
             .await;
         assert!(
             result.is_err(),
@@ -1992,9 +1998,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = store
-            .publish_extension(invalid_package_skip, &skip_options)
-            .await;
+        let result = store.publish(invalid_package_skip, skip_options).await;
         assert!(
             result.is_ok(),
             "Extension should publish when validation is skipped"

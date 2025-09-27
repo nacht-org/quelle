@@ -9,7 +9,6 @@ use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use crate::error::{Result, StoreError};
-use crate::local::LocalStore;
 use crate::manifest::ExtensionManifest;
 use crate::models::{
     ExtensionInfo, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy, StoreConfig,
@@ -17,26 +16,27 @@ use crate::models::{
 };
 use crate::publish::{
     PublishOptions, PublishPermissions, PublishRequirements, PublishResult, PublishStats,
-    PublishableStore, UnpublishOptions, UnpublishResult,
+    UnpublishOptions, UnpublishResult,
 };
 use crate::registry::{
     InstallationQuery, InstallationStats, RegistryHealth, RegistryStore, ValidationIssue,
 };
 use crate::registry_config::RegistryStoreConfig;
-use crate::store::Store;
+use crate::stores::BaseStore;
+use crate::WritableStore;
 
 /// Wrapper combining a Store with its registry configuration
 pub struct ManagedStore {
-    store: Box<dyn Store>,
+    store: Box<dyn BaseStore>,
     config: RegistryStoreConfig,
 }
 
 impl ManagedStore {
-    fn new(store: Box<dyn Store>, config: RegistryStoreConfig) -> Self {
+    fn new(store: Box<dyn BaseStore>, config: RegistryStoreConfig) -> Self {
         Self { store, config }
     }
 
-    pub fn store(&self) -> &dyn Store {
+    pub fn store(&self) -> &dyn BaseStore {
         self.store.as_ref()
     }
 
@@ -47,8 +47,7 @@ impl ManagedStore {
     /// Try to get publish requirements if this store supports publishing
     pub fn get_publish_requirements(&self) -> Option<PublishRequirements> {
         // Try to downcast to LocalStore (currently the only PublishableStore implementation)
-        let store_any = self.store.as_ref() as &dyn std::any::Any;
-        if let Some(local_store) = store_any.downcast_ref::<LocalStore>() {
+        if let Some(local_store) = self.store.downcast_ref::<WritableStore>() {
             Some(local_store.publish_requirements())
         } else {
             None
@@ -57,8 +56,7 @@ impl ManagedStore {
 
     /// Try to check publish permissions if this store supports publishing
     pub async fn can_publish(&self, extension_id: &str) -> Option<Result<PublishPermissions>> {
-        let store_any = self.store.as_ref() as &dyn std::any::Any;
-        if let Some(local_store) = store_any.downcast_ref::<LocalStore>() {
+        if let Some(local_store) = self.store.downcast_ref::<WritableStore>() {
             Some(local_store.can_publish(extension_id).await)
         } else {
             None
@@ -67,8 +65,7 @@ impl ManagedStore {
 
     /// Try to get publish stats if this store supports publishing
     pub async fn get_publish_stats(&self) -> Option<Result<PublishStats>> {
-        let store_any = self.store.as_ref() as &dyn std::any::Any;
-        if let Some(local_store) = store_any.downcast_ref::<LocalStore>() {
+        if let Some(local_store) = self.store.downcast_ref::<WritableStore>() {
             Some(local_store.get_publish_stats().await)
         } else {
             None
@@ -77,8 +74,7 @@ impl ManagedStore {
 
     /// Check if this store supports publishing operations
     pub fn supports_publishing(&self) -> bool {
-        let store_any = self.store.as_ref() as &dyn std::any::Any;
-        store_any.downcast_ref::<LocalStore>().is_some()
+        self.store.downcast_ref::<WritableStore>().is_some()
     }
 }
 
@@ -125,7 +121,7 @@ impl StoreManager {
 
     /// Add an extension store to the manager (for discovering extensions)
     /// Add an extension store to the manager with registry configuration
-    pub async fn add_extension_store<S: Store + 'static>(
+    pub async fn add_extension_store<S: BaseStore + 'static>(
         &mut self,
         store: S,
         registry_config: RegistryStoreConfig,
@@ -142,7 +138,7 @@ impl StoreManager {
     /// Add a boxed extension store to the manager with registry configuration
     pub async fn add_boxed_extension_store(
         &mut self,
-        store: Box<dyn Store>,
+        store: Box<dyn BaseStore>,
         registry_config: RegistryStoreConfig,
     ) -> Result<()> {
         let manifest = store.get_store_manifest().await?;
@@ -933,9 +929,8 @@ impl StoreManager {
         // Find the store in our collection
         for managed_store in &mut self.extension_stores {
             if managed_store.config.store_name == store_name {
-                // Try to downcast to LocalStore for mutable operations
-                let store_any = managed_store.store.as_mut() as &mut dyn std::any::Any;
-                if let Some(local_store) = store_any.downcast_mut::<LocalStore>() {
+                // Try to downcast to WritableStore for mutable operations
+                if let Some(local_store) = self.store.downcast_mut::<WritableStore>() {
                     return Some(local_store.publish_extension(package, options).await);
                 }
             }
@@ -953,8 +948,7 @@ impl StoreManager {
     ) -> Option<Result<UnpublishResult>> {
         for managed_store in &mut self.extension_stores {
             if managed_store.config.store_name == store_name {
-                let store_any = managed_store.store.as_mut() as &mut dyn std::any::Any;
-                if let Some(local_store) = store_any.downcast_mut::<LocalStore>() {
+                if let Some(local_store) = self.store.downcast_mut::<WritableStore>() {
                     return Some(local_store.unpublish_extension(id, version, options).await);
                 }
             }

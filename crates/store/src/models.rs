@@ -573,7 +573,6 @@ pub struct StoreHealth {
     pub error: Option<String>,
     pub extension_count: Option<usize>,
     pub store_version: Option<String>,
-    pub capabilities: Vec<String>,
 }
 
 impl StoreHealth {

@@ -7,57 +7,10 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
-use crate::models::ExtensionPackage;
 use crate::registry::ValidationIssue;
-use crate::store::Store;
-
-/// Trait for stores that support publishing extensions
-#[async_trait]
-pub trait PublishableStore: Store {
-    /// Publish a new extension version to this store
-    async fn publish_extension(
-        &mut self,
-        package: ExtensionPackage,
-        options: &PublishOptions,
-    ) -> Result<PublishResult>;
-
-    /// Update an existing extension (may require special permissions)
-    async fn update_extension(
-        &mut self,
-        name: &str,
-        package: ExtensionPackage,
-        options: &PublishUpdateOptions,
-    ) -> Result<PublishResult>;
-
-    /// Remove an extension version from the store
-    async fn unpublish_extension(
-        &mut self,
-        id: &str,
-        version: &str,
-        options: &UnpublishOptions,
-    ) -> Result<UnpublishResult>;
-
-    /// Validate a package before publishing (dry-run)
-    async fn validate_publish(
-        &self,
-        package: &ExtensionPackage,
-        options: &PublishOptions,
-    ) -> Result<ValidationReport>;
-
-    /// Get publishing requirements and constraints for this store
-    fn publish_requirements(&self) -> PublishRequirements;
-
-    /// Check if the current credentials allow publishing
-    async fn can_publish(&self, extension_id: &str) -> Result<PublishPermissions>;
-
-    /// Get publishing statistics and quotas
-    async fn get_publish_stats(&self) -> Result<PublishStats>;
-}
 
 /// Options for publishing a new extension
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,6 +114,9 @@ pub struct UnpublishOptions {
     /// Authentication token
     pub access_token: Option<String>,
 
+    /// Version to unpublish (None means all versions)
+    pub version: Option<String>,
+
     /// Reason for unpublishing
     pub reason: Option<String>,
 
@@ -217,6 +173,7 @@ pub struct PublishResult {
 impl PublishResult {
     /// Create a successful result
     pub fn success(
+        extension_id: String,
         version: String,
         download_url: String,
         publication_id: String,
@@ -224,6 +181,7 @@ impl PublishResult {
         content_hash: String,
     ) -> Self {
         Self {
+            extension_id,
             version,
             download_url,
             published_at: Utc::now(),
@@ -511,6 +469,7 @@ mod tests {
     #[test]
     fn test_publish_result_builder() {
         let result = PublishResult::success(
+            "ext-123".to_string(),
             "1.0.0".to_string(),
             "https://example.com/download".to_string(),
             "pub-123".to_string(),

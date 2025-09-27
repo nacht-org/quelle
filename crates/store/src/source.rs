@@ -10,7 +10,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
-use crate::error::{Result, StoreError};
+use crate::{
+    error::{Result, StoreError},
+    stores::local::LocalStore,
+    BaseStore,
+};
 
 /// Type of extension store with associated data
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -270,17 +274,14 @@ fn get_default_config_dir() -> Result<PathBuf> {
 }
 
 /// Helper function to create a store from an ExtensionSource configuration
-pub async fn create_store_from_source(
-    source: &ExtensionSource,
-) -> Result<Box<dyn crate::store::Store>> {
+pub async fn create_store_from_source(source: &ExtensionSource) -> Result<Box<dyn BaseStore>> {
     match &source.store_type {
         StoreType::Local { path } => {
-            let local_store = crate::local::LocalStore::new(path)
-                .map_err(|e| StoreError::StoreCreationError {
+            let local_store =
+                LocalStore::new(path).map_err(|e| StoreError::StoreCreationError {
                     store_type: "local".to_string(),
                     source: Box::new(e),
-                })?
-                .with_name(source.name.clone());
+                })?;
 
             Ok(Box::new(local_store))
         }

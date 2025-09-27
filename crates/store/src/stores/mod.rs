@@ -170,8 +170,8 @@ impl StoreCreator for LocalStoreCreator {
         match config {
             StoreConfig::Local {
                 path,
-                name,
-                trusted,
+                name: _,
+                trusted: _,
                 cache_enabled,
                 readonly,
             } => {
@@ -337,8 +337,10 @@ mod tests {
         let factory = StoreFactory::new();
         let store = factory.create_store(config).await.unwrap();
 
-        assert_eq!(store.store_type(), "local");
-        assert_eq!(store.name(), "test-store");
+        let manifest = store.get_store_manifest().await.unwrap();
+
+        assert_eq!(manifest.store_type, "local");
+        assert_eq!(manifest.name, "test-store");
     }
 
     #[tokio::test]
