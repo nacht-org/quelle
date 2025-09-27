@@ -53,6 +53,18 @@ pub enum StoreError {
     #[error("Configuration error: {message}")]
     ConfigurationError { message: String },
 
+    #[error("Unsupported store type: {0}")]
+    UnsupportedStoreType(String),
+
+    #[error("Invalid configuration: {0}")]
+    InvalidConfiguration(String),
+
+    #[error("Validation failed: {0}")]
+    ValidationFailed(String),
+
+    #[error("Runtime error: {0}")]
+    RuntimeError(String),
+
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 

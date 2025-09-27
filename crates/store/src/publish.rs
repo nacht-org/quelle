@@ -249,6 +249,8 @@ impl PublishResult {
 /// Result of an unpublish operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnpublishResult {
+    /// The ID of the extension that was unpublished
+    pub extension_id: String,
     /// The version that was unpublished
     pub version: String,
 

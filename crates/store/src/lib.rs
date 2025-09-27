@@ -61,7 +61,6 @@
 /// # }
 /// ```
 pub mod error;
-pub mod local;
 pub mod manager;
 pub mod manifest;
 pub mod models;
@@ -69,14 +68,9 @@ pub mod publish;
 pub mod registry;
 pub mod registry_config;
 pub mod source;
-pub mod store;
 pub mod store_manifest;
+pub mod stores;
 pub mod validation;
-
-// Additional store implementations will be added as separate modules:
-// - git.rs for Git repository stores
-// - http.rs for HTTP-based stores
-// - s3.rs for S3 bucket stores
 
 // Re-export commonly used types
 pub use error::{Result, StoreError};
