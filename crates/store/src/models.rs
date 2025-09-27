@@ -100,16 +100,18 @@ impl ExtensionPackage {
         })?;
 
         // Create a runner from the wasm content
-        let runner = engine.new_runner_from_bytes(&wasm_content).map_err(|e| {
-            crate::error::StoreError::InvalidPackage {
+        let runner = engine
+            .new_runner_from_bytes(&wasm_content)
+            .await
+            .map_err(|e| crate::error::StoreError::InvalidPackage {
                 reason: format!("Failed to create runner from wasm: {}", e),
-            }
-        })?;
+            })?;
 
         // Extract metadata
         let (_runner, extension_meta) =
             runner
                 .meta()
+                .await
                 .map_err(|e| crate::error::StoreError::InvalidPackage {
                     reason: format!("Failed to extract metadata from wasm: {}", e),
                 })?;

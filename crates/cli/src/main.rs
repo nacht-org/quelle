@@ -326,11 +326,11 @@ async fn fetch_novel_with_extension(
     installed: &quelle_store::models::InstalledExtension,
     url: &str,
 ) -> eyre::Result<quelle_engine::bindings::quelle::extension::novel::Novel> {
-    use quelle_engine::http::ReqwestExecutor;
+    use quelle_engine::http::HeadlessChromeExecutor;
     use std::sync::Arc;
 
     // Create HTTP executor
-    let executor = Arc::new(ReqwestExecutor::new());
+    let executor = Arc::new(HeadlessChromeExecutor::new());
 
     // Create extension engine
     let engine = ExtensionEngine::new(executor)?;
@@ -342,8 +342,10 @@ async fn fetch_novel_with_extension(
     }
 
     // Create runner and fetch novel info
-    let runner = engine.new_runner_from_file(&wasm_path.to_string_lossy())?;
-    let (_, result) = runner.fetch_novel_info(url)?;
+    let runner = engine
+        .new_runner_from_file(&wasm_path.to_string_lossy())
+        .await?;
+    let (_, result) = runner.fetch_novel_info(url).await?;
 
     match result {
         Ok(novel) => Ok(novel),
@@ -356,11 +358,11 @@ async fn fetch_chapter_with_extension(
     installed: &quelle_store::models::InstalledExtension,
     url: &str,
 ) -> eyre::Result<quelle_engine::bindings::quelle::extension::novel::ChapterContent> {
-    use quelle_engine::http::ReqwestExecutor;
+    use quelle_engine::http::HeadlessChromeExecutor;
     use std::sync::Arc;
 
     // Create HTTP executor
-    let executor = Arc::new(ReqwestExecutor::new());
+    let executor = Arc::new(HeadlessChromeExecutor::new());
 
     // Create extension engine
     let engine = ExtensionEngine::new(executor)?;
@@ -372,8 +374,10 @@ async fn fetch_chapter_with_extension(
     }
 
     // Create runner and fetch chapter
-    let runner = engine.new_runner_from_file(&wasm_path.to_string_lossy())?;
-    let (_, result) = runner.fetch_chapter(url)?;
+    let runner = engine
+        .new_runner_from_file(&wasm_path.to_string_lossy())
+        .await?;
+    let (_, result) = runner.fetch_chapter(url).await?;
 
     match result {
         Ok(chapter) => Ok(chapter),

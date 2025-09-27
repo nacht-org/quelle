@@ -4,9 +4,10 @@ mod reqwest;
 
 use std::fmt;
 use std::sync::Arc;
-use wasmtime::component::ResourceTable;
+use wasmtime::component::{HasData, ResourceTable};
 
 use crate::bindings::quelle::extension::http;
+use crate::state::State;
 
 pub use self::chrome::HeadlessChromeExecutor;
 pub use self::executor::HttpExecutor;
@@ -31,6 +32,10 @@ pub struct Http {
     executor: Arc<dyn HttpExecutor>,
 }
 
+impl HasData for Http {
+    type Data<'a> = &'a mut State;
+}
+
 impl Http {
     pub fn new(executor: Arc<dyn HttpExecutor>) -> Self {
         Self {
@@ -43,13 +48,13 @@ impl Http {
 impl http::Host for Http {}
 
 impl http::HostClient for Http {
-    fn new(&mut self) -> wasmtime::component::Resource<http::Client> {
+    async fn new(&mut self) -> wasmtime::component::Resource<http::Client> {
         self.table
             .push(http::Client::new(self.executor.clone()))
             .unwrap()
     }
 
-    fn request(
+    async fn request(
         &mut self,
         self_: wasmtime::component::Resource<http::Client>,
         request: http::Request,
@@ -61,11 +66,13 @@ impl http::HostClient for Http {
         );
 
         let client = self.table.get_mut(&self_).unwrap();
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(client.request(request))
+        client.request(request).await
     }
 
-    fn drop(&mut self, rep: wasmtime::component::Resource<http::Client>) -> wasmtime::Result<()> {
+    async fn drop(
+        &mut self,
+        rep: wasmtime::component::Resource<http::Client>,
+    ) -> wasmtime::Result<()> {
         let _ = self.table.delete(rep)?;
         Ok(())
     }
