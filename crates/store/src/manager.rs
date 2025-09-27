@@ -17,7 +17,7 @@ use crate::models::{
 };
 use crate::publish::{
     PublishOptions, PublishPermissions, PublishRequirements, PublishResult, PublishStats,
-    PublishUpdateOptions, PublishableStore, UnpublishOptions, UnpublishResult,
+    PublishableStore, UnpublishOptions, UnpublishResult,
 };
 use crate::registry::{
     InstallationQuery, InstallationStats, RegistryHealth, RegistryStore, ValidationIssue,
@@ -938,25 +938,6 @@ impl StoreManager {
                 let store_any = managed_store.store.as_mut() as &mut dyn std::any::Any;
                 if let Some(local_store) = store_any.downcast_mut::<LocalStore>() {
                     return Some(local_store.publish_extension(package, options).await);
-                }
-            }
-        }
-        None
-    }
-
-    /// Update a published extension in a store if it supports publishing
-    pub async fn update_published_extension_in_store(
-        &mut self,
-        store_name: &str,
-        name: &str,
-        package: crate::models::ExtensionPackage,
-        options: &PublishUpdateOptions,
-    ) -> Option<Result<PublishResult>> {
-        for managed_store in &mut self.extension_stores {
-            if managed_store.config.store_name == store_name {
-                let store_any = managed_store.store.as_mut() as &mut dyn std::any::Any;
-                if let Some(local_store) = store_any.downcast_mut::<LocalStore>() {
-                    return Some(local_store.update_extension(name, package, options).await);
                 }
             }
         }

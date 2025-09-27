@@ -7,7 +7,7 @@ use quelle_store::{
     StoreManager,
     local::LocalStore,
     models::{ExtensionPackage, InstallOptions},
-    publish::{PublishOptions, PublishUpdateOptions, UnpublishOptions},
+    publish::{PublishOptions, UnpublishOptions},
     registry_config::RegistryStoreConfig,
     validation::{create_default_validator, create_strict_validator},
 };
@@ -127,7 +127,7 @@ pub enum ExtensionCommands {
     },
     /// Check for available updates
     CheckUpdates,
-    /// Publish a new extension version
+    /// Publish an extension (new or updated version)
     Publish {
         /// Path to extension package or directory
         package_path: PathBuf,
@@ -162,28 +162,7 @@ pub enum ExtensionCommands {
         #[arg(long)]
         dev: bool,
     },
-    /// Update an existing published extension
-    PublishUpdate {
-        /// Extension name
-        name: String,
-        /// Path to extension package or directory
-        package_path: PathBuf,
-        /// Target store name
-        #[arg(long)]
-        store: String,
-        /// Update reason
-        #[arg(long)]
-        reason: Option<String>,
-        /// Preserve existing metadata
-        #[arg(long)]
-        preserve_metadata: bool,
-        /// Merge tags instead of replacing
-        #[arg(long)]
-        merge_tags: bool,
-        /// Access token for authentication
-        #[arg(long)]
-        token: Option<String>,
-    },
+
     /// Remove a published extension version
     Unpublish {
         /// Extension name
@@ -359,27 +338,7 @@ pub async fn handle_extension_command(
             )
             .await?;
         }
-        ExtensionCommands::PublishUpdate {
-            name,
-            package_path,
-            store,
-            reason,
-            preserve_metadata,
-            merge_tags,
-            token,
-        } => {
-            handle_publish_update(
-                name,
-                package_path,
-                store,
-                reason,
-                preserve_metadata,
-                merge_tags,
-                token,
-                manager,
-            )
-            .await?;
-        }
+
         ExtensionCommands::Unpublish {
             name,
             version,
@@ -1344,85 +1303,6 @@ async fn handle_publish_extension(
             }
             Err(e) => {
                 error!("Failed to publish extension: {}", e);
-                return Err(e.into());
-            }
-        },
-        None => {
-            error!(
-                "Store '{}' does not support publishing or was not found",
-                store_name
-            );
-            return Err(eyre::eyre!(
-                "Store '{}' does not support publishing operations",
-                store_name
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-async fn handle_publish_update(
-    name: String,
-    package_path: PathBuf,
-    store_name: String,
-    reason: Option<String>,
-    preserve_metadata: bool,
-    merge_tags: bool,
-    token: Option<String>,
-    manager: &mut StoreManager,
-) -> eyre::Result<()> {
-    info!(
-        "Updating published extension '{}' from {:?} in store '{}'",
-        name, package_path, store_name
-    );
-
-    let package = load_extension_package(&package_path).await?;
-
-    // Create update options
-    let mut publish_options = PublishOptions::production_defaults();
-    publish_options.access_token = token.clone();
-    let update_options = PublishUpdateOptions {
-        publish_options,
-        preserve_metadata,
-        merge_tags,
-        update_reason: reason.clone(),
-    };
-
-    println!("Update configuration:");
-    println!("  Extension: {}", name);
-    println!("  New version: {}", package.manifest.version);
-    println!("  Store: {}", store_name);
-    println!("  Preserve metadata: {}", preserve_metadata);
-    println!("  Merge tags: {}", merge_tags);
-
-    if let Some(ref r) = reason {
-        println!("  Reason: {}", r);
-    }
-
-    // Actually update the published extension
-    match manager
-        .update_published_extension_in_store(&store_name, &name, package, &update_options)
-        .await
-    {
-        Some(result) => match result {
-            Ok(publish_result) => {
-                println!("✅ Successfully updated published extension:");
-                println!("  Name: {}", name);
-                println!("  New version: {}", publish_result.version);
-                println!("  Download URL: {}", publish_result.download_url);
-                println!(
-                    "  Updated at: {}",
-                    publish_result.published_at.format("%Y-%m-%d %H:%M:%S")
-                );
-                println!("  Publication ID: {}", publish_result.publication_id);
-                println!(
-                    "  Package size: {}",
-                    format_size(publish_result.package_size)
-                );
-            }
-            Err(e) => {
-                error!("Failed to update published extension: {}", e);
                 return Err(e.into());
             }
         },
