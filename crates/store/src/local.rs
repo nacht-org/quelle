@@ -1501,10 +1501,13 @@ impl PublishableStore for LocalStore {
 
         // Update store manifest after successful unpublish
         if let Err(e) = self.save_store_manifest().await {
-            warn!(
-                "Failed to update store manifest after unpublishing {}: {}",
-                name, e
-            );
+            return Err(crate::error::StoreError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!(
+                    "Failed to update store manifest after unpublishing {}: {}",
+                    name, e
+                ),
+            )));
         }
 
         Ok(UnpublishResult {
