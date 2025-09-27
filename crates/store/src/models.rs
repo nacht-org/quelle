@@ -220,20 +220,7 @@ impl ExtensionPackage {
             })?;
 
         // Create the package
-        let mut package = ExtensionPackage::new(manifest, wasm_component, source_store);
-
-        // Only include explicitly allowed files for security
-        // Only README files are automatically included as assets
-        let allowed_files = ["README.md", "readme.md", "README.txt", "readme.txt"];
-
-        for allowed_file in &allowed_files {
-            let file_path = dir_path.join(allowed_file);
-            if file_path.exists() {
-                if let Ok(content) = tokio::fs::read(&file_path).await {
-                    package.add_asset(allowed_file.to_string(), content);
-                }
-            }
-        }
+        let package = ExtensionPackage::new(manifest, wasm_component, source_store);
 
         Ok(package)
     }
@@ -252,7 +239,6 @@ pub struct ExtensionMetadata {
     pub changelog: Option<String>,
     pub license: Option<String>,
     pub compatibility: CompatibilityInfo,
-    pub extra: HashMap<String, serde_json::Value>, // For extensibility
 }
 
 /// Compatibility requirements for an extension
