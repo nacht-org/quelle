@@ -24,9 +24,7 @@ use crate::publish::{
     UnpublishResult,
 };
 use crate::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
-use crate::stores::traits::{
-    BaseStore, CacheStats, CacheableStore, ReadableStore, UpdatableStore, WritableStore,
-};
+use crate::stores::traits::{BaseStore, CacheStats, CacheableStore, ReadableStore, WritableStore};
 use crate::validation::{create_default_validator, ValidationEngine};
 
 /// Local store manifest that extends the base StoreManifest with URL routing
@@ -1026,6 +1024,33 @@ impl ReadableStore for LocalStore {
 
         Ok(manifest_path.exists() && wasm_path.exists())
     }
+
+    async fn check_extension_updates(
+        &self,
+        installed: &[InstalledExtension],
+    ) -> Result<Vec<UpdateInfo>> {
+        let mut updates = Vec::new();
+
+        for ext in installed {
+            if let Ok(Some(latest_version)) = self
+                .get_latest_version_internal(&ext.name)
+                .await
+                .map_err(StoreError::from)
+            {
+                if latest_version != ext.version {
+                    let update_info = UpdateInfo::new(
+                        ext.name.clone(),
+                        ext.version.clone(),
+                        latest_version,
+                        "local".to_string(),
+                    );
+                    updates.push(update_info);
+                }
+            }
+        }
+
+        Ok(updates)
+    }
 }
 
 impl LocalStore {
@@ -1488,33 +1513,6 @@ impl WritableStore for LocalStore {
             validator_version: env!("CARGO_PKG_VERSION").to_string(),
             metadata: std::collections::HashMap::new(),
         })
-    }
-}
-
-#[async_trait]
-impl UpdatableStore for LocalStore {
-    async fn check_updates(&self, installed: &[InstalledExtension]) -> Result<Vec<UpdateInfo>> {
-        let mut updates = Vec::new();
-
-        for ext in installed {
-            if let Ok(Some(latest_version)) = self
-                .get_latest_version_internal(&ext.name)
-                .await
-                .map_err(StoreError::from)
-            {
-                if latest_version != ext.version {
-                    let update_info = UpdateInfo::new(
-                        ext.name.clone(),
-                        ext.version.clone(),
-                        latest_version,
-                        "local".to_string(),
-                    );
-                    updates.push(update_info);
-                }
-            }
-        }
-
-        Ok(updates)
     }
 }
 

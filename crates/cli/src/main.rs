@@ -53,7 +53,7 @@ async fn main() -> eyre::Result<()> {
             handle_status_command(&store_manager).await?;
         }
         Commands::Store { command } => {
-            handle_store_command(command, &mut store_manager, &config_store).await?;
+            handle_store_command(command, &config, &mut store_manager, &config_store).await?;
         }
         Commands::Extension { command } => {
             handle_extension_command(command, &mut store_manager).await?;

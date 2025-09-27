@@ -13,7 +13,7 @@ use tokio::fs;
 use crate::{
     error::{Result, StoreError},
     stores::local::LocalStore,
-    BaseStore,
+    BaseStore, ReadableStore, WritableStore,
 };
 
 /// Type of extension store with associated data
@@ -86,12 +86,33 @@ impl RegistryConfig {
         self.extension_sources.iter().any(|s| s.name == name)
     }
 
+    pub fn list_writable_sources(&self) -> Result<Vec<Box<dyn WritableStore>>> {
+        self.extension_sources
+            .iter()
+            .filter(|s| s.enabled)
+            .flat_map(|s| s.as_writable().transpose())
+            .collect()
+    }
+
+    pub fn get_writable_source(&self, name: &str) -> Result<Option<Box<dyn WritableStore>>> {
+        if let Some(source) = self
+            .extension_sources
+            .iter()
+            .filter(|s| s.enabled)
+            .find(|s| s.name == name)
+        {
+            source.as_writable()
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Apply configuration to an existing StoreManager
     pub async fn apply(&self, store_manager: &mut crate::StoreManager) -> Result<()> {
         // Add all configured extension sources
         for source in &self.extension_sources {
             if source.enabled {
-                match crate::source::create_store_from_source(source).await {
+                match crate::source::create_readable_store_from_source(source).await {
                     Ok(store) => {
                         tracing::info!("Restored store: {} ({})", source.name, source.store_type);
                         let registry_config = crate::registry_config::RegistryStoreConfig::new(
@@ -174,6 +195,32 @@ impl ExtensionSource {
 
     pub fn get_path(&self) -> Option<&PathBuf> {
         self.store_type.path()
+    }
+
+    pub fn as_readable(&self) -> Result<Box<dyn ReadableStore>> {
+        match &self.store_type {
+            StoreType::Local { path } => {
+                let local_store =
+                    LocalStore::new(path).map_err(|e| StoreError::StoreCreationError {
+                        store_type: "local".to_string(),
+                        source: Box::new(e),
+                    })?;
+                Ok(Box::new(local_store))
+            }
+        }
+    }
+
+    pub fn as_writable(&self) -> Result<Option<Box<dyn WritableStore>>> {
+        match &self.store_type {
+            StoreType::Local { path } => {
+                let local_store =
+                    LocalStore::new(path).map_err(|e| StoreError::StoreCreationError {
+                        store_type: "local".to_string(),
+                        source: Box::new(e),
+                    })?;
+                Ok(Some(Box::new(local_store)))
+            }
+        }
     }
 }
 
@@ -274,7 +321,9 @@ fn get_default_config_dir() -> Result<PathBuf> {
 }
 
 /// Helper function to create a store from an ExtensionSource configuration
-pub async fn create_store_from_source(source: &ExtensionSource) -> Result<Box<dyn BaseStore>> {
+pub async fn create_readable_store_from_source(
+    source: &ExtensionSource,
+) -> Result<Box<dyn ReadableStore>> {
     match &source.store_type {
         StoreType::Local { path } => {
             let local_store =

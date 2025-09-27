@@ -14,67 +14,30 @@ use crate::models::{
     ExtensionInfo, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy, StoreConfig,
     UpdateInfo, UpdateOptions,
 };
-use crate::publish::{
-    PublishOptions, PublishPermissions, PublishRequirements, PublishResult, PublishStats,
-    UnpublishOptions, UnpublishResult,
-};
+use crate::publish::PublishRequirements;
 use crate::registry::{
     InstallationQuery, InstallationStats, RegistryHealth, RegistryStore, ValidationIssue,
 };
 use crate::registry_config::RegistryStoreConfig;
-use crate::stores::BaseStore;
-use crate::WritableStore;
+use crate::stores::ReadableStore;
 
 /// Wrapper combining a Store with its registry configuration
 pub struct ManagedStore {
-    store: Box<dyn BaseStore>,
+    store: Box<dyn ReadableStore>,
     config: RegistryStoreConfig,
 }
 
 impl ManagedStore {
-    fn new(store: Box<dyn BaseStore>, config: RegistryStoreConfig) -> Self {
+    fn new(store: Box<dyn ReadableStore>, config: RegistryStoreConfig) -> Self {
         Self { store, config }
     }
 
-    pub fn store(&self) -> &dyn BaseStore {
+    pub fn store(&self) -> &dyn ReadableStore {
         self.store.as_ref()
     }
 
     pub fn config(&self) -> &RegistryStoreConfig {
         &self.config
-    }
-
-    /// Try to get publish requirements if this store supports publishing
-    pub fn get_publish_requirements(&self) -> Option<PublishRequirements> {
-        // Try to downcast to LocalStore (currently the only PublishableStore implementation)
-        if let Some(local_store) = self.store.downcast_ref::<WritableStore>() {
-            Some(local_store.publish_requirements())
-        } else {
-            None
-        }
-    }
-
-    /// Try to check publish permissions if this store supports publishing
-    pub async fn can_publish(&self, extension_id: &str) -> Option<Result<PublishPermissions>> {
-        if let Some(local_store) = self.store.downcast_ref::<WritableStore>() {
-            Some(local_store.can_publish(extension_id).await)
-        } else {
-            None
-        }
-    }
-
-    /// Try to get publish stats if this store supports publishing
-    pub async fn get_publish_stats(&self) -> Option<Result<PublishStats>> {
-        if let Some(local_store) = self.store.downcast_ref::<WritableStore>() {
-            Some(local_store.get_publish_stats().await)
-        } else {
-            None
-        }
-    }
-
-    /// Check if this store supports publishing operations
-    pub fn supports_publishing(&self) -> bool {
-        self.store.downcast_ref::<WritableStore>().is_some()
     }
 }
 
@@ -121,7 +84,7 @@ impl StoreManager {
 
     /// Add an extension store to the manager (for discovering extensions)
     /// Add an extension store to the manager with registry configuration
-    pub async fn add_extension_store<S: BaseStore + 'static>(
+    pub async fn add_extension_store<S: ReadableStore + 'static>(
         &mut self,
         store: S,
         registry_config: RegistryStoreConfig,
@@ -138,7 +101,7 @@ impl StoreManager {
     /// Add a boxed extension store to the manager with registry configuration
     pub async fn add_boxed_extension_store(
         &mut self,
-        store: Box<dyn BaseStore>,
+        store: Box<dyn ReadableStore>,
         registry_config: RegistryStoreConfig,
     ) -> Result<()> {
         let manifest = store.get_store_manifest().await?;
@@ -368,7 +331,11 @@ impl StoreManager {
                 continue;
             }
 
-            match managed_store.store.get_manifest(id, version).await {
+            match managed_store
+                .store
+                .get_extension_manifest(id, version)
+                .await
+            {
                 Ok(manifest) => return Ok(manifest),
                 Err(StoreError::ExtensionNotFound(_)) => continue,
                 Err(e) if e.is_recoverable() => {
@@ -583,7 +550,7 @@ impl StoreManager {
             let future = async move {
                 match tokio::time::timeout(
                     self.config.timeout,
-                    store.check_updates(&installed_slice),
+                    store.check_extension_updates(&installed_slice),
                 )
                 .await
                 {
@@ -667,7 +634,7 @@ impl StoreManager {
         );
 
         // For now, we'll get the latest version and reinstall
-        let latest_version = match managed_store.store.get_latest_version(id).await? {
+        let latest_version = match managed_store.store.get_extension_latest_version(id).await? {
             Some(version) => version,
             None => return Err(StoreError::ExtensionNotFound(id.to_string())),
         };
@@ -882,78 +849,6 @@ impl StoreManager {
             }
         });
         updates
-    }
-
-    /// Get publish requirements for a store if it supports publishing
-    pub fn get_store_publish_requirements(&self, store_name: &str) -> Option<PublishRequirements> {
-        self.get_extension_store(store_name)
-            .and_then(|managed_store| managed_store.get_publish_requirements())
-    }
-
-    /// Check publish permissions for a store if it supports publishing
-    pub async fn check_store_publish_permissions(
-        &self,
-        store_name: &str,
-        extension_id: &str,
-    ) -> Option<Result<PublishPermissions>> {
-        if let Some(managed_store) = self.get_extension_store(store_name) {
-            managed_store.can_publish(extension_id).await
-        } else {
-            None
-        }
-    }
-
-    /// Get publish stats for a store if it supports publishing
-    pub async fn get_store_publish_stats(&self, store_name: &str) -> Option<Result<PublishStats>> {
-        if let Some(managed_store) = self.get_extension_store(store_name) {
-            managed_store.get_publish_stats().await
-        } else {
-            None
-        }
-    }
-
-    /// Check if a store supports publishing operations
-    pub fn store_supports_publishing(&self, store_name: &str) -> bool {
-        self.get_extension_store(store_name)
-            .map(|managed_store| managed_store.supports_publishing())
-            .unwrap_or(false)
-    }
-
-    /// Publish an extension to a store if it supports publishing
-    pub async fn publish_extension_to_store(
-        &mut self,
-        store_name: &str,
-        package: crate::models::ExtensionPackage,
-        options: &PublishOptions,
-    ) -> Option<Result<PublishResult>> {
-        // Find the store in our collection
-        for managed_store in &mut self.extension_stores {
-            if managed_store.config.store_name == store_name {
-                // Try to downcast to WritableStore for mutable operations
-                if let Some(local_store) = self.store.downcast_mut::<WritableStore>() {
-                    return Some(local_store.publish_extension(package, options).await);
-                }
-            }
-        }
-        None
-    }
-
-    /// Unpublish an extension from a store if it supports publishing
-    pub async fn unpublish_extension_from_store(
-        &mut self,
-        store_name: &str,
-        id: &str,
-        version: &str,
-        options: &UnpublishOptions,
-    ) -> Option<Result<UnpublishResult>> {
-        for managed_store in &mut self.extension_stores {
-            if managed_store.config.store_name == store_name {
-                if let Some(local_store) = self.store.downcast_mut::<WritableStore>() {
-                    return Some(local_store.unpublish_extension(id, version, options).await);
-                }
-            }
-        }
-        None
     }
 }
 

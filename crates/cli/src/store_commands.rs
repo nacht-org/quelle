@@ -2,13 +2,14 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::Subcommand;
+use eyre::Context;
 use quelle_store::{
-    ConfigStore, ExtensionSource, ExtensionVisibility, SearchQuery, SearchSortBy, Store,
-    StoreManager,
-    local::LocalStore,
+    BaseStore, ConfigStore, ExtensionSource, ExtensionVisibility, RegistryConfig, SearchQuery,
+    SearchSortBy, StoreManager,
     models::{ExtensionPackage, InstallOptions},
     publish::{PublishOptions, UnpublishOptions},
     registry_config::RegistryStoreConfig,
+    stores::local::LocalStore,
     validation::{create_default_validator, create_strict_validator},
 };
 use tracing::{error, info, warn};
@@ -53,19 +54,6 @@ pub enum StoreCommands {
         /// Store name (optional, shows all if not specified)
         #[arg(long)]
         store: Option<String>,
-    },
-    /// Check publishing permissions
-    Permissions {
-        /// Store name
-        store: String,
-        /// Extension name (optional)
-        #[arg(long)]
-        extension: Option<String>,
-    },
-    /// Show publishing statistics and quotas
-    Stats {
-        /// Store name
-        store: String,
     },
 }
 
@@ -233,6 +221,7 @@ impl From<SortOption> for SearchSortBy {
 
 pub async fn handle_store_command(
     cmd: StoreCommands,
+    config: &RegistryConfig,
     manager: &mut StoreManager,
     config_store: &dyn ConfigStore,
 ) -> eyre::Result<()> {
@@ -262,13 +251,7 @@ pub async fn handle_store_command(
             handle_list_extensions(manager).await?;
         }
         StoreCommands::Requirements { store } => {
-            handle_requirements(store, manager).await?;
-        }
-        StoreCommands::Permissions { store, extension } => {
-            handle_permissions(store, extension, manager).await?;
-        }
-        StoreCommands::Stats { store } => {
-            handle_stats(store, manager).await?;
+            handle_requirements(store, config).await?;
         }
     }
     Ok(())
@@ -994,185 +977,61 @@ async fn handle_check_updates(manager: &StoreManager) -> eyre::Result<()> {
 
 async fn handle_requirements(
     store_name: Option<String>,
-    manager: &StoreManager,
+    config: &RegistryConfig,
 ) -> eyre::Result<()> {
     if let Some(store_name) = store_name {
-        if let Some(managed_store) = manager.get_extension_store(&store_name) {
-            println!("Publishing requirements for store '{}':", store_name);
-            if let Ok(manifest) = managed_store.store().get_store_manifest().await {
-                println!("  Store type: {}", manifest.store_type);
-                println!(
-                    "  Description: {}",
-                    manifest.description.as_deref().unwrap_or("None")
-                );
-            }
+        let writable_store = config
+            .get_writable_source(&store_name)
+            .map_err(|e| eyre::eyre!(e))
+            .wrap_err("Failed to get writable store configuration")?;
 
-            // Get actual publishing requirements if store supports it
-            if let Some(requirements) = manager.get_store_publish_requirements(&store_name) {
-                println!("  Publishing supported: Yes");
-                println!(
-                    "  Authentication required: {}",
-                    requirements.requires_authentication
-                );
-                println!("  Signing required: {}", requirements.requires_signing);
-                if let Some(max_size) = requirements.max_package_size {
-                    println!("  Max package size: {} MB", max_size / (1024 * 1024));
-                }
-                if !requirements.supported_visibility.is_empty() {
-                    let visibility_options: Vec<String> = requirements
-                        .supported_visibility
-                        .iter()
-                        .map(|v| format!("{:?}", v))
-                        .collect();
-                    println!("  Supported visibility: {}", visibility_options.join(", "));
-                }
-            } else {
-                println!("  Publishing supported: No");
-                println!("  Note: This store type does not support publishing operations");
-            }
-        } else {
-            error!("Store '{}' not found", store_name);
+        let Some(store) = writable_store else {
+            error!(
+                "Store '{}' not found or is not configured as writable ",
+                store_name
+            );
+            return Err(eyre::eyre!(
+                "Store '{}' not found or is not configured as writable ",
+                store_name
+            ));
+        };
+
+        println!("Publishing requirements for store '{}':", store_name);
+        if let Ok(manifest) = store.get_store_manifest().await {
+            println!("  Store type: {}", manifest.store_type);
+            println!(
+                "  Description: {}",
+                manifest.description.as_deref().unwrap_or("None")
+            );
+        }
+
+        let requirements = store.publish_requirements();
+
+        println!("  Publishing supported: Yes");
+        println!(
+            "  Authentication required: {}",
+            requirements.requires_authentication
+        );
+        println!("  Signing required: {}", requirements.requires_signing);
+        if let Some(max_size) = requirements.max_package_size {
+            println!("  Max package size: {} MB", max_size / (1024 * 1024));
+        }
+        if !requirements.supported_visibility.is_empty() {
+            let visibility_options: Vec<String> = requirements
+                .supported_visibility
+                .iter()
+                .map(|v| format!("{:?}", v))
+                .collect();
+            println!("  Supported visibility: {}", visibility_options.join(", "));
         }
     } else {
         println!("Publishing requirements for all stores:");
-        for store in manager.list_extension_stores() {
-            let info = store.config();
-            println!("\nStore: {}", info.store_name);
+        for store in config.list_writable_sources()? {
+            let info = store.get_store_manifest().await?;
+            println!("\nStore: {}", info.name);
             println!("  Type: {}", info.store_type);
             println!("  Status: Check individual store capabilities");
         }
-    }
-    Ok(())
-}
-
-async fn handle_permissions(
-    store_name: String,
-    extension_name: Option<String>,
-    manager: &mut StoreManager,
-) -> eyre::Result<()> {
-    if let Some(_managed_store) = manager.get_extension_store(&store_name) {
-        println!(
-            "Checking publishing permissions for store '{}':",
-            store_name
-        );
-
-        if let Some(ref ext_name) = extension_name {
-            println!("  Extension: {}", ext_name);
-        }
-
-        // Check actual publishing permissions if store supports it
-        if let Some(permissions_result) = manager
-            .check_store_publish_permissions(&store_name, extension_name.as_deref().unwrap_or("*"))
-            .await
-        {
-            match permissions_result {
-                Ok(permissions) => {
-                    println!("  Publishing supported: Yes");
-                    println!("  Can publish: {}", permissions.can_publish);
-                    println!("  Can update: {}", permissions.can_update);
-                    println!("  Can unpublish: {}", permissions.can_unpublish);
-
-                    if let Some(max_size) = permissions.max_package_size {
-                        println!("  Max package size: {} MB", max_size / (1024 * 1024));
-                    }
-
-                    if permissions.rate_limits.publications_per_hour.is_some()
-                        || permissions.rate_limits.publications_per_day.is_some()
-                    {
-                        println!("  Rate limits apply: Yes");
-                        if let Some(per_hour) = permissions.rate_limits.publications_per_hour {
-                            println!("    Max per hour: {}", per_hour);
-                        }
-                        if let Some(per_day) = permissions.rate_limits.publications_per_day {
-                            println!("    Max per day: {}", per_day);
-                        }
-                    } else {
-                        println!("  Rate limits: None");
-                    }
-                }
-                Err(e) => {
-                    println!("  Error checking permissions: {}", e);
-                }
-            }
-        } else {
-            println!("  Publishing supported: No");
-            println!("  Note: This store type does not support publishing operations");
-        }
-    } else {
-        error!("Store '{}' not found", store_name);
-    }
-    Ok(())
-}
-
-async fn handle_stats(store_name: String, manager: &StoreManager) -> eyre::Result<()> {
-    if let Some(managed_store) = manager.get_extension_store(&store_name) {
-        println!("Publishing statistics for store '{}':", store_name);
-
-        // Get actual publishing statistics if store supports it
-        if let Some(stats_result) = manager.get_store_publish_stats(&store_name).await {
-            match stats_result {
-                Ok(stats) => {
-                    println!("  Publishing supported: Yes");
-                    println!("  Total extensions: {}", stats.total_extensions);
-                    if stats.total_storage_used > 0 {
-                        println!(
-                            "  Storage used: {} MB",
-                            stats.total_storage_used / (1024 * 1024)
-                        );
-                    }
-                    if let Some(quota) = stats.storage_quota {
-                        println!("  Storage quota: {} MB", quota / (1024 * 1024));
-                    }
-                    if stats.recent_publications > 0 {
-                        println!("  Recent publications: {}", stats.recent_publications);
-                    }
-
-                    // Rate limit status
-                    if stats.rate_limit_status.is_limited {
-                        println!("  Rate limited: Yes");
-                        if let Some(remaining) = stats.rate_limit_status.publications_remaining {
-                            println!("    Publications remaining: {}", remaining);
-                        }
-                        if let Some(reset_time) = stats.rate_limit_status.reset_time {
-                            println!("    Reset time: {}", reset_time);
-                        }
-                    } else {
-                        println!("  Rate limited: No");
-                    }
-                }
-                Err(e) => {
-                    println!("  Error getting statistics: {}", e);
-                }
-            }
-        } else {
-            println!("  Publishing supported: No");
-            println!("  Note: This store type does not support publishing operations");
-        }
-
-        // Show general store health
-        match managed_store.store().health_check().await {
-            Ok(health) => {
-                println!(
-                    "  Store health: {}",
-                    if health.healthy {
-                        "Healthy"
-                    } else {
-                        "Unhealthy"
-                    }
-                );
-                if let Some(count) = health.extension_count {
-                    println!("  Available extensions: {}", count);
-                }
-                if let Some(error) = health.error {
-                    println!("  Health error: {}", error);
-                }
-            }
-            Err(e) => {
-                println!("  Store health: Error checking - {}", e);
-            }
-        }
-    } else {
-        error!("Store '{}' not found", store_name);
     }
     Ok(())
 }
@@ -1189,8 +1048,17 @@ async fn handle_publish_extension(
     token: Option<String>,
     timeout: u64,
     dev: bool,
-    manager: &mut StoreManager,
+    config: &RegistryConfig,
 ) -> eyre::Result<()> {
+    let Some(mut store) = config
+        .get_writable_source(&store_name)
+        .map_err(|e| eyre::eyre!(e))
+        .wrap_err("Failed to get writable store manager")?
+    else {
+        error!("No writable stores configured in registry");
+        return Err(eyre::eyre!("No writable stores configured in registry"));
+    };
+
     info!(
         "Publishing extension from {:?} to store '{}'",
         package_path, store_name
@@ -1238,10 +1106,7 @@ async fn handle_publish_extension(
     }
 
     // Actually publish the extension
-    match manager
-        .publish_extension_to_store(&store_name, package, &options)
-        .await
-    {
+    match store.publish(package, options).await? {
         Some(result) => match result {
             Ok(publish_result) => {
                 println!("✅ Successfully published extension:");
@@ -1292,8 +1157,17 @@ async fn handle_unpublish_extension(
     keep_record: bool,
     notify_users: bool,
     token: Option<String>,
-    manager: &mut StoreManager,
+    config: &RegistryConfig,
 ) -> eyre::Result<()> {
+    let Some(mut store) = config
+        .get_writable_source(&store_name)
+        .map_err(|e| eyre::eyre!(e))
+        .wrap_err("Failed to get writable store manager")?
+    else {
+        error!("No writable stores configured in registry");
+        return Err(eyre::eyre!("No writable stores configured in registry"));
+    };
+
     info!(
         "Unpublishing extension: {} v{} from store: {}",
         id, version, store_name

@@ -22,7 +22,7 @@ use crate::store_manifest::StoreManifest;
 
 /// Core store interface that all stores must implement
 #[async_trait]
-pub trait BaseStore: Send + Sync + Any {
+pub trait BaseStore: Send + Sync {
     /// Get the store manifest containing identity and basic information
     async fn get_store_manifest(&self) -> Result<StoreManifest>;
 
@@ -85,6 +85,12 @@ pub trait ReadableStore: BaseStore {
 
     /// Check if a specific version exists for an extension
     async fn check_extension_version_exists(&self, id: &str, version: &str) -> Result<bool>;
+
+    /// Check for updates for the given installed extensions
+    async fn check_extension_updates(
+        &self,
+        installed: &[InstalledExtension],
+    ) -> Result<Vec<UpdateInfo>>;
 }
 
 /// Store that can be written to (publish extensions)
@@ -130,13 +136,6 @@ pub trait WritableStore: BaseStore {
         package: &ExtensionPackage,
         options: &PublishOptions,
     ) -> Result<ValidationReport>;
-}
-
-/// Store that supports update checking
-#[async_trait]
-pub trait UpdatableStore: ReadableStore {
-    /// Check for updates for the given installed extensions
-    async fn check_updates(&self, installed: &[InstalledExtension]) -> Result<Vec<UpdateInfo>>;
 }
 
 /// Store that supports caching for better performance
@@ -237,26 +236,4 @@ pub enum RefType {
     Branch,
     Tag,
     Commit,
-}
-
-/// Helper trait for downcasting store trait objects to concrete types
-pub trait StoreExt {
-    /// Try to downcast to a specific store implementation
-    fn as_any(&self) -> &dyn Any;
-
-    /// Attempt to downcast to a specific type
-    fn downcast_ref<T: 'static>(&self) -> Option<&T> {
-        self.as_any().downcast_ref::<T>()
-    }
-}
-
-// Default implementation of StoreExt for all BaseStore implementations
-impl<T: BaseStore> StoreExt for T {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn downcast_ref<U: 'static>(&self) -> Option<&U> {
-        self.as_any().downcast_ref::<U>()
-    }
 }

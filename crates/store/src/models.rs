@@ -584,7 +584,6 @@ impl StoreHealth {
             error: None,
             extension_count: None,
             store_version: None,
-            capabilities: Vec::new(),
         }
     }
 
@@ -596,7 +595,6 @@ impl StoreHealth {
             error: Some(error),
             extension_count: None,
             store_version: None,
-            capabilities: Vec::new(),
         }
     }
 
