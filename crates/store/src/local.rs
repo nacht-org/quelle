@@ -694,22 +694,16 @@ impl Store for LocalStore {
 
         // Try to read existing manifest
         if manifest_path.exists() {
-            match fs::read_to_string(&manifest_path).await {
-                Ok(content) => match serde_json::from_str::<LocalStoreManifest>(&content) {
-                    Ok(local_manifest) => return Ok(local_manifest.base),
-                    Err(e) => {
-                        warn!("Failed to parse store manifest: {}", e);
-                    }
-                },
-                Err(e) => {
-                    warn!("Failed to read store manifest: {}", e);
-                }
-            }
+            let content = fs::read_to_string(&manifest_path).await?;
+            let local_manifest: LocalStoreManifest =
+                serde_json::from_str(&content).map_err(StoreError::from)?;
+            return Ok(local_manifest.base);
         }
 
-        // Generate manifest from current store state
-        let local_manifest = self.generate_local_store_manifest().await?;
-        Ok(local_manifest.base)
+        // If no manifest exists, the store hasn't been properly initialized
+        Err(StoreError::InvalidPackage {
+            reason: "Store manifest not found. Use initialize_store() to create a properly configured store.".to_string(),
+        })
     }
 
     async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<String>> {
@@ -1114,24 +1108,16 @@ impl LocalStore {
     /// Get the local store manifest (internal method)
     async fn get_local_store_manifest(&self) -> Result<LocalStoreManifest> {
         let manifest_path = self.root_path.join("store.json");
-
-        // Try to read existing manifest
         if manifest_path.exists() {
-            match fs::read_to_string(&manifest_path).await {
-                Ok(content) => match serde_json::from_str::<LocalStoreManifest>(&content) {
-                    Ok(manifest) => return Ok(manifest),
-                    Err(e) => {
-                        warn!("Failed to parse local store manifest: {}", e);
-                    }
-                },
-                Err(e) => {
-                    warn!("Failed to read local store manifest: {}", e);
-                }
-            }
+            let content = fs::read_to_string(&manifest_path).await?;
+            let manifest: LocalStoreManifest =
+                serde_json::from_str(&content).map_err(StoreError::from)?;
+            Ok(manifest)
+        } else {
+            Err(StoreError::InvalidPackage {
+                reason: "Store manifest not found. Use initialize_store() to create a new store with proper metadata".to_string(),
+            })
         }
-
-        // Generate manifest from current store state
-        self.generate_local_store_manifest().await
     }
 
     /// Generate a local store manifest from the current state of the store
@@ -1147,33 +1133,29 @@ impl LocalStore {
                         .base
                         .with_url(format!("file://{}", self.root_path.display()));
                     base.touch();
+                    // Ensure store_type is always "local" for local stores
+                    base.store_type = "local".to_string();
                     base
                 } else {
-                    // Create default manifest if parsing fails
-                    StoreManifest::new(
-                        "local".to_string(),
-                        "local".to_string(),
-                        "1.0.0".to_string(),
-                    )
-                    .with_url(format!("file://{}", self.root_path.display()))
+                    // If we can't parse existing manifest, we can't recover metadata
+                    return Err(StoreError::InvalidPackage {
+                        reason: "Existing store manifest is corrupted and cannot be parsed"
+                            .to_string(),
+                    });
                 }
             } else {
-                // Create default manifest if read fails
-                StoreManifest::new(
-                    "local".to_string(),
-                    "local".to_string(),
-                    "1.0.0".to_string(),
-                )
-                .with_url(format!("file://{}", self.root_path.display()))
+                // If we can't read existing manifest, we can't recover metadata
+                return Err(StoreError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Cannot read existing store manifest",
+                )));
             }
         } else {
-            // Create default manifest if file doesn't exist
-            StoreManifest::new(
-                "local".to_string(),
-                "local".to_string(),
-                "1.0.0".to_string(),
-            )
-            .with_url(format!("file://{}", self.root_path.display()))
+            // No existing manifest - this should only happen during initial store creation
+            // The initialize_store method should be called first to create proper metadata
+            return Err(StoreError::InvalidPackage {
+                reason: "Store manifest not found. Use initialize_store() to create a new store with proper metadata".to_string(),
+            });
         };
 
         // Always create a fresh manifest with current extensions
