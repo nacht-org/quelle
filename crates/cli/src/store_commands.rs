@@ -95,9 +95,6 @@ pub enum ExtensionCommands {
         /// Force reinstallation
         #[arg(long)]
         force: bool,
-        /// Skip dependency installation
-        #[arg(long)]
-        no_deps: bool,
     },
     /// Update an extension
     Update {
@@ -282,12 +279,9 @@ pub async fn handle_extension_command(
     manager: &mut StoreManager,
 ) -> eyre::Result<()> {
     match command {
-        ExtensionCommands::Install {
-            id,
-            version,
-            force,
-            no_deps,
-        } => handle_install_extension(id, version, force, !no_deps, manager).await,
+        ExtensionCommands::Install { id, version, force } => {
+            handle_install_extension(id, version, force, manager).await
+        }
         ExtensionCommands::Update {
             id,
             prerelease,
@@ -704,7 +698,6 @@ async fn handle_install_extension(
     id: String,
     version: Option<String>,
     force: bool,
-    install_deps: bool,
     manager: &mut StoreManager,
 ) -> eyre::Result<()> {
     info!("Installing extension: {}", id);
@@ -720,7 +713,6 @@ async fn handle_install_extension(
         println!("  Requested version: {}", v);
     }
     println!("  Force reinstall: {}", force);
-    println!("  Install dependencies: {}", install_deps);
 
     match manager
         .install(&id, version.as_deref(), Some(options))
@@ -733,11 +725,6 @@ async fn handle_install_extension(
             println!("  Version: {}", installed.version);
             println!("  Source store: {}", installed.source_store);
             println!("  Size: {}", format_size(installed.calculate_size()));
-
-            if install_deps {
-                info!("Note: Dependency installation is not yet implemented");
-                println!("  Dependencies: Auto-install not yet supported");
-            }
         }
         Err(e) => {
             error!("Failed to install extension '{}': {}", id, e);

@@ -251,39 +251,8 @@ pub struct ExtensionMetadata {
     pub documentation: Option<String>,
     pub changelog: Option<String>,
     pub license: Option<String>,
-    pub dependencies: Vec<ExtensionDependency>,
     pub compatibility: CompatibilityInfo,
     pub extra: HashMap<String, serde_json::Value>, // For extensibility
-}
-
-/// Extension dependency specification
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExtensionDependency {
-    pub name: String,
-    pub version_requirement: String, // e.g., "^1.0.0", ">=1.2.0"
-    pub optional: bool,
-    pub features: Vec<String>, // Optional features to enable
-}
-
-impl ExtensionDependency {
-    pub fn new(name: String, version_requirement: String) -> Self {
-        Self {
-            name,
-            version_requirement,
-            optional: false,
-            features: Vec::new(),
-        }
-    }
-
-    pub fn optional(mut self) -> Self {
-        self.optional = true;
-        self
-    }
-
-    pub fn with_features(mut self, features: Vec<String>) -> Self {
-        self.features = features;
-        self
-    }
 }
 
 /// Compatibility requirements for an extension

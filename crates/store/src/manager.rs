@@ -798,17 +798,6 @@ impl StoreManager {
 
     // Private helper methods
 
-    #[allow(dead_code)]
-    async fn install_dependencies(&self, extension: &InstalledExtension) -> Result<()> {
-        // This would need access to extension metadata to get dependencies
-        // For now, just log that we would install dependencies
-        debug!(
-            "Would install dependencies for extension '{}'",
-            extension.name
-        );
-        Ok(())
-    }
-
     fn deduplicate_extensions(&self, mut extensions: Vec<ExtensionInfo>) -> Vec<ExtensionInfo> {
         // Remove duplicates based on name + version, preferring trusted stores
         let mut seen: HashMap<String, String> = HashMap::new();
