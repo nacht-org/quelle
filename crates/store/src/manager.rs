@@ -666,7 +666,11 @@ impl StoreManager {
             skip_verification: false,
         };
 
-        match managed_store.store.get_extension_package(id, None).await {
+        match managed_store
+            .store
+            .get_extension_package(id, Some(&latest_version))
+            .await
+        {
             Ok(package) => {
                 match self
                     .registry_store
