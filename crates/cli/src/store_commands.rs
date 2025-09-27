@@ -8,6 +8,7 @@ use quelle_store::{
     local::LocalStore,
     models::{ExtensionPackage, InstallOptions},
     publish::{PublishOptions, PublishUpdateOptions, UnpublishOptions},
+    registry_config::RegistryStoreConfig,
     validation::{create_default_validator, create_strict_validator},
 };
 use tracing::{error, info, warn};
@@ -472,8 +473,13 @@ async fn handle_add_store(
             // Create source configuration
             let source = ExtensionSource::local(store_name.clone(), path);
 
+            // Create registry config
+            let registry_config = RegistryStoreConfig::new(store_name.clone(), "local".to_string());
+
             // Add to manager
-            manager.add_extension_store(local_store);
+            manager
+                .add_extension_store(local_store, registry_config)
+                .await?;
 
             // Persist the configuration
             config.add_source(source);
@@ -506,7 +512,7 @@ async fn handle_list_stores(
     for source in sources {
         let status = if active_stores
             .iter()
-            .any(|s| s.store_info().name == source.name)
+            .any(|s| s.config().store_name == source.name)
         {
             "✅ Active"
         } else if !source.enabled {
@@ -586,13 +592,13 @@ async fn handle_health_check(manager: &mut StoreManager) -> eyre::Result<()> {
 
     let stores = manager.list_extension_stores();
     for store in stores {
-        let info = store.store_info();
-        let status = if failed_stores.contains(&info.name) {
+        let info = store.config();
+        let status = if failed_stores.contains(&info.store_name) {
             "❌ Unhealthy"
         } else {
             "✅ Healthy"
         };
-        println!("  {}: {}", info.name, status);
+        println!("  {}: {}", info.store_name, status);
     }
 
     if !failed_stores.is_empty() {
@@ -803,14 +809,15 @@ async fn handle_requirements(
     manager: &StoreManager,
 ) -> eyre::Result<()> {
     if let Some(store_name) = store_name {
-        if let Some(store) = manager.get_extension_store(&store_name) {
+        if let Some(managed_store) = manager.get_extension_store(&store_name) {
             println!("Publishing requirements for store '{}':", store_name);
-            let info = store.store_info();
-            println!("  Store type: {}", info.store_type);
-            println!(
-                "  Description: {}",
-                info.description.as_deref().unwrap_or("None")
-            );
+            if let Ok(manifest) = managed_store.store().get_store_manifest().await {
+                println!("  Store type: {}", manifest.store_type);
+                println!(
+                    "  Description: {}",
+                    manifest.description.as_deref().unwrap_or("None")
+                );
+            }
 
             // TODO: Once PublishableStore is properly implemented on concrete types,
             // we can get actual requirements here
@@ -822,8 +829,8 @@ async fn handle_requirements(
     } else {
         println!("Publishing requirements for all stores:");
         for store in manager.list_extension_stores() {
-            let info = store.store_info();
-            println!("\nStore: {}", info.name);
+            let info = store.config();
+            println!("\nStore: {}", info.store_name);
             println!("  Type: {}", info.store_type);
             println!("  Status: Check individual store capabilities");
         }
@@ -836,7 +843,7 @@ async fn handle_permissions(
     extension_name: Option<String>,
     manager: &StoreManager,
 ) -> eyre::Result<()> {
-    if let Some(_store) = manager.get_extension_store(&store_name) {
+    if let Some(_managed_store) = manager.get_extension_store(&store_name) {
         println!(
             "Checking publishing permissions for store '{}':",
             store_name
@@ -858,7 +865,7 @@ async fn handle_permissions(
 }
 
 async fn handle_stats(store_name: String, manager: &StoreManager) -> eyre::Result<()> {
-    if let Some(_store) = manager.get_extension_store(&store_name) {
+    if let Some(_managed_store) = manager.get_extension_store(&store_name) {
         println!("Publishing statistics for store '{}':", store_name);
 
         // TODO: Once PublishableStore::get_publish_stats is implemented,

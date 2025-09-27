@@ -19,12 +19,12 @@ async fn main() -> eyre::Result<()> {
         .init();
 
     // Initialize config store for persistence (using ./local for easier testing)
-    let config_dir = PathBuf::from("./local");
+    let config_dir = PathBuf::from("./data/local");
     let config_file = config_dir.join("config.json");
     let config_store = LocalConfigStore::new(config_file).await?;
 
     // Initialize store manager
-    let registry_dir = PathBuf::from("./registry");
+    let registry_dir = PathBuf::from("./data/registry");
     let registry_store = Box::new(LocalRegistryStore::new(registry_dir).await?);
     let mut store_manager = StoreManager::new(registry_store).await?;
 
@@ -215,10 +215,10 @@ async fn handle_list_command(store_manager: &StoreManager) -> eyre::Result<()> {
 
     println!("Available extension stores:");
     for store in stores {
-        let info = store.store_info();
-        println!("  📦 {} ({})", info.name, info.store_type);
+        let info = store.config();
+        println!("  📦 {} ({})", info.store_name, info.store_type);
 
-        match store.list_extensions().await {
+        match store.store().list_extensions().await {
             Ok(extensions) => {
                 if extensions.is_empty() {
                     println!("     No extensions found");
@@ -245,10 +245,10 @@ async fn handle_status_command(store_manager: &StoreManager) -> eyre::Result<()>
     println!("  Configured stores: {}", stores.len());
 
     for store in stores {
-        let info = store.store_info();
-        print!("  {} ({}): ", info.name, info.store_type);
+        let info = store.config();
+        print!("  {} ({}): ", info.store_name, info.store_type);
 
-        match store.health_check().await {
+        match store.store().health_check().await {
             Ok(health) => {
                 if health.healthy {
                     println!("✅ Healthy");

@@ -21,7 +21,7 @@ use crate::registry_config::RegistryStoreConfig;
 use crate::store::Store;
 
 /// Wrapper combining a Store with its registry configuration
-struct ManagedStore {
+pub struct ManagedStore {
     store: Box<dyn Store>,
     config: RegistryStoreConfig,
 }
@@ -29,6 +29,14 @@ struct ManagedStore {
 impl ManagedStore {
     fn new(store: Box<dyn Store>, config: RegistryStoreConfig) -> Self {
         Self { store, config }
+    }
+
+    pub fn store(&self) -> &dyn Store {
+        self.store.as_ref()
+    }
+
+    pub fn config(&self) -> &RegistryStoreConfig {
+        &self.config
     }
 }
 
@@ -105,31 +113,36 @@ impl StoreManager {
     }
 
     /// Remove an extension store by name
-    pub fn remove_extension_store(&mut self, name: &str) {
+    pub fn remove_extension_store(&mut self, name: &str) -> bool {
+        let initial_len = self.extension_stores.len();
         self.extension_stores
             .retain(|managed_store| managed_store.config.store_name != name);
+
+        initial_len != self.extension_stores.len()
     }
 
     /// Get information about all registered extension stores
     /// Get list of store names
-    pub fn list_extension_stores(&self) -> Vec<&str> {
-        self.extension_stores
-            .iter()
-            .map(|managed_store| managed_store.config.store_name.as_str())
-            .collect()
+    pub fn list_extension_stores(&self) -> &[ManagedStore] {
+        &self.extension_stores
     }
 
     /// Get a specific store's configuration by name
     pub fn get_extension_store_config(&self, name: &str) -> Option<&RegistryStoreConfig> {
-        self.extension_stores
-            .iter()
-            .find(|managed_store| managed_store.config.store_name == name)
+        self.get_extension_store(name)
             .map(|managed_store| &managed_store.config)
     }
 
     /// Get the registry store
     pub fn registry_store(&self) -> &dyn RegistryStore {
         self.registry_store.as_ref()
+    }
+
+    /// Get a specific extension store by name
+    pub fn get_extension_store(&self, name: &str) -> Option<&ManagedStore> {
+        self.extension_stores
+            .iter()
+            .find(|managed_store| managed_store.config.store_name == name)
     }
 
     /// Sort stores by priority (lower number = higher priority)
@@ -581,10 +594,8 @@ impl StoreManager {
             .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?;
 
         // Find the store that originally provided this extension
-        let source_store = self
-            .extension_stores
-            .iter()
-            .find(|managed_store| managed_store.config.store_name == installed.source_store);
+        // Find the source store to check for updates
+        let source_store = self.get_extension_store(&installed.source_store);
 
         let managed_store = match source_store {
             Some(store) => store,
@@ -747,16 +758,13 @@ impl StoreManager {
         extensions.retain(|ext| {
             let key = format!("{}@{}", ext.name, ext.version);
             if let Some(existing_store) = seen.get(&key) {
+                // Check if existing extension is from a trusted store
                 let existing_trusted = self
-                    .extension_stores
-                    .iter()
-                    .find(|ms| ms.config.store_name == *existing_store)
+                    .get_extension_store(existing_store)
                     .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
                 let current_trusted = self
-                    .extension_stores
-                    .iter()
-                    .find(|ms| ms.config.store_name == ext.store_source)
+                    .get_extension_store(&ext.store_source)
                     .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
 
@@ -815,16 +823,13 @@ impl StoreManager {
         let mut seen: HashMap<String, String> = HashMap::new();
         updates.retain(|update| {
             if let Some(existing_store) = seen.get(&update.extension_name) {
+                // Check if existing update is from a trusted store
                 let existing_trusted = self
-                    .extension_stores
-                    .iter()
-                    .find(|ms| ms.config.store_name == *existing_store)
+                    .get_extension_store(existing_store)
                     .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
                 let current_trusted = self
-                    .extension_stores
-                    .iter()
-                    .find(|ms| ms.config.store_name == update.store_source)
+                    .get_extension_store(&update.store_source)
                     .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
 
