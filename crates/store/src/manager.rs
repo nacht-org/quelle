@@ -521,50 +521,45 @@ impl StoreManager {
         requests: &[(String, Option<String>)],
         options: Option<InstallOptions>,
     ) -> Result<Vec<Result<InstalledExtension>>> {
-        let mut install_futures = Vec::new();
+        let options = options.unwrap_or_default();
+        let mut results = Vec::new();
 
-        for (name, version) in requests {
-            let name = name.clone();
-            let _version = version.clone();
-            let _options = options.clone().unwrap_or_default();
+        info!(
+            "Starting batch installation of {} extensions",
+            requests.len()
+        );
 
-            // Note: In a real implementation, you'd want to handle the async context properly
-            // This is a simplified version for demonstration
-            let future = async move {
-                // This would need proper async handling in practice
-                // Create a placeholder manifest for testing
-                use crate::manifest::{
-                    Checksum, ChecksumAlgorithm, ExtensionManifest, ReadingDirection,
-                };
-                let manifest = ExtensionManifest {
-                    id: "placeholder_id".to_string(),
-                    name: name.clone(),
-                    version: "1.0.0".to_string(),
-                    author: "placeholder".to_string(),
-                    langs: vec!["en".to_string()],
-                    base_urls: vec!["https://example.com".to_string()],
-                    rds: vec![ReadingDirection::Ltr],
-                    attrs: vec![],
-                    checksum: Checksum {
-                        algorithm: ChecksumAlgorithm::Blake3,
-                        value: "placeholder_checksum".to_string(),
-                    },
-                    signature: None,
-                };
+        // Process installations sequentially to avoid conflicts with mutable state
+        for (id, version) in requests {
+            info!("Installing extension: {} (version: {:?})", id, version);
 
-                Ok(InstalledExtension::new(
-                    "placeholder_id".to_string(),
-                    name.to_string(),
-                    "1.0.0".to_string(),
-                    manifest,
-                    vec![], // Empty WASM component for placeholder
-                    "placeholder".to_string(),
-                ))
-            };
-            install_futures.push(future);
+            let install_result = self
+                .install(id, version.as_deref(), Some(options.clone()))
+                .await;
+
+            match &install_result {
+                Ok(installed) => {
+                    info!(
+                        "Successfully installed: {}@{} from {}",
+                        installed.name, installed.version, installed.source_store
+                    );
+                }
+                Err(e) => {
+                    error!("Failed to install {}: {}", id, e);
+                }
+            }
+
+            results.push(install_result);
         }
 
-        let results = join_all(install_futures).await;
+        let successful = results.iter().filter(|r| r.is_ok()).count();
+        let failed = results.len() - successful;
+
+        info!(
+            "Batch installation completed: {} successful, {} failed",
+            successful, failed
+        );
+
         Ok(results)
     }
 
@@ -1006,5 +1001,49 @@ mod tests {
         // Initially no extensions
         assert_eq!(manager.list_installed().await.unwrap().len(), 0);
         assert!(manager.get_installed("test").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_batch_install_empty_list() {
+        let temp_dir = TempDir::new().unwrap();
+        let registry_dir = temp_dir.path().join("registry");
+
+        let registry_store = Box::new(
+            crate::registry::LocalRegistryStore::new(registry_dir)
+                .await
+                .unwrap(),
+        );
+        let mut manager = StoreManager::new(registry_store).await.unwrap();
+
+        // Test batch install with empty list
+        let requests = vec![];
+        let results = manager.batch_install(&requests, None).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_batch_install_with_nonexistent_extensions() {
+        let temp_dir = TempDir::new().unwrap();
+        let registry_dir = temp_dir.path().join("registry");
+
+        let registry_store = Box::new(
+            crate::registry::LocalRegistryStore::new(registry_dir)
+                .await
+                .unwrap(),
+        );
+        let mut manager = StoreManager::new(registry_store).await.unwrap();
+
+        // Test batch install with non-existent extensions
+        let requests = vec![
+            ("nonexistent1".to_string(), None),
+            ("nonexistent2".to_string(), Some("1.0.0".to_string())),
+        ];
+
+        let results = manager.batch_install(&requests, None).await.unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Both should fail since extensions don't exist
+        assert!(results[0].is_err());
+        assert!(results[1].is_err());
     }
 }
