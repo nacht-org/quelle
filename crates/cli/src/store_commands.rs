@@ -760,28 +760,47 @@ async fn handle_install_extension(
     version: Option<String>,
     force: bool,
     install_deps: bool,
-    _manager: &mut StoreManager,
+    manager: &mut StoreManager,
 ) -> eyre::Result<()> {
     info!("Installing extension: {}", name);
 
-    let _options = InstallOptions {
+    let options = InstallOptions {
         auto_update: false,
         force_reinstall: force,
         skip_verification: false,
     };
 
-    // Note: The current API doesn't match what the CLI was written for
-    // This is a placeholder implementation that shows the intended functionality
-
-    println!("Installing extension '{}'", name);
+    println!("Installing extension '{}'...", name);
     if let Some(v) = &version {
-        println!("  Version: {}", v);
+        println!("  Requested version: {}", v);
     }
     println!("  Force reinstall: {}", force);
     println!("  Install dependencies: {}", install_deps);
 
-    error!("Extension installation not yet implemented in StoreManager");
-    error!("The current StoreManager API needs to be extended with install methods");
+    match manager
+        .install(&name, version.as_deref(), Some(options))
+        .await
+    {
+        Ok(installed) => {
+            println!("✅ Successfully installed extension:");
+            println!("  Name: {}", installed.name);
+            println!("  Version: {}", installed.version);
+            println!("  Source store: {}", installed.source_store);
+            println!("  Install path: {}", installed.install_path.display());
+            if let Some(size) = installed.size {
+                println!("  Size: {}", format_size(size));
+            }
+
+            if install_deps {
+                info!("Note: Dependency installation is not yet implemented");
+                println!("  Dependencies: Auto-install not yet supported");
+            }
+        }
+        Err(e) => {
+            error!("Failed to install extension '{}': {}", name, e);
+            return Err(e.into());
+        }
+    }
 
     Ok(())
 }
@@ -790,15 +809,55 @@ async fn handle_update_extension(
     name: String,
     prerelease: bool,
     force: bool,
-    _manager: &mut StoreManager,
+    manager: &mut StoreManager,
 ) -> eyre::Result<()> {
     info!("Updating extension: {}", name);
 
-    println!("Updating extension '{}'", name);
+    println!("Updating extension '{}'...", name);
     println!("  Include prerelease: {}", prerelease);
     println!("  Force update: {}", force);
 
-    error!("Extension update not yet implemented in StoreManager");
+    // Check if extension is installed
+    match manager.get_installed(&name).await? {
+        Some(installed) => {
+            let options = quelle_store::models::UpdateOptions {
+                include_prereleases: prerelease,
+                force_update: force,
+                ..Default::default()
+            };
+
+            match manager.update(&name, Some(options)).await {
+                Ok(updated) => {
+                    println!("✅ Successfully updated extension:");
+                    println!("  Name: {}", updated.name);
+                    println!("  Version: {} → {}", installed.version, updated.version);
+                    println!("  Source store: {}", updated.source_store);
+                    if let Some(size) = updated.size {
+                        println!("  Size: {}", format_size(size));
+                    }
+                    println!(
+                        "  Updated: {}",
+                        updated
+                            .last_updated
+                            .unwrap_or(updated.installed_at)
+                            .format("%Y-%m-%d %H:%M:%S")
+                    );
+                }
+                Err(e) => {
+                    error!("Failed to update extension '{}': {}", name, e);
+                    return Err(e.into());
+                }
+            }
+        }
+        None => {
+            error!("Extension '{}' is not installed", name);
+            println!(
+                "Run 'quelle extension install {}' to install it first.",
+                name
+            );
+            return Err(eyre::eyre!("Extension '{}' is not installed", name));
+        }
+    }
 
     Ok(())
 }
@@ -806,41 +865,205 @@ async fn handle_update_extension(
 async fn handle_uninstall_extension(
     name: String,
     remove_files: bool,
-    _manager: &mut StoreManager,
+    manager: &mut StoreManager,
 ) -> eyre::Result<()> {
     info!("Uninstalling extension: {}", name);
 
-    println!("Uninstalling extension '{}'", name);
+    println!("Uninstalling extension '{}'...", name);
     println!("  Remove files: {}", remove_files);
 
-    error!("Extension uninstall not yet implemented in StoreManager");
+    // Check if extension is installed
+    match manager.get_installed(&name).await? {
+        Some(installed) => {
+            println!("  Current version: {}", installed.version);
+            println!("  Install path: {}", installed.install_path.display());
+
+            match manager.uninstall(&name).await {
+                Ok(removed) => {
+                    if removed {
+                        println!("✅ Successfully uninstalled extension '{}'", name);
+                        if remove_files {
+                            println!("  Files removed from disk");
+                        } else {
+                            info!(
+                                "Note: Files may remain on disk depending on store configuration"
+                            );
+                        }
+                    } else {
+                        error!("Extension '{}' was not found in registry", name);
+                        return Err(eyre::eyre!(
+                            "Extension '{}' was not found in registry",
+                            name
+                        ));
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to uninstall extension '{}': {}", name, e);
+                    return Err(e.into());
+                }
+            }
+        }
+        None => {
+            error!("Extension '{}' is not installed", name);
+            return Err(eyre::eyre!("Extension '{}' is not installed", name));
+        }
+    }
 
     Ok(())
 }
 
-async fn handle_list_installed(_manager: &StoreManager) -> eyre::Result<()> {
+async fn handle_list_installed(manager: &StoreManager) -> eyre::Result<()> {
     info!("Listing installed extensions...");
 
-    println!("Listing installed extensions...");
-    error!("List installed extensions not yet implemented in StoreManager");
+    match manager.list_installed().await {
+        Ok(installed) => {
+            if installed.is_empty() {
+                println!("No extensions installed.");
+            } else {
+                println!("Installed extensions ({}):", installed.len());
+                for ext in &installed {
+                    println!("  {} v{}", ext.name, ext.version);
+                    println!("    Source: {}", ext.source_store);
+                    println!(
+                        "    Installed: {}",
+                        ext.installed_at.format("%Y-%m-%d %H:%M:%S")
+                    );
+                    if let Some(updated) = ext.last_updated {
+                        println!("    Last updated: {}", updated.format("%Y-%m-%d %H:%M:%S"));
+                    }
+                    if let Some(size) = ext.size {
+                        println!("    Size: {}", format_size(size));
+                    }
+                    println!("    Auto-update: {}", ext.auto_update);
+                    println!();
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to list installed extensions: {}", e);
+            return Err(e.into());
+        }
+    }
 
     Ok(())
 }
 
-async fn handle_extension_info(name: String, _manager: &StoreManager) -> eyre::Result<()> {
+async fn handle_extension_info(name: String, manager: &StoreManager) -> eyre::Result<()> {
     info!("Getting extension info: {}", name);
 
     println!("Extension information for '{}':", name);
-    error!("Extension info not yet implemented in StoreManager");
+
+    // Check if extension is installed
+    match manager.get_installed(&name).await {
+        Ok(Some(installed)) => {
+            println!("  Status: ✅ Installed");
+            println!("  Version: {}", installed.version);
+            println!("  Source store: {}", installed.source_store);
+            println!(
+                "  Installed: {}",
+                installed.installed_at.format("%Y-%m-%d %H:%M:%S")
+            );
+            if let Some(updated) = installed.last_updated {
+                println!("  Last updated: {}", updated.format("%Y-%m-%d %H:%M:%S"));
+            }
+            if let Some(size) = installed.size {
+                println!("  Size: {}", format_size(size));
+            }
+            println!("  Auto-update: {}", installed.auto_update);
+            println!("  Install path: {}", installed.install_path.display());
+        }
+        Ok(None) => {
+            println!("  Status: ❌ Not installed");
+
+            // Search for extension in available stores
+            println!("  Searching in available stores...");
+            match manager.get_extension_info(&name).await {
+                Ok(infos) if !infos.is_empty() => {
+                    let info = &infos[0]; // Use the first (best) match
+                    println!("  Found in store: {}", info.store_source);
+                    println!("  Latest version: {}", info.version);
+                    println!("  Author: {}", info.author);
+                    if let Some(desc) = &info.description {
+                        println!("  Description: {}", desc);
+                    }
+                    if let Some(size) = info.size {
+                        println!("  Package size: {}", format_size(size));
+                    }
+                }
+                Ok(_) => {
+                    println!("  ❌ Extension not found in any configured store");
+                }
+                Err(e) => {
+                    error!("Failed to search for extension: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to check installed extensions: {}", e);
+            return Err(e.into());
+        }
+    }
 
     Ok(())
 }
 
-async fn handle_check_updates(_manager: &StoreManager) -> eyre::Result<()> {
+async fn handle_check_updates(manager: &StoreManager) -> eyre::Result<()> {
     info!("Checking for extension updates...");
 
     println!("Checking for available updates...");
-    error!("Check updates not yet implemented in StoreManager");
+
+    match manager.list_installed().await {
+        Ok(installed) => {
+            if installed.is_empty() {
+                println!("No extensions installed.");
+                return Ok(());
+            }
+
+            match manager.check_all_updates().await {
+                Ok(updates) => {
+                    if updates.is_empty() {
+                        println!("✅ All extensions are up to date!");
+                    } else {
+                        println!("Found {} update(s) available:", updates.len());
+                        for update in &updates {
+                            println!(
+                                "  📦 {} {} → {}",
+                                update.extension_name,
+                                update.current_version,
+                                update.latest_version
+                            );
+                            println!("    Store: {}", update.store_source);
+                            if let Some(changelog) = &update.changelog_url {
+                                println!("    Changelog: {}", changelog);
+                            }
+                            if let Some(size) = update.update_size {
+                                println!("    Download size: {}", format_size(size));
+                            }
+                            if update.breaking_changes {
+                                println!("    ⚠️  Breaking changes");
+                            }
+                            if update.security_update {
+                                println!("    🔒 Security update");
+                            }
+                            println!();
+                        }
+                        println!(
+                            "Run 'quelle extension update <name>' to update individual extensions."
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to check for updates: {}", e);
+                    return Err(e.into());
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to get installed extensions: {}", e);
+            return Err(e.into());
+        }
+    }
 
     Ok(())
 }
@@ -903,7 +1126,7 @@ async fn handle_requirements(
 async fn handle_permissions(
     store_name: String,
     extension_name: Option<String>,
-    manager: &StoreManager,
+    manager: &mut StoreManager,
 ) -> eyre::Result<()> {
     if let Some(_managed_store) = manager.get_extension_store(&store_name) {
         println!(
@@ -1044,7 +1267,7 @@ async fn handle_publish_extension(
     token: Option<String>,
     timeout: u64,
     dev: bool,
-    _manager: &StoreManager,
+    manager: &mut StoreManager,
 ) -> eyre::Result<()> {
     info!(
         "Publishing extension from {:?} to store '{}'",
@@ -1092,9 +1315,49 @@ async fn handle_publish_extension(
         println!("  Tags: {}", options.tags.join(", "));
     }
 
-    // For now, show what would be published
-    error!("Publishing is not yet implemented - this is a preview of what would be published");
-    error!("Implementation requires PublishableStore trait to be available on store instances");
+    // Actually publish the extension
+    match manager
+        .publish_extension_to_store(&store_name, package, &options)
+        .await
+    {
+        Some(result) => match result {
+            Ok(publish_result) => {
+                println!("✅ Successfully published extension:");
+                println!("  Version: {}", publish_result.version);
+                println!("  Download URL: {}", publish_result.download_url);
+                println!(
+                    "  Published at: {}",
+                    publish_result.published_at.format("%Y-%m-%d %H:%M:%S")
+                );
+                println!("  Publication ID: {}", publish_result.publication_id);
+                println!(
+                    "  Package size: {}",
+                    format_size(publish_result.package_size)
+                );
+                println!("  Content hash: {}", publish_result.content_hash);
+                if !publish_result.warnings.is_empty() {
+                    println!("  Warnings:");
+                    for warning in &publish_result.warnings {
+                        println!("    - {}", warning);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to publish extension: {}", e);
+                return Err(e.into());
+            }
+        },
+        None => {
+            error!(
+                "Store '{}' does not support publishing or was not found",
+                store_name
+            );
+            return Err(eyre::eyre!(
+                "Store '{}' does not support publishing operations",
+                store_name
+            ));
+        }
+    }
 
     Ok(())
 }
@@ -1107,7 +1370,7 @@ async fn handle_publish_update(
     preserve_metadata: bool,
     merge_tags: bool,
     token: Option<String>,
-    _manager: &StoreManager,
+    manager: &mut StoreManager,
 ) -> eyre::Result<()> {
     info!(
         "Updating published extension '{}' from {:?} in store '{}'",
@@ -1116,11 +1379,11 @@ async fn handle_publish_update(
 
     let package = load_extension_package(&package_path).await?;
 
-    let _update_options = PublishUpdateOptions {
-        publish_options: PublishOptions {
-            access_token: token,
-            ..Default::default()
-        },
+    // Create update options
+    let mut publish_options = PublishOptions::production_defaults();
+    publish_options.access_token = token.clone();
+    let update_options = PublishUpdateOptions {
+        publish_options,
         preserve_metadata,
         merge_tags,
         update_reason: reason.clone(),
@@ -1133,12 +1396,47 @@ async fn handle_publish_update(
     println!("  Preserve metadata: {}", preserve_metadata);
     println!("  Merge tags: {}", merge_tags);
 
-    if let Some(reason) = reason {
-        println!("  Reason: {}", reason);
+    if let Some(ref r) = reason {
+        println!("  Reason: {}", r);
     }
 
-    error!("Publishing updates are not yet implemented");
-    error!("Implementation requires PublishableStore trait to be available on store instances");
+    // Actually update the published extension
+    match manager
+        .update_published_extension_in_store(&store_name, &name, package, &update_options)
+        .await
+    {
+        Some(result) => match result {
+            Ok(publish_result) => {
+                println!("✅ Successfully updated published extension:");
+                println!("  Name: {}", name);
+                println!("  New version: {}", publish_result.version);
+                println!("  Download URL: {}", publish_result.download_url);
+                println!(
+                    "  Updated at: {}",
+                    publish_result.published_at.format("%Y-%m-%d %H:%M:%S")
+                );
+                println!("  Publication ID: {}", publish_result.publication_id);
+                println!(
+                    "  Package size: {}",
+                    format_size(publish_result.package_size)
+                );
+            }
+            Err(e) => {
+                error!("Failed to update published extension: {}", e);
+                return Err(e.into());
+            }
+        },
+        None => {
+            error!(
+                "Store '{}' does not support publishing or was not found",
+                store_name
+            );
+            return Err(eyre::eyre!(
+                "Store '{}' does not support publishing operations",
+                store_name
+            ));
+        }
+    }
 
     Ok(())
 }
@@ -1151,19 +1449,12 @@ async fn handle_unpublish_extension(
     keep_record: bool,
     notify_users: bool,
     token: Option<String>,
-    _manager: &StoreManager,
+    manager: &mut StoreManager,
 ) -> eyre::Result<()> {
     info!(
         "Unpublishing extension '{}' version '{}' from store '{}'",
         name, version, store_name
     );
-
-    let _options = UnpublishOptions {
-        access_token: token,
-        reason: reason.clone(),
-        keep_record,
-        notify_users,
-    };
 
     println!("Unpublish configuration:");
     println!("  Extension: {}", name);
@@ -1172,15 +1463,61 @@ async fn handle_unpublish_extension(
     println!("  Keep record: {}", keep_record);
     println!("  Notify users: {}", notify_users);
 
-    if let Some(reason) = reason {
-        println!("  Reason: {}", reason);
+    if let Some(ref r) = reason {
+        println!("  Reason: {}", r);
     }
 
     warn!("Are you sure you want to unpublish this extension version?");
     warn!("This action may break installations that depend on this version.");
 
-    error!("Unpublishing is not yet implemented");
-    error!("Implementation requires PublishableStore trait to be available on store instances");
+    // Create unpublish options
+    let unpublish_options = UnpublishOptions {
+        access_token: token,
+        reason,
+        keep_record,
+        notify_users,
+    };
+
+    // Actually unpublish the extension
+    match manager
+        .unpublish_extension_from_store(&store_name, &name, &version, &unpublish_options)
+        .await
+    {
+        Some(result) => match result {
+            Ok(unpublish_result) => {
+                println!("✅ Successfully unpublished extension version:");
+                println!("  Name: {}", name);
+                println!("  Version: {}", unpublish_result.version);
+                println!(
+                    "  Unpublished at: {}",
+                    unpublish_result.unpublished_at.format("%Y-%m-%d %H:%M:%S")
+                );
+                println!(
+                    "  Tombstone created: {}",
+                    unpublish_result.tombstone_created
+                );
+                if let Some(users_notified) = unpublish_result.users_notified {
+                    if users_notified > 0 {
+                        println!("  Users notified: {}", users_notified);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to unpublish extension: {}", e);
+                return Err(e.into());
+            }
+        },
+        None => {
+            error!(
+                "Store '{}' does not support publishing or was not found",
+                store_name
+            );
+            return Err(eyre::eyre!(
+                "Store '{}' does not support publishing operations",
+                store_name
+            ));
+        }
+    }
 
     Ok(())
 }
