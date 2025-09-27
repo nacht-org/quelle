@@ -94,8 +94,8 @@ pub use source::{
     create_store_from_source, ConfigStore, ExtensionSource, LocalConfigStore, RegistryConfig,
     StoreType,
 };
-pub use store::{capabilities, Store};
 pub use store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
+pub use stores::traits::{BaseStore, ReadableStore, WritableStore};
 pub use validation::{
     create_default_validator, create_strict_validator, ExtensionValidationReport, RuleResult,
     SecurityRuleConfig, SecurityValidationRule, ValidationConfig, ValidationEngine, ValidationRule,

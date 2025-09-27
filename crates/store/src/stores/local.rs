@@ -1,4 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
@@ -17,9 +19,9 @@ use crate::models::{
     SearchQuery, StoreHealth, UpdateInfo,
 };
 use crate::publish::{
-    ExtensionVisibility, PublishError, PublishOptions, PublishPermissions, PublishRequirements,
-    PublishResult, PublishStats, PublishUpdateOptions, RateLimitStatus, RateLimits,
-    UnpublishOptions, UnpublishResult, ValidationReport,
+    ExtensionVisibility, PublishOptions, PublishPermissions, PublishRequirements, PublishResult,
+    PublishStats, PublishUpdateOptions, RateLimitStatus, RateLimits, UnpublishOptions,
+    UnpublishResult, ValidationReport,
 };
 use crate::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
 use crate::stores::traits::{
@@ -751,141 +753,74 @@ impl BaseStore for LocalStore {
     }
 
     async fn health_check(&self) -> Result<StoreHealth> {
+        use std::time::Instant;
+
         let start = Instant::now();
 
         // Check if root directory exists and is accessible
-        let metadata = match fs::metadata(&self.root_path).await {
-            Ok(metadata) => metadata,
-            Err(e) => {
-                return Ok(StoreHealth::unhealthy(format!(
-                    "Cannot access store directory: {}",
-                    e
-                )))
-            }
-        };
-
-        // Ensure it's actually a directory
-        if !metadata.is_dir() {
-            return Ok(StoreHealth::unhealthy(
-                "Store path is not a directory".to_string(),
-            ));
+        if !self.root_path.exists() {
+            return Ok(StoreHealth {
+                healthy: false,
+                last_check: chrono::Utc::now(),
+                response_time: Some(start.elapsed()),
+                error: Some(format!(
+                    "Store directory does not exist: {}",
+                    self.root_path.display()
+                )),
+                extension_count: Some(0),
+                store_version: None,
+                capabilities: self.capabilities(),
+            });
         }
 
-        // Try to read directory contents to validate it's a proper store
-        let mut dir_entries = match fs::read_dir(&self.root_path).await {
-            Ok(entries) => entries,
-            Err(e) => {
-                return Ok(StoreHealth::unhealthy(format!(
-                    "Cannot read store directory: {}",
-                    e
-                )))
-            }
-        };
+        if !self.root_path.is_dir() {
+            return Ok(StoreHealth {
+                healthy: false,
+                last_check: chrono::Utc::now(),
+                response_time: Some(start.elapsed()),
+                error: Some("Store path is not a directory".to_string()),
+                extension_count: Some(0),
+                store_version: None,
+                capabilities: self.capabilities(),
+            });
+        }
 
-        let mut has_extensions = false;
+        // Try to count extensions
+        let extensions_root = self.extensions_root();
         let mut extension_count = 0;
-        let mut validation_errors = Vec::new();
 
-        // Check directory structure and validate extensions
-        while let Some(entry) =
-            dir_entries
-                .next_entry()
-                .await
-                .map_err(|e| StoreError::IoOperation {
-                    operation: "read directory entry".to_string(),
-                    path: self.root_path.clone(),
-                    source: e,
-                })?
-        {
-            let entry_path = entry.path();
-            if entry_path.is_dir() {
-                let extension_name = entry_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown");
-
-                // Validate extension id
-                if let Err(e) = self.validate_extension_id(extension_name) {
-                    validation_errors
-                        .push(format!("Invalid extension id '{}': {}", extension_name, e));
-                    continue;
+        if extensions_root.exists() {
+            match tokio::fs::read_dir(&extensions_root).await {
+                Ok(mut entries) => {
+                    while let Some(entry) = entries.next_entry().await.map_err(StoreError::from)? {
+                        if entry.file_type().await.map_err(StoreError::from)?.is_dir() {
+                            extension_count += 1;
+                        }
+                    }
                 }
-
-                // Check if extension has valid structure (at least one version directory)
-                match fs::read_dir(&entry_path).await {
-                    Ok(mut version_entries) => {
-                        let mut has_versions = false;
-                        while let Some(version_entry) =
-                            version_entries.next_entry().await.map_err(|_| {
-                                StoreError::InvalidPackage {
-                                    reason: "Cannot read version directory".to_string(),
-                                }
-                            })?
-                        {
-                            if version_entry.path().is_dir() {
-                                let version_path = version_entry.path();
-                                let version_name = version_path
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .unwrap_or("unknown");
-
-                                // Validate version string
-                                if let Err(e) = self.validate_version_string(version_name) {
-                                    validation_errors.push(format!(
-                                        "Invalid version '{}' in extension '{}': {}",
-                                        version_name, extension_name, e
-                                    ));
-                                    continue;
-                                }
-
-                                // Check if version has required files (manifest.json)
-                                let manifest_path =
-                                    version_entry.path().join(&self.layout.manifest_file);
-                                if !manifest_path.exists() {
-                                    validation_errors.push(format!(
-                                        "Missing manifest in {}@{}",
-                                        extension_name, version_name
-                                    ));
-                                } else {
-                                    has_versions = true;
-                                    extension_count += 1;
-                                }
-                            }
-                        }
-
-                        if has_versions {
-                            has_extensions = true;
-                        }
-                    }
-                    Err(_) => {
-                        validation_errors.push(format!(
-                            "Cannot read extension directory: {}",
-                            extension_name
-                        ));
-                    }
+                Err(_) => {
+                    return Ok(StoreHealth {
+                        healthy: false,
+                        last_check: chrono::Utc::now(),
+                        response_time: Some(start.elapsed()),
+                        error: Some("Cannot read extensions directory".to_string()),
+                        extension_count: Some(0),
+                        store_version: None,
+                        capabilities: self.capabilities(),
+                    });
                 }
             }
         }
 
-        let response_time = start.elapsed();
-
-        // Return health status based on validation
-        if validation_errors.is_empty() {
-            Ok(StoreHealth::healthy()
-                .with_response_time(response_time)
-                .with_extension_count(extension_count))
-        } else if has_extensions {
-            // Some extensions are valid, but there are issues
-            Ok(StoreHealth::healthy()
-                .with_response_time(response_time)
-                .with_extension_count(extension_count))
-        } else {
-            // No valid extensions found or serious structural issues
-            Ok(StoreHealth::unhealthy(format!(
-                "Invalid store structure: {}",
-                validation_errors.join("; ")
-            )))
-        }
+        Ok(StoreHealth {
+            healthy: true,
+            last_check: chrono::Utc::now(),
+            response_time: Some(start.elapsed()),
+            error: None,
+            extension_count: Some(extension_count),
+            store_version: Some("1.0.0".to_string()),
+            capabilities: self.capabilities(),
+        })
     }
 
     fn capabilities(&self) -> Vec<String> {
@@ -1076,9 +1011,7 @@ impl ReadableStore for LocalStore {
     }
 
     async fn get_latest_version(&self, id: &str) -> Result<Option<String>> {
-        self.get_latest_version_internal(id)
-            .await
-            .map_err(StoreError::from)
+        self.get_latest_version_internal(id).await
     }
 
     async fn list_versions(&self, id: &str) -> Result<Vec<String>> {
@@ -1347,20 +1280,21 @@ impl LocalStore {
 impl WritableStore for LocalStore {
     fn publish_requirements(&self) -> PublishRequirements {
         PublishRequirements {
-            max_package_size: 50 * 1024 * 1024, // 50MB
-            allowed_file_types: vec![
+            requires_authentication: false,
+            requires_signing: false,
+            max_package_size: Some(50 * 1024 * 1024), // 50MB
+            allowed_file_extensions: vec![
                 "wasm".to_string(),
                 "json".to_string(),
                 "md".to_string(),
                 "txt".to_string(),
             ],
-            requires_signature: false,
-            requires_review: false,
-            rate_limits: RateLimits {
-                per_hour: 10,
-                per_day: 50,
-                per_month: 200,
-            },
+            forbidden_patterns: vec!["*.exe".to_string(), "*.dll".to_string()],
+            required_metadata: vec!["name".to_string(), "version".to_string()],
+            supported_visibility: vec![ExtensionVisibility::Public, ExtensionVisibility::Private],
+            enforces_versioning: true,
+            validation_rules: vec!["wasm-validation".to_string()],
+            store_specific: std::collections::HashMap::new(),
         }
     }
 
@@ -1370,7 +1304,13 @@ impl WritableStore for LocalStore {
                 can_publish: false,
                 can_update: false,
                 can_unpublish: false,
-                reason: Some("Store is readonly".to_string()),
+                allowed_extensions: None,
+                max_package_size: None,
+                rate_limits: RateLimits {
+                    publications_per_hour: None,
+                    publications_per_day: None,
+                    bandwidth_per_day: None,
+                },
             });
         }
 
@@ -1378,18 +1318,22 @@ impl WritableStore for LocalStore {
             can_publish: true,
             can_update: true,
             can_unpublish: true,
-            reason: None,
+            allowed_extensions: None,
+            max_package_size: Some(50 * 1024 * 1024),
+            rate_limits: RateLimits {
+                publications_per_hour: Some(10),
+                publications_per_day: Some(50),
+                bandwidth_per_day: Some(1024 * 1024 * 1024), // 1GB
+            },
         })
     }
 
     async fn get_rate_limit_status(&self, user_id: &str) -> Result<RateLimitStatus> {
         // For local stores, no rate limiting
         Ok(RateLimitStatus {
-            remaining_hourly: 10,
-            remaining_daily: 50,
-            remaining_monthly: 200,
-            reset_time: chrono::Utc::now() + chrono::Duration::hours(1),
-            is_rate_limited: false,
+            publications_remaining: Some(10),
+            reset_time: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+            is_limited: false,
         })
     }
 
@@ -1446,9 +1390,17 @@ impl WritableStore for LocalStore {
         Ok(PublishResult {
             extension_id: package.manifest.id.clone(),
             version: package.manifest.version.clone(),
+            download_url: format!("file://{}", wasm_path.display()),
             published_at: chrono::Utc::now(),
-            download_url: None,
-            visibility: options.visibility,
+            publication_id: format!("local-{}-{}", package.manifest.id, package.manifest.version),
+            package_size: package.wasm_component.len() as u64,
+            content_hash: {
+                let mut hasher = DefaultHasher::new();
+                package.wasm_component.hash(&mut hasher);
+                format!("{:x}", hasher.finish())
+            },
+            warnings: Vec::new(),
+            store_info: std::collections::HashMap::new(),
         })
     }
 
@@ -1460,10 +1412,17 @@ impl WritableStore for LocalStore {
     ) -> Result<PublishResult> {
         // For local stores, updating is the same as publishing
         let publish_options = PublishOptions {
+            overwrite_existing: true,
+            pre_release: false,
             visibility: ExtensionVisibility::Public,
-            auto_approve: options.auto_approve,
-            force: options.force,
-            dry_run: false,
+            access_token: None,
+            signing_key: None,
+            metadata: std::collections::HashMap::new(),
+            skip_validation: false,
+            timeout: None,
+            create_backup: false,
+            tags: Vec::new(),
+            release_notes: None,
         };
 
         self.publish(package, publish_options).await
@@ -1489,8 +1448,10 @@ impl WritableStore for LocalStore {
                 fs::remove_dir_all(&version_dir).await?;
                 Ok(UnpublishResult {
                     extension_id: extension_id.to_string(),
-                    version: Some(version.clone()),
+                    version: version.clone(),
                     unpublished_at: chrono::Utc::now(),
+                    tombstone_created: options.keep_record,
+                    users_notified: if options.notify_users { Some(0) } else { None },
                 })
             } else {
                 Err(StoreError::ExtensionNotFound(format!(
@@ -1504,8 +1465,10 @@ impl WritableStore for LocalStore {
                 fs::remove_dir_all(&extension_dir).await?;
                 Ok(UnpublishResult {
                     extension_id: extension_id.to_string(),
-                    version: None,
+                    version: "all".to_string(),
                     unpublished_at: chrono::Utc::now(),
+                    tombstone_created: options.keep_record,
+                    users_notified: if options.notify_users { Some(0) } else { None },
                 })
             } else {
                 Err(StoreError::ExtensionNotFound(extension_id.to_string()))
@@ -1527,12 +1490,16 @@ impl WritableStore for LocalStore {
         }
 
         Ok(PublishStats {
-            total_extensions,
-            total_versions,
-            total_downloads: 0, // Not tracked for local stores
-            total_size,
-            publishers: 1, // Local store has one "publisher"
-            last_updated: chrono::Utc::now(),
+            total_extensions: total_extensions as u64,
+            total_storage_used: total_size,
+            recent_publications: 0,
+            storage_quota: None,
+            rate_limit_status: RateLimitStatus {
+                publications_remaining: Some(10),
+                reset_time: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+                is_limited: false,
+            },
+            store_specific: std::collections::HashMap::new(),
         })
     }
 

@@ -187,6 +187,8 @@ pub enum ExtensionVisibility {
 /// Result of a successful publish operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublishResult {
+    /// The ID of the extension that was published
+    pub extension_id: String,
     /// The version that was published
     pub version: String,
 
