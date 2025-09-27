@@ -9,11 +9,13 @@ use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use crate::error::{Result, StoreError};
+use crate::local::LocalStore;
 use crate::manifest::ExtensionManifest;
 use crate::models::{
     ExtensionInfo, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy, StoreConfig,
     UpdateInfo, UpdateOptions,
 };
+use crate::publish::{PublishPermissions, PublishRequirements, PublishStats, PublishableStore};
 use crate::registry::{
     InstallationQuery, InstallationStats, RegistryHealth, RegistryStore, ValidationIssue,
 };
@@ -37,6 +39,43 @@ impl ManagedStore {
 
     pub fn config(&self) -> &RegistryStoreConfig {
         &self.config
+    }
+
+    /// Try to get publish requirements if this store supports publishing
+    pub fn get_publish_requirements(&self) -> Option<PublishRequirements> {
+        // Try to downcast to LocalStore (currently the only PublishableStore implementation)
+        let store_any = self.store.as_ref() as &dyn std::any::Any;
+        if let Some(local_store) = store_any.downcast_ref::<LocalStore>() {
+            Some(local_store.publish_requirements())
+        } else {
+            None
+        }
+    }
+
+    /// Try to check publish permissions if this store supports publishing
+    pub async fn can_publish(&self, extension_name: &str) -> Option<Result<PublishPermissions>> {
+        let store_any = self.store.as_ref() as &dyn std::any::Any;
+        if let Some(local_store) = store_any.downcast_ref::<LocalStore>() {
+            Some(local_store.can_publish(extension_name).await)
+        } else {
+            None
+        }
+    }
+
+    /// Try to get publish stats if this store supports publishing
+    pub async fn get_publish_stats(&self) -> Option<Result<PublishStats>> {
+        let store_any = self.store.as_ref() as &dyn std::any::Any;
+        if let Some(local_store) = store_any.downcast_ref::<LocalStore>() {
+            Some(local_store.get_publish_stats().await)
+        } else {
+            None
+        }
+    }
+
+    /// Check if this store supports publishing operations
+    pub fn supports_publishing(&self) -> bool {
+        let store_any = self.store.as_ref() as &dyn std::any::Any;
+        store_any.downcast_ref::<LocalStore>().is_some()
     }
 }
 
@@ -845,6 +884,41 @@ impl StoreManager {
             }
         });
         updates
+    }
+
+    /// Get publish requirements for a store if it supports publishing
+    pub fn get_store_publish_requirements(&self, store_name: &str) -> Option<PublishRequirements> {
+        self.get_extension_store(store_name)
+            .and_then(|managed_store| managed_store.get_publish_requirements())
+    }
+
+    /// Check publish permissions for a store if it supports publishing
+    pub async fn check_store_publish_permissions(
+        &self,
+        store_name: &str,
+        extension_name: &str,
+    ) -> Option<Result<PublishPermissions>> {
+        if let Some(managed_store) = self.get_extension_store(store_name) {
+            managed_store.can_publish(extension_name).await
+        } else {
+            None
+        }
+    }
+
+    /// Get publish stats for a store if it supports publishing
+    pub async fn get_store_publish_stats(&self, store_name: &str) -> Option<Result<PublishStats>> {
+        if let Some(managed_store) = self.get_extension_store(store_name) {
+            managed_store.get_publish_stats().await
+        } else {
+            None
+        }
+    }
+
+    /// Check if a store supports publishing operations
+    pub fn store_supports_publishing(&self, store_name: &str) -> bool {
+        self.get_extension_store(store_name)
+            .map(|managed_store| managed_store.supports_publishing())
+            .unwrap_or(false)
     }
 }
 

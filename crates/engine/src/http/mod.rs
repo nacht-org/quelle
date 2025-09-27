@@ -10,6 +10,7 @@ use crate::bindings::quelle::extension::http;
 
 pub use self::chrome::HeadlessChromeExecutor;
 pub use self::executor::HttpExecutor;
+pub use self::reqwest::ReqwestExecutor;
 
 impl fmt::Display for http::Method {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

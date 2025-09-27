@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+use quelle_engine::ExtensionEngine;
 use quelle_store::{ConfigStore, LocalConfigStore, LocalRegistryStore, SearchQuery, StoreManager};
 
 use crate::cli::{Commands, FetchCommands};
@@ -91,12 +92,34 @@ async fn handle_fetch_command(
                         }
                     }
 
-                    // TODO: Use the installed extension to fetch novel info
+                    // Use the installed extension to fetch novel info
                     println!("📖 Fetching novel info from: {}", url);
-                    println!(
-                        "This would use the {} extension to fetch novel information",
-                        extension_name
-                    );
+
+                    if let Some(installed) = store_manager.get_installed(&extension_name).await? {
+                        match fetch_novel_with_extension(&installed, &url.to_string()).await {
+                            Ok(novel) => {
+                                println!("✅ Successfully fetched novel information:");
+                                println!("  Title: {}", novel.title);
+                                println!("  Authors: {}", novel.authors.join(", "));
+                                if !novel.description.is_empty() {
+                                    println!("  Description: {}", novel.description.join(" "));
+                                }
+                                if let Some(cover) = &novel.cover {
+                                    println!("  Cover URL: {}", cover);
+                                }
+                                let total_chapters: u32 =
+                                    novel.volumes.iter().map(|v| v.chapters.len() as u32).sum();
+                                println!("  Total chapters: {}", total_chapters);
+                                println!("  Status: {:?}", novel.status);
+                            }
+                            Err(e) => {
+                                eprintln!("❌ Failed to fetch novel info: {}", e);
+                                return Err(e.into());
+                            }
+                        }
+                    } else {
+                        eprintln!("❌ Extension {} not found in registry", extension_name);
+                    }
                 }
                 None => {
                     eprintln!("❌ No extension found that can handle URL: {}", url);
@@ -128,12 +151,31 @@ async fn handle_fetch_command(
                         }
                     }
 
-                    // TODO: Use the installed extension to fetch chapter
+                    // Use the installed extension to fetch chapter
                     println!("📄 Fetching chapter from: {}", url);
-                    println!(
-                        "This would use the {} extension to fetch chapter content",
-                        extension_name
-                    );
+
+                    if let Some(installed) = store_manager.get_installed(&extension_name).await? {
+                        match fetch_chapter_with_extension(&installed, &url.to_string()).await {
+                            Ok(chapter) => {
+                                println!("✅ Successfully fetched chapter:");
+                                println!("  Content length: {} characters", chapter.data.len());
+
+                                // Show first few lines of content
+                                let preview = if chapter.data.len() > 200 {
+                                    format!("{}...", &chapter.data[..200])
+                                } else {
+                                    chapter.data.clone()
+                                };
+                                println!("  Preview: {}", preview);
+                            }
+                            Err(e) => {
+                                eprintln!("❌ Failed to fetch chapter: {}", e);
+                                return Err(e.into());
+                            }
+                        }
+                    } else {
+                        eprintln!("❌ Extension {} not found in registry", extension_name);
+                    }
                 }
                 None => {
                     eprintln!("❌ No extension found that can handle URL: {}", url);
@@ -279,4 +321,64 @@ async fn find_extension_for_url(
         .find_extension_for_url(url)
         .await
         .map_err(|e| eyre::eyre!("Failed to find extension for URL: {}", e))
+}
+
+/// Fetch novel information using an installed extension
+async fn fetch_novel_with_extension(
+    installed: &quelle_store::models::InstalledExtension,
+    url: &str,
+) -> eyre::Result<quelle_engine::bindings::quelle::extension::novel::Novel> {
+    use quelle_engine::http::ReqwestExecutor;
+    use std::sync::Arc;
+
+    // Create HTTP executor
+    let executor = Arc::new(ReqwestExecutor::new());
+
+    // Create extension engine
+    let engine = ExtensionEngine::new(executor)?;
+
+    // Get WASM file path
+    let wasm_path = installed.get_wasm_path();
+    if !wasm_path.exists() {
+        return Err(eyre::eyre!("WASM file not found at {:?}", wasm_path));
+    }
+
+    // Create runner and fetch novel info
+    let runner = engine.new_runner_from_file(&wasm_path.to_string_lossy())?;
+    let (_, result) = runner.fetch_novel_info(url)?;
+
+    match result {
+        Ok(novel) => Ok(novel),
+        Err(wit_error) => Err(eyre::eyre!("Extension error: {:?}", wit_error)),
+    }
+}
+
+/// Fetch chapter content using an installed extension
+async fn fetch_chapter_with_extension(
+    installed: &quelle_store::models::InstalledExtension,
+    url: &str,
+) -> eyre::Result<quelle_engine::bindings::quelle::extension::novel::ChapterContent> {
+    use quelle_engine::http::ReqwestExecutor;
+    use std::sync::Arc;
+
+    // Create HTTP executor
+    let executor = Arc::new(ReqwestExecutor::new());
+
+    // Create extension engine
+    let engine = ExtensionEngine::new(executor)?;
+
+    // Get WASM file path
+    let wasm_path = installed.get_wasm_path();
+    if !wasm_path.exists() {
+        return Err(eyre::eyre!("WASM file not found at {:?}", wasm_path));
+    }
+
+    // Create runner and fetch chapter
+    let runner = engine.new_runner_from_file(&wasm_path.to_string_lossy())?;
+    let (_, result) = runner.fetch_chapter(url)?;
+
+    match result {
+        Ok(chapter) => Ok(chapter),
+        Err(wit_error) => Err(eyre::eyre!("Extension error: {:?}", wit_error)),
+    }
 }

@@ -862,10 +862,29 @@ async fn handle_requirements(
                 );
             }
 
-            // TODO: Once PublishableStore is properly implemented on concrete types,
-            // we can get actual requirements here
-            println!("  Status: Publishing support depends on store implementation");
-            println!("  Note: Check store documentation for publishing capabilities");
+            // Get actual publishing requirements if store supports it
+            if let Some(requirements) = manager.get_store_publish_requirements(&store_name) {
+                println!("  Publishing supported: Yes");
+                println!(
+                    "  Authentication required: {}",
+                    requirements.requires_authentication
+                );
+                println!("  Signing required: {}", requirements.requires_signing);
+                if let Some(max_size) = requirements.max_package_size {
+                    println!("  Max package size: {} MB", max_size / (1024 * 1024));
+                }
+                if !requirements.supported_visibility.is_empty() {
+                    let visibility_options: Vec<String> = requirements
+                        .supported_visibility
+                        .iter()
+                        .map(|v| format!("{:?}", v))
+                        .collect();
+                    println!("  Supported visibility: {}", visibility_options.join(", "));
+                }
+            } else {
+                println!("  Publishing supported: No");
+                println!("  Note: This store type does not support publishing operations");
+            }
         } else {
             error!("Store '{}' not found", store_name);
         }
@@ -892,15 +911,48 @@ async fn handle_permissions(
             store_name
         );
 
-        if let Some(ext_name) = extension_name {
+        if let Some(ref ext_name) = extension_name {
             println!("  Extension: {}", ext_name);
         }
 
-        // TODO: Once PublishableStore::can_publish is implemented,
-        // we can check actual permissions here
-        println!("  Status: Permission checking depends on store implementation");
-        println!("  Note: Local stores typically allow all operations");
-        println!("  Remote stores may require authentication tokens");
+        // Check actual publishing permissions if store supports it
+        if let Some(permissions_result) = manager
+            .check_store_publish_permissions(&store_name, extension_name.as_deref().unwrap_or("*"))
+            .await
+        {
+            match permissions_result {
+                Ok(permissions) => {
+                    println!("  Publishing supported: Yes");
+                    println!("  Can publish: {}", permissions.can_publish);
+                    println!("  Can update: {}", permissions.can_update);
+                    println!("  Can unpublish: {}", permissions.can_unpublish);
+
+                    if let Some(max_size) = permissions.max_package_size {
+                        println!("  Max package size: {} MB", max_size / (1024 * 1024));
+                    }
+
+                    if permissions.rate_limits.publications_per_hour.is_some()
+                        || permissions.rate_limits.publications_per_day.is_some()
+                    {
+                        println!("  Rate limits apply: Yes");
+                        if let Some(per_hour) = permissions.rate_limits.publications_per_hour {
+                            println!("    Max per hour: {}", per_hour);
+                        }
+                        if let Some(per_day) = permissions.rate_limits.publications_per_day {
+                            println!("    Max per day: {}", per_day);
+                        }
+                    } else {
+                        println!("  Rate limits: None");
+                    }
+                }
+                Err(e) => {
+                    println!("  Error checking permissions: {}", e);
+                }
+            }
+        } else {
+            println!("  Publishing supported: No");
+            println!("  Note: This store type does not support publishing operations");
+        }
     } else {
         error!("Store '{}' not found", store_name);
     }
@@ -908,35 +960,72 @@ async fn handle_permissions(
 }
 
 async fn handle_stats(store_name: String, manager: &StoreManager) -> eyre::Result<()> {
-    if let Some(_managed_store) = manager.get_extension_store(&store_name) {
+    if let Some(managed_store) = manager.get_extension_store(&store_name) {
         println!("Publishing statistics for store '{}':", store_name);
 
-        // TODO: Once PublishableStore::get_publish_stats is implemented,
-        // we can show actual statistics here
-        println!("  Status: Statistics depend on store implementation");
-        println!("  Available info: Check store health and extension count");
+        // Get actual publishing statistics if store supports it
+        if let Some(stats_result) = manager.get_store_publish_stats(&store_name).await {
+            match stats_result {
+                Ok(stats) => {
+                    println!("  Publishing supported: Yes");
+                    println!("  Total extensions: {}", stats.total_extensions);
+                    if stats.total_storage_used > 0 {
+                        println!(
+                            "  Storage used: {} MB",
+                            stats.total_storage_used / (1024 * 1024)
+                        );
+                    }
+                    if let Some(quota) = stats.storage_quota {
+                        println!("  Storage quota: {} MB", quota / (1024 * 1024));
+                    }
+                    if stats.recent_publications > 0 {
+                        println!("  Recent publications: {}", stats.recent_publications);
+                    }
 
-        // Show what we can from the existing store interface
-        // Note: refresh_stores requires mutable reference, but we have immutable
-        // This is a limitation of the current API design
-        println!("  Note: Cannot refresh stores with current API");
-        let failed_stores: Vec<String> = Vec::new();
-        /*
-        let failed_stores = match manager.refresh_stores().await {
-            Ok(failed) => failed,
-            Err(e) => {
-                warn!("Could not refresh stores: {}", e);
-                Vec::new()
+                    // Rate limit status
+                    if stats.rate_limit_status.is_limited {
+                        println!("  Rate limited: Yes");
+                        if let Some(remaining) = stats.rate_limit_status.publications_remaining {
+                            println!("    Publications remaining: {}", remaining);
+                        }
+                        if let Some(reset_time) = stats.rate_limit_status.reset_time {
+                            println!("    Reset time: {}", reset_time);
+                        }
+                    } else {
+                        println!("  Rate limited: No");
+                    }
+                }
+                Err(e) => {
+                    println!("  Error getting statistics: {}", e);
+                }
             }
-        };
-        */
-
-        let status = if failed_stores.contains(&store_name) {
-            "Unhealthy"
         } else {
-            "Healthy"
-        };
-        println!("  Store health: {}", status);
+            println!("  Publishing supported: No");
+            println!("  Note: This store type does not support publishing operations");
+        }
+
+        // Show general store health
+        match managed_store.store().health_check().await {
+            Ok(health) => {
+                println!(
+                    "  Store health: {}",
+                    if health.healthy {
+                        "Healthy"
+                    } else {
+                        "Unhealthy"
+                    }
+                );
+                if let Some(count) = health.extension_count {
+                    println!("  Available extensions: {}", count);
+                }
+                if let Some(error) = health.error {
+                    println!("  Health error: {}", error);
+                }
+            }
+            Err(e) => {
+                println!("  Store health: Error checking - {}", e);
+            }
+        }
     } else {
         error!("Store '{}' not found", store_name);
     }
@@ -1267,11 +1356,36 @@ async fn load_extension_package(package_path: &PathBuf) -> eyre::Result<Extensio
             }
         }
 
-        // TODO: Handle other package formats (.zip, .tar.gz, etc.)
-        error!("Non-WASM file package loading not yet implemented");
-        return Err(eyre::eyre!(
-            "Unsupported file type. Currently supported: .wasm files and directories with manifest.json"
-        ));
+        // Handle other package formats
+        if let Some(extension) = package_path.extension() {
+            let ext_str = extension.to_string_lossy().to_lowercase();
+            match ext_str.as_str() {
+                "zip" => {
+                    error!("ZIP package support not yet implemented");
+                    return Err(eyre::eyre!(
+                        "ZIP packages are not yet supported. Please extract the package and use the directory, or use a .wasm file directly."
+                    ));
+                }
+                "tar" | "gz" | "tgz" => {
+                    error!("TAR/GZ package support not yet implemented");
+                    return Err(eyre::eyre!(
+                        "TAR/GZ packages are not yet supported. Please extract the package and use the directory, or use a .wasm file directly."
+                    ));
+                }
+                _ => {
+                    error!("Unknown file extension: {}", ext_str);
+                    return Err(eyre::eyre!(
+                        "Unsupported file type '{}'. Currently supported: .wasm files and directories with manifest.json",
+                        ext_str
+                    ));
+                }
+            }
+        } else {
+            error!("File has no extension");
+            return Err(eyre::eyre!(
+                "File has no extension. Currently supported: .wasm files and directories with manifest.json"
+            ));
+        }
     }
 }
 

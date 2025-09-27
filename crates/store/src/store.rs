@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::path::Path;
 
 use async_trait::async_trait;
@@ -12,7 +13,7 @@ use crate::store_manifest::StoreManifest;
 
 /// Core trait defining the interface for all store implementations
 #[async_trait]
-pub trait Store: Send + Sync {
+pub trait Store: Send + Sync + Any {
     /// Get the store manifest containing identity and contents
     async fn get_store_manifest(&self) -> Result<StoreManifest>;
 
