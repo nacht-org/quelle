@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+
 use std::sync::Arc;
 
 use futures::future::join_all;
@@ -200,7 +200,7 @@ impl StoreManager {
 
     /// Refresh all stores (health check and cache refresh)
     pub async fn refresh_stores(&mut self) -> Result<Vec<String>> {
-        let mut failed_stores = Vec::new();
+        let failed_stores = Vec::new();
 
         info!(
             "Refreshing {} extension stores",
@@ -532,11 +532,32 @@ impl StoreManager {
             // This is a simplified version for demonstration
             let future = async move {
                 // This would need proper async handling in practice
+                // Create a placeholder manifest for testing
+                use crate::manifest::{
+                    Checksum, ChecksumAlgorithm, ExtensionManifest, ReadingDirection,
+                };
+                let manifest = ExtensionManifest {
+                    id: "placeholder_id".to_string(),
+                    name: name.clone(),
+                    version: "1.0.0".to_string(),
+                    author: "placeholder".to_string(),
+                    langs: vec!["en".to_string()],
+                    base_urls: vec!["https://example.com".to_string()],
+                    rds: vec![ReadingDirection::Ltr],
+                    attrs: vec![],
+                    checksum: Checksum {
+                        algorithm: ChecksumAlgorithm::Blake3,
+                        value: "placeholder_checksum".to_string(),
+                    },
+                    signature: None,
+                };
+
                 Ok(InstalledExtension::new(
                     "placeholder_id".to_string(),
                     name.to_string(),
                     "1.0.0".to_string(),
-                    PathBuf::new(),
+                    manifest,
+                    vec![], // Empty WASM component for placeholder
                     "placeholder".to_string(),
                 ))
             };
@@ -777,6 +798,7 @@ impl StoreManager {
 
     // Private helper methods
 
+    #[allow(dead_code)]
     async fn install_dependencies(&self, extension: &InstalledExtension) -> Result<()> {
         // This would need access to extension metadata to get dependencies
         // For now, just log that we would install dependencies

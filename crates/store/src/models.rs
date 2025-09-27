@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -301,12 +301,14 @@ pub struct InstalledExtension {
     pub id: String,
     pub name: String,
     pub version: String,
-    pub install_path: PathBuf,
+    pub manifest: ExtensionManifest,
+    pub wasm_component: Vec<u8>,
+    pub metadata: Option<ExtensionMetadata>,
+    pub assets: HashMap<String, Vec<u8>>, // Additional files (docs, examples, etc.)
     pub installed_at: DateTime<Utc>,
     pub last_updated: Option<DateTime<Utc>>,
     pub source_store: String, // Store where this was installed from
     pub auto_update: bool,
-    pub size: Option<u64>, // Installation size in bytes
     pub checksum: Option<crate::manifest::Checksum>, // For integrity verification
 }
 
@@ -315,31 +317,71 @@ impl InstalledExtension {
         id: String,
         name: String,
         version: String,
-        install_path: PathBuf,
+        manifest: ExtensionManifest,
+        wasm_component: Vec<u8>,
         source_store: String,
     ) -> Self {
         Self {
             id,
             name,
             version,
-            install_path,
+            manifest,
+            wasm_component,
+            metadata: None,
+            assets: HashMap::new(),
             installed_at: Utc::now(),
             last_updated: Some(Utc::now()),
             source_store,
             auto_update: false,
-            size: None,
             checksum: None,
         }
     }
 
-    /// Get the expected WASM component path
-    pub fn get_wasm_path(&self) -> PathBuf {
-        self.install_path.join("extension.wasm")
+    /// Create from an ExtensionPackage
+    pub fn from_package(package: ExtensionPackage) -> Self {
+        Self {
+            id: package.manifest.id.clone(),
+            name: package.manifest.name.clone(),
+            version: package.manifest.version.clone(),
+            manifest: package.manifest,
+            wasm_component: package.wasm_component,
+            metadata: package.metadata,
+            assets: package.assets,
+            installed_at: Utc::now(),
+            last_updated: Some(Utc::now()),
+            source_store: package.source_store,
+            auto_update: false,
+            checksum: None,
+        }
     }
 
-    /// Get the expected manifest path
-    pub fn get_manifest_path(&self) -> PathBuf {
-        self.install_path.join("manifest.json")
+    /// Get the WASM component bytes
+    pub fn get_wasm_bytes(&self) -> &[u8] {
+        &self.wasm_component
+    }
+
+    /// Get the manifest
+    pub fn get_manifest(&self) -> &ExtensionManifest {
+        &self.manifest
+    }
+
+    /// Calculate the total size of the installation
+    pub fn calculate_size(&self) -> u64 {
+        let mut size = self.wasm_component.len() as u64;
+        for asset in self.assets.values() {
+            size += asset.len() as u64;
+        }
+        size
+    }
+
+    /// Add an asset to the installation
+    pub fn add_asset(&mut self, name: String, content: Vec<u8>) {
+        self.assets.insert(name, content);
+    }
+
+    /// Get an asset by name
+    pub fn get_asset(&self, name: &str) -> Option<&[u8]> {
+        self.assets.get(name).map(|v| v.as_slice())
     }
 
     /// Update the installation timestamp
@@ -347,23 +389,25 @@ impl InstalledExtension {
         self.last_updated = Some(Utc::now());
     }
 
-    /// Check if the installation files exist on disk
-    pub async fn exists_on_disk(&self) -> bool {
-        use tokio::fs;
-        fs::metadata(&self.install_path).await.is_ok()
-            && fs::metadata(self.get_wasm_path()).await.is_ok()
-            && fs::metadata(self.get_manifest_path()).await.is_ok()
+    /// Verify the integrity of the installation if checksum is available
+    pub fn verify_integrity(&self) -> bool {
+        if let Some(ref checksum) = self.checksum {
+            checksum.verify(&self.wasm_component)
+        } else {
+            // No checksum available, assume valid
+            true
+        }
     }
 
-    /// Verify the integrity of the installation if checksum is available
-    pub async fn verify_integrity(&self) -> std::result::Result<bool, std::io::Error> {
-        if let Some(ref checksum) = self.checksum {
-            use tokio::fs;
-            let wasm_bytes = fs::read(self.get_wasm_path()).await?;
-            Ok(checksum.verify(&wasm_bytes))
-        } else {
-            // No checksum available, just check if files exist
-            Ok(self.exists_on_disk().await)
+    /// Convert to ExtensionPackage for operations that need the package format
+    pub fn to_package(&self) -> ExtensionPackage {
+        ExtensionPackage {
+            manifest: self.manifest.clone(),
+            wasm_component: self.wasm_component.clone(),
+            metadata: self.metadata.clone(),
+            assets: self.assets.clone(),
+            package_layout: PackageLayout::default(),
+            source_store: self.source_store.clone(),
         }
     }
 }

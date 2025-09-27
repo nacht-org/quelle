@@ -334,7 +334,7 @@ impl LocalRegistryStore {
         let mut last_updated = None;
 
         for extension in self.registry.extensions.values() {
-            total_size += extension.size.unwrap_or(0);
+            total_size += extension.calculate_size();
             stores_used.insert(extension.source_store.clone());
             if extension.auto_update {
                 auto_update_enabled += 1;
@@ -463,25 +463,25 @@ impl RegistryStore for LocalRegistryStore {
             if !options.force_reinstall {
                 return Err(StoreError::ExtensionAlreadyInstalled(id.clone()));
             }
-            // Remove existing installation
+            // Remove existing installation directory if it exists
             if install_path.exists() {
                 fs::remove_dir_all(&install_path).await?;
             }
         }
 
-        // Create installation directory
+        // Create installation directory for persistence/caching (optional)
         fs::create_dir_all(&install_path).await?;
 
-        // Write WASM component
+        // Write WASM component to disk for caching
         let wasm_path = install_path.join("extension.wasm");
         fs::write(&wasm_path, &package.wasm_component).await?;
 
-        // Write manifest
+        // Write manifest to disk for caching
         let manifest_path = install_path.join("manifest.json");
         let manifest_content = serde_json::to_string_pretty(&package.manifest)?;
         fs::write(&manifest_path, manifest_content).await?;
 
-        // Write additional assets
+        // Write additional assets to disk for caching
         for (asset_name, content) in &package.assets {
             let asset_path = install_path.join(asset_name);
             if let Some(parent) = asset_path.parent() {
@@ -490,22 +490,10 @@ impl RegistryStore for LocalRegistryStore {
             fs::write(asset_path, content).await?;
         }
 
-        // Calculate size before moving package
-        let package_size = package.calculate_total_size();
-
-        // Create installation record
-        let installed = InstalledExtension {
-            id: id.clone(),
-            name: package.manifest.name.clone(),
-            version: package.manifest.version.clone(),
-            install_path,
-            installed_at: Utc::now(),
-            last_updated: Some(Utc::now()),
-            source_store: package.source_store,
-            auto_update: options.auto_update,
-            size: Some(package_size),
-            checksum: Some(package.manifest.checksum.clone()),
-        };
+        // Create installation record with in-memory data
+        let mut installed = InstalledExtension::from_package(package);
+        installed.auto_update = options.auto_update;
+        installed.checksum = Some(installed.manifest.checksum.clone());
 
         // Register installation
         self.register_installation(installed.clone()).await?;
@@ -521,9 +509,10 @@ impl RegistryStore for LocalRegistryStore {
         Self::validate_extension_id(id)?;
 
         if let Some(installed) = self.registry.extensions.remove(id) {
-            // Remove files from disk
-            if installed.install_path.exists() {
-                fs::remove_dir_all(&installed.install_path).await?;
+            // Remove cache files from disk if they exist
+            let install_path = self.extension_install_path(&installed.id);
+            if install_path.exists() {
+                fs::remove_dir_all(&install_path).await?;
             }
 
             // Save updated registry
@@ -613,22 +602,23 @@ impl RegistryStore for LocalRegistryStore {
         let mut issues = Vec::new();
 
         for extension in self.registry.extensions.values() {
-            // Check if installation path exists
-            if !extension.install_path.exists() {
+            // Validate in-memory data integrity
+            if !extension.verify_integrity() {
                 issues.push(ValidationIssue {
                     extension_name: extension.name.clone(),
-                    issue_type: ValidationIssueType::MissingFiles,
-                    description: "Installation directory not found".to_string(),
+                    issue_type: ValidationIssueType::CorruptedFiles,
+                    description: "Extension data integrity check failed".to_string(),
                     severity: IssueSeverity::Error,
                 });
                 continue;
             }
 
-            // Check for required files
-            let wasm_path = extension.install_path.join("extension.wasm");
-            let manifest_path = extension.install_path.join("manifest.json");
+            // Check if cache files exist on disk (optional validation)
+            let install_path = self.extension_install_path(&extension.id);
+            let wasm_path = install_path.join("extension.wasm");
+            let manifest_path = install_path.join("manifest.json");
 
-            if !wasm_path.exists() {
+            if install_path.exists() && !wasm_path.exists() {
                 issues.push(ValidationIssue {
                     extension_name: extension.name.clone(),
                     issue_type: ValidationIssueType::MissingFiles,
@@ -672,7 +662,8 @@ impl RegistryStore for LocalRegistryStore {
         let mut to_remove = Vec::new();
 
         for (name, extension) in &self.registry.extensions {
-            if !extension.install_path.exists() {
+            // Check if extension data is corrupted or invalid
+            if !extension.verify_integrity() {
                 to_remove.push(name.clone());
             }
         }

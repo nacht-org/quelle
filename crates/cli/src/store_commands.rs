@@ -732,10 +732,7 @@ async fn handle_install_extension(
             println!("  Name: {}", installed.name);
             println!("  Version: {}", installed.version);
             println!("  Source store: {}", installed.source_store);
-            println!("  Install path: {}", installed.install_path.display());
-            if let Some(size) = installed.size {
-                println!("  Size: {}", format_size(size));
-            }
+            println!("  Size: {}", format_size(installed.calculate_size()));
 
             if install_deps {
                 info!("Note: Dependency installation is not yet implemented");
@@ -779,9 +776,7 @@ async fn handle_update_extension(
                     println!("  Name: {}", updated.name);
                     println!("  Version: {} → {}", installed.version, updated.version);
                     println!("  Source store: {}", updated.source_store);
-                    if let Some(size) = updated.size {
-                        println!("  Size: {}", format_size(size));
-                    }
+                    println!("  Size: {}", format_size(updated.calculate_size()));
                     println!(
                         "  Updated: {}",
                         updated
@@ -820,14 +815,14 @@ async fn handle_uninstall_extension(
     match manager.get_installed(&id).await? {
         Some(installed) => {
             println!("  Current version: {}", installed.version);
-            println!("  Install path: {}", installed.install_path.display());
+            println!("  Size: {}", format_size(installed.calculate_size()));
 
             match manager.uninstall(&id).await {
                 Ok(removed) => {
                     if removed {
                         println!("✅ Successfully uninstalled extension '{}'", id);
                         if remove_files {
-                            println!("  Files removed from disk");
+                            println!("  Extension data removed");
                         } else {
                             info!(
                                 "Note: Files may remain on disk depending on store configuration"
@@ -872,9 +867,7 @@ async fn handle_list_installed(manager: &StoreManager) -> eyre::Result<()> {
                     if let Some(updated) = ext.last_updated {
                         println!("    Last updated: {}", updated.format("%Y-%m-%d %H:%M:%S"));
                     }
-                    if let Some(size) = ext.size {
-                        println!("    Size: {}", format_size(size));
-                    }
+                    println!("  Size: {}", format_size(ext.calculate_size()));
                     println!("    Auto-update: {}", ext.auto_update);
                     println!();
                 }
@@ -909,11 +902,8 @@ async fn handle_extension_info(id: String, manager: &StoreManager) -> eyre::Resu
             if let Some(updated) = installed.last_updated {
                 println!("  Last updated: {}", updated.format("%Y-%m-%d %H:%M:%S"));
             }
-            if let Some(size) = installed.size {
-                println!("  Size: {}", format_size(size));
-            }
+            println!("  Size: {}", format_size(installed.calculate_size()));
             println!("  Auto-update: {}", installed.auto_update);
-            println!("  Install path: {}", installed.install_path.display());
         }
         Ok(None) => {
             println!("  Status: ❌ Not installed");

@@ -335,16 +335,11 @@ async fn fetch_novel_with_extension(
     // Create extension engine
     let engine = ExtensionEngine::new(executor)?;
 
-    // Get WASM file path
-    let wasm_path = installed.get_wasm_path();
-    if !wasm_path.exists() {
-        return Err(eyre::eyre!("WASM file not found at {:?}", wasm_path));
-    }
+    // Get WASM component bytes
+    let wasm_bytes = installed.get_wasm_bytes();
 
     // Create runner and fetch novel info
-    let runner = engine
-        .new_runner_from_file(&wasm_path.to_string_lossy())
-        .await?;
+    let runner = engine.new_runner_from_bytes(wasm_bytes).await?;
     let (_, result) = runner.fetch_novel_info(url).await?;
 
     match result {
@@ -367,16 +362,11 @@ async fn fetch_chapter_with_extension(
     // Create extension engine
     let engine = ExtensionEngine::new(executor)?;
 
-    // Get WASM file path
-    let wasm_path = installed.get_wasm_path();
-    if !wasm_path.exists() {
-        return Err(eyre::eyre!("WASM file not found at {:?}", wasm_path));
-    }
+    // Get WASM component bytes
+    let wasm_bytes = installed.get_wasm_bytes();
 
-    // Create runner and fetch chapter
-    let runner = engine
-        .new_runner_from_file(&wasm_path.to_string_lossy())
-        .await?;
+    // Create runner and fetch chapter content
+    let runner = engine.new_runner_from_bytes(wasm_bytes).await?;
     let (_, result) = runner.fetch_chapter(url).await?;
 
     match result {
