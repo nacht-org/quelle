@@ -25,8 +25,7 @@ use crate::publish::{
 };
 use crate::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
 use crate::stores::traits::{
-    capabilities, BaseStore, CacheStats, CacheableStore, ReadableStore, UpdatableStore,
-    WritableStore,
+    BaseStore, CacheStats, CacheableStore, ReadableStore, UpdatableStore, WritableStore,
 };
 use crate::validation::{create_default_validator, ValidationEngine};
 
@@ -822,35 +821,6 @@ impl BaseStore for LocalStore {
             capabilities: self.capabilities(),
         })
     }
-
-    fn capabilities(&self) -> Vec<String> {
-        let mut caps = vec![
-            capabilities::READ.to_string(),
-            capabilities::SEARCH.to_string(),
-            capabilities::VERSIONING.to_string(),
-            capabilities::METADATA.to_string(),
-            capabilities::UPDATE_CHECKING.to_string(),
-        ];
-
-        if self.cache_enabled {
-            caps.push(capabilities::CACHING.to_string());
-        }
-
-        if !self.readonly {
-            caps.push(capabilities::WRITE.to_string());
-            caps.push(capabilities::PUBLISHING.to_string());
-        }
-
-        caps
-    }
-
-    fn store_type(&self) -> &'static str {
-        "local"
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
 }
 
 #[async_trait]
@@ -899,7 +869,11 @@ impl ReadableStore for LocalStore {
         self.load_extension_info(name, version).await
     }
 
-    async fn get_manifest(&self, id: &str, version: Option<&str>) -> Result<ExtensionManifest> {
+    async fn get_extension_manifest(
+        &self,
+        id: &str,
+        version: Option<&str>,
+    ) -> Result<ExtensionManifest> {
         let version = match version {
             Some(v) => v.to_string(),
             None => self
@@ -924,7 +898,7 @@ impl ReadableStore for LocalStore {
         Ok(manifest)
     }
 
-    async fn get_metadata(
+    async fn get_extension_metadata(
         &self,
         id: &str,
         version: Option<&str>,
@@ -965,9 +939,9 @@ impl ReadableStore for LocalStore {
         id: &str,
         version: Option<&str>,
     ) -> Result<ExtensionPackage> {
-        let manifest = self.get_manifest(id, version).await?;
+        let manifest = self.get_extension_manifest(id, version).await?;
         let wasm_component = self.get_extension_wasm_internal(id, version).await?;
-        let metadata = self.get_metadata(id, version).await?;
+        let metadata = self.get_extension_metadata(id, version).await?;
 
         let mut package = ExtensionPackage::new(manifest, wasm_component, "local".to_string())
             .with_layout(self.layout.clone());
@@ -1010,11 +984,11 @@ impl ReadableStore for LocalStore {
         Ok(package)
     }
 
-    async fn get_latest_version(&self, id: &str) -> Result<Option<String>> {
+    async fn get_extension_latest_version(&self, id: &str) -> Result<Option<String>> {
         self.get_latest_version_internal(id).await
     }
 
-    async fn list_versions(&self, id: &str) -> Result<Vec<String>> {
+    async fn list_extension_versions(&self, id: &str) -> Result<Vec<String>> {
         let extension_dir = self.extension_path(id).map_err(StoreError::from)?;
         if !extension_dir.exists() {
             return Ok(Vec::new());
@@ -1045,7 +1019,7 @@ impl ReadableStore for LocalStore {
         Ok(versions)
     }
 
-    async fn version_exists(&self, id: &str, version: &str) -> Result<bool> {
+    async fn check_extension_version_exists(&self, id: &str, version: &str) -> Result<bool> {
         let version_path = self
             .extension_version_path(id, version)
             .map_err(StoreError::from)?;
@@ -1120,7 +1094,7 @@ impl LocalStore {
         for ext_info in extensions {
             // Get the extension manifest to extract base_urls
             if let Ok(ext_manifest) = self
-                .get_manifest(&ext_info.name, Some(&ext_info.version))
+                .get_extension_manifest(&ext_info.name, Some(&ext_info.version))
                 .await
             {
                 let summary = ExtensionSummary {
@@ -1664,7 +1638,10 @@ mod tests {
         create_test_extension(temp_dir.path(), "test_ext", "1.0.0").unwrap();
 
         let store = LocalStore::new(temp_dir.path()).unwrap();
-        let manifest = store.get_manifest("test_ext", Some("1.0.0")).await.unwrap();
+        let manifest = store
+            .get_extension_manifest("test_ext", Some("1.0.0"))
+            .await
+            .unwrap();
 
         assert_eq!(manifest.name, "test_ext");
         assert_eq!(manifest.version, "1.0.0");
@@ -1677,16 +1654,22 @@ mod tests {
         create_test_extension(temp_dir.path(), "test_ext", "1.1.0").unwrap();
 
         let store = LocalStore::new(temp_dir.path()).unwrap();
-        let versions = store.list_versions("test_ext").await.unwrap();
+        let versions = store.list_extension_versions("test_ext").await.unwrap();
 
         assert_eq!(versions.len(), 2);
         assert!(versions.contains(&"1.0.0".to_string()));
         assert!(versions.contains(&"1.1.0".to_string()));
 
-        let exists = store.version_exists("test_ext", "1.0.0").await.unwrap();
+        let exists = store
+            .check_extension_version_exists("test_ext", "1.0.0")
+            .await
+            .unwrap();
         assert!(exists);
 
-        let not_exists = store.version_exists("test_ext", "2.0.0").await.unwrap();
+        let not_exists = store
+            .check_extension_version_exists("test_ext", "2.0.0")
+            .await
+            .unwrap();
         assert!(!not_exists);
     }
 
@@ -1848,7 +1831,7 @@ mod tests {
 
         // Verify it exists
         assert!(store
-            .version_exists("test-extension", "1.0.0")
+            .check_extension_version_exists("test-extension", "1.0.0")
             .await
             .unwrap());
 
@@ -1870,7 +1853,7 @@ mod tests {
 
         // Verify it no longer exists
         assert!(!store
-            .version_exists("test-extension", "1.0.0")
+            .check_extension_version_exists("test-extension", "1.0.0")
             .await
             .unwrap());
     }

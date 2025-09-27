@@ -28,20 +28,6 @@ pub trait BaseStore: Send + Sync + Any {
 
     /// Check the health status of this store
     async fn health_check(&self) -> Result<StoreHealth>;
-
-    /// Get a list of all capabilities supported by this store
-    fn capabilities(&self) -> Vec<String>;
-
-    /// Check if this store supports the given capability
-    fn supports_capability(&self, capability: &str) -> bool {
-        self.capabilities().contains(&capability.to_string())
-    }
-
-    /// Get the store type identifier (local, git, http, etc.)
-    fn store_type(&self) -> &'static str;
-
-    /// Get store name/identifier
-    fn name(&self) -> &str;
 }
 
 /// Store that can be read from (discovery, search, download)
@@ -71,10 +57,14 @@ pub trait ReadableStore: BaseStore {
     ) -> Result<ExtensionInfo>;
 
     /// Get the manifest for a specific extension version
-    async fn get_manifest(&self, name: &str, version: Option<&str>) -> Result<ExtensionManifest>;
+    async fn get_extension_manifest(
+        &self,
+        name: &str,
+        version: Option<&str>,
+    ) -> Result<ExtensionManifest>;
 
     /// Get the metadata for a specific extension version
-    async fn get_metadata(
+    async fn get_extension_metadata(
         &self,
         name: &str,
         version: Option<&str>,
@@ -88,13 +78,13 @@ pub trait ReadableStore: BaseStore {
     ) -> Result<ExtensionPackage>;
 
     /// Get the latest version available for an extension
-    async fn get_latest_version(&self, id: &str) -> Result<Option<String>>;
+    async fn get_extension_latest_version(&self, id: &str) -> Result<Option<String>>;
 
     /// List all available versions for an extension
-    async fn list_versions(&self, id: &str) -> Result<Vec<String>>;
+    async fn list_extension_versions(&self, id: &str) -> Result<Vec<String>>;
 
     /// Check if a specific version exists for an extension
-    async fn version_exists(&self, id: &str, version: &str) -> Result<bool>;
+    async fn check_extension_version_exists(&self, id: &str, version: &str) -> Result<bool>;
 }
 
 /// Store that can be written to (publish extensions)
@@ -194,27 +184,6 @@ pub trait ReadWriteStore: ReadableStore + WritableStore {}
 
 /// Blanket implementation for stores that implement both traits
 impl<T> ReadWriteStore for T where T: ReadableStore + WritableStore {}
-
-/// Store capabilities constants
-pub mod capabilities {
-    pub const READ: &str = "read";
-    pub const WRITE: &str = "write";
-    pub const SEARCH: &str = "search";
-    pub const VERSIONING: &str = "versioning";
-    pub const METADATA: &str = "metadata";
-    pub const CACHING: &str = "caching";
-    pub const AUTHENTICATION: &str = "authentication";
-    pub const UPDATE_CHECKING: &str = "update_checking";
-    pub const PUBLISHING: &str = "publishing";
-    pub const GIT_INTEGRATION: &str = "git_integration";
-    pub const UPDATE_CHECK: &str = "update_check";
-    pub const BATCH_OPERATIONS: &str = "batch_operations";
-    pub const STREAMING: &str = "streaming";
-    pub const PRIVATE_EXTENSIONS: &str = "private_extensions";
-    pub const SIGNATURES: &str = "signatures";
-    pub const DEPENDENCIES: &str = "dependencies";
-    pub const ROLLBACK: &str = "rollback";
-}
 
 /// Cache statistics for cacheable stores
 #[derive(Debug, Clone)]
