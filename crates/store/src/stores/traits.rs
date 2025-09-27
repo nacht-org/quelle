@@ -99,12 +99,6 @@ pub trait WritableStore: BaseStore {
     /// Get publishing requirements for this store
     fn publish_requirements(&self) -> PublishRequirements;
 
-    /// Check if a user can publish to this store
-    async fn can_publish(&self, extension_id: &str) -> Result<PublishPermissions>;
-
-    /// Get current rate limit status
-    async fn get_rate_limit_status(&self, user_id: &str) -> Result<RateLimitStatus>;
-
     /// Publish an extension package
     async fn publish(
         &self,
@@ -126,9 +120,6 @@ pub trait WritableStore: BaseStore {
         extension_id: &str,
         options: UnpublishOptions,
     ) -> Result<UnpublishResult>;
-
-    /// Get publishing statistics
-    async fn get_publish_stats(&self) -> Result<PublishStats>;
 
     /// Validate a package before publishing
     async fn validate_package(

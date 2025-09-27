@@ -1295,45 +1295,6 @@ impl WritableStore for LocalStore {
         }
     }
 
-    async fn can_publish(&self, _extension_id: &str) -> Result<PublishPermissions> {
-        if self.readonly {
-            return Ok(PublishPermissions {
-                can_publish: false,
-                can_update: false,
-                can_unpublish: false,
-                allowed_extensions: None,
-                max_package_size: None,
-                rate_limits: RateLimits {
-                    publications_per_hour: None,
-                    publications_per_day: None,
-                    bandwidth_per_day: None,
-                },
-            });
-        }
-
-        Ok(PublishPermissions {
-            can_publish: true,
-            can_update: true,
-            can_unpublish: true,
-            allowed_extensions: None,
-            max_package_size: Some(50 * 1024 * 1024),
-            rate_limits: RateLimits {
-                publications_per_hour: Some(10),
-                publications_per_day: Some(50),
-                bandwidth_per_day: Some(1024 * 1024 * 1024), // 1GB
-            },
-        })
-    }
-
-    async fn get_rate_limit_status(&self, _user_id: &str) -> Result<RateLimitStatus> {
-        // For local stores, no rate limiting
-        Ok(RateLimitStatus {
-            publications_remaining: Some(10),
-            reset_time: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
-            is_limited: false,
-        })
-    }
-
     async fn publish(
         &self,
         package: ExtensionPackage,
@@ -1471,33 +1432,6 @@ impl WritableStore for LocalStore {
                 Err(StoreError::ExtensionNotFound(extension_id.to_string()))
             }
         }
-    }
-
-    async fn get_publish_stats(&self) -> Result<PublishStats> {
-        let extensions = self.get_cached_extensions().await?;
-        let total_extensions = extensions.len();
-        let mut _total_versions = 0;
-        let mut total_size = 0u64;
-
-        for versions in extensions.values() {
-            _total_versions += versions.len();
-            for ext in versions {
-                total_size += ext.size.unwrap_or(0);
-            }
-        }
-
-        Ok(PublishStats {
-            total_extensions: total_extensions as u64,
-            total_storage_used: total_size,
-            recent_publications: 0,
-            storage_quota: None,
-            rate_limit_status: RateLimitStatus {
-                publications_remaining: Some(10),
-                reset_time: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
-                is_limited: false,
-            },
-            store_specific: std::collections::HashMap::new(),
-        })
     }
 
     async fn validate_package(
