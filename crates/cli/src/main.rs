@@ -272,20 +272,11 @@ async fn handle_status_command(store_manager: &StoreManager) -> eyre::Result<()>
 
 /// Find an extension that can handle the given URL
 async fn find_extension_for_url(
-    _url: &str,
+    url: &str,
     store_manager: &StoreManager,
 ) -> eyre::Result<Option<(String, String)>> {
-    // Get all extensions from all stores
-    let extensions = store_manager.list_all_extensions().await?;
-
-    for ext in extensions {
-        // TODO: Check if extension can handle this URL
-        // For now, just return the first extension as a placeholder
-        // In reality, we'd check the extension's base URLs or capabilities
-        if !ext.name.is_empty() {
-            return Ok(Some((ext.name.clone(), ext.store_source.clone())));
-        }
-    }
-
-    Ok(None)
+    store_manager
+        .find_extension_for_url(url)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to find extension for URL: {}", e))
 }

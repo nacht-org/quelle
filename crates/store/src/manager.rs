@@ -9,6 +9,7 @@ use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use crate::error::{Result, StoreError};
+use crate::manifest::ExtensionManifest;
 use crate::models::{
     ExtensionInfo, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy, StoreConfig,
     UpdateInfo, UpdateOptions,
@@ -16,12 +17,25 @@ use crate::models::{
 use crate::registry::{
     InstallationQuery, InstallationStats, RegistryHealth, RegistryStore, ValidationIssue,
 };
+use crate::registry_config::RegistryStoreConfig;
 use crate::store::Store;
+
+/// Wrapper combining a Store with its registry configuration
+struct ManagedStore {
+    store: Box<dyn Store>,
+    config: RegistryStoreConfig,
+}
+
+impl ManagedStore {
+    fn new(store: Box<dyn Store>, config: RegistryStoreConfig) -> Self {
+        Self { store, config }
+    }
+}
 
 /// Central manager for handling multiple stores and local installations
 pub struct StoreManager {
     /// Extension sources (read-only stores for discovering extensions)
-    extension_stores: Vec<Box<dyn Store>>,
+    extension_stores: Vec<ManagedStore>,
     /// The authoritative source of truth for installed extensions
     registry_store: Box<dyn RegistryStore>,
     /// Configuration
@@ -60,39 +74,57 @@ impl StoreManager {
     }
 
     /// Add an extension store to the manager (for discovering extensions)
-    pub fn add_extension_store<S: Store + 'static>(&mut self, store: S) {
-        info!("Adding extension store: {}", store.store_info().name);
-        self.extension_stores.push(Box::new(store));
+    /// Add an extension store to the manager with registry configuration
+    pub async fn add_extension_store<S: Store + 'static>(
+        &mut self,
+        store: S,
+        registry_config: RegistryStoreConfig,
+    ) -> Result<()> {
+        let manifest = store.get_store_manifest().await?;
+        info!("Adding extension store: {}", manifest.store_name);
+
+        let managed_store = ManagedStore::new(Box::new(store), registry_config);
+        self.extension_stores.push(managed_store);
         self.sort_stores_by_priority();
+        Ok(())
     }
 
-    /// Add a boxed extension store to the manager (for discovering extensions)
-    pub fn add_boxed_extension_store(&mut self, store: Box<dyn Store>) {
-        info!("Adding extension store: {}", store.store_info().name);
-        self.extension_stores.push(store);
+    /// Add a boxed extension store to the manager with registry configuration
+    pub async fn add_boxed_extension_store(
+        &mut self,
+        store: Box<dyn Store>,
+        registry_config: RegistryStoreConfig,
+    ) -> Result<()> {
+        let manifest = store.get_store_manifest().await?;
+        info!("Adding extension store: {}", manifest.store_name);
+
+        let managed_store = ManagedStore::new(store, registry_config);
+        self.extension_stores.push(managed_store);
         self.sort_stores_by_priority();
+        Ok(())
     }
 
     /// Remove an extension store by name
-    pub fn remove_extension_store(&mut self, name: &str) -> bool {
-        let initial_len = self.extension_stores.len();
+    pub fn remove_extension_store(&mut self, name: &str) {
         self.extension_stores
-            .retain(|store| store.store_info().name != name);
-        initial_len != self.extension_stores.len()
+            .retain(|managed_store| managed_store.config.store_name != name);
     }
 
     /// Get information about all registered extension stores
-    pub fn list_extension_stores(&self) -> Vec<&dyn Store> {
-        self.extension_stores.iter().map(|s| s.as_ref()).collect()
-    }
-
-    /// Get a specific store by name
-    /// Get an extension store by name
-    pub fn get_extension_store(&self, name: &str) -> Option<&dyn Store> {
+    /// Get list of store names
+    pub fn list_extension_stores(&self) -> Vec<&str> {
         self.extension_stores
             .iter()
-            .find(|store| store.store_info().name == name)
-            .map(|s| s.as_ref())
+            .map(|managed_store| managed_store.config.store_name.as_str())
+            .collect()
+    }
+
+    /// Get a specific store's configuration by name
+    pub fn get_extension_store_config(&self, name: &str) -> Option<&RegistryStoreConfig> {
+        self.extension_stores
+            .iter()
+            .find(|managed_store| managed_store.config.store_name == name)
+            .map(|managed_store| &managed_store.config)
     }
 
     /// Get the registry store
@@ -101,13 +133,13 @@ impl StoreManager {
     }
 
     /// Sort stores by priority (lower number = higher priority)
-    /// Sort extension stores by priority (higher priority first)
+    /// Sort stores by priority (higher priority first)
     fn sort_stores_by_priority(&mut self) {
         self.extension_stores.sort_by(|a, b| {
-            b.store_info()
+            b.config
                 .priority
-                .cmp(&a.store_info().priority)
-                .then_with(|| a.store_info().name.cmp(&b.store_info().name))
+                .cmp(&a.config.priority)
+                .then_with(|| a.config.store_name.cmp(&b.config.store_name))
         });
     }
 
@@ -119,27 +151,30 @@ impl StoreManager {
             "Refreshing {} extension stores",
             self.extension_stores.len()
         );
+        let mut _failed_stores = Vec::new();
 
-        for store in &self.extension_stores {
-            let store_name = &store.store_info().name;
+        for managed_store in &self.extension_stores {
+            let store_name = &managed_store.config.store_name;
             debug!("Checking health of store: {}", store_name);
 
-            match tokio::time::timeout(self.config.timeout, store.health_check()).await {
+            match tokio::time::timeout(self.config.timeout, managed_store.store.health_check())
+                .await
+            {
                 Ok(Ok(health)) => {
                     if !health.healthy {
                         warn!("Store '{}' is unhealthy: {:?}", store_name, health.error);
-                        failed_stores.push(store_name.clone());
+                        _failed_stores.push(store_name.clone());
                     } else {
                         debug!("Store '{}' is healthy", store_name);
                     }
                 }
                 Ok(Err(e)) => {
                     warn!("Health check failed for store '{}': {}", store_name, e);
-                    failed_stores.push(store_name.clone());
+                    _failed_stores.push(store_name.clone());
                 }
                 Err(_) => {
-                    warn!("Health check timeout for store '{}'", store_name);
-                    failed_stores.push(store_name.clone());
+                    warn!("Health check timed out for store '{}'", store_name);
+                    _failed_stores.push(store_name.clone());
                 }
             }
         }
@@ -154,12 +189,13 @@ impl StoreManager {
         let mut all_results = Vec::new();
         let mut search_futures = Vec::new();
 
-        for store in &self.extension_stores {
-            if !store.store_info().enabled {
+        for managed_store in &self.extension_stores {
+            if !managed_store.config.enabled {
                 continue;
             }
 
-            let store_name = store.store_info().name.clone();
+            let store_name = managed_store.config.store_name.clone();
+            let store = &managed_store.store;
             let future = async move {
                 match tokio::time::timeout(self.config.timeout, store.search_extensions(query))
                     .await
@@ -199,34 +235,38 @@ impl StoreManager {
     /// List all extensions from all stores
     pub async fn list_all_extensions(&self) -> Result<Vec<ExtensionInfo>> {
         let mut all_extensions = Vec::new();
-        let mut list_futures = Vec::new();
+        let mut futures = Vec::new();
 
-        for store in &self.extension_stores {
-            if !store.store_info().enabled {
+        for managed_store in &self.extension_stores {
+            if !managed_store.config.enabled {
                 continue;
             }
 
-            let store_name = store.store_info().name.clone();
+            let store_name = managed_store.config.store_name.clone();
+            let store = &managed_store.store;
             let future = async move {
                 match tokio::time::timeout(self.config.timeout, store.list_extensions()).await {
                     Ok(Ok(extensions)) => {
                         debug!("Store '{}' has {} extensions", store_name, extensions.len());
-                        Ok(extensions)
+                        Ok::<Vec<ExtensionInfo>, crate::error::StoreError>(extensions)
                     }
                     Ok(Err(e)) => {
-                        warn!("List failed for store '{}': {}", store_name, e);
-                        Err(e)
+                        warn!(
+                            "Failed to list extensions from store '{}': {}",
+                            store_name, e
+                        );
+                        Ok(vec![])
                     }
                     Err(_) => {
-                        warn!("List timeout for store '{}'", store_name);
-                        Err(StoreError::Timeout)
+                        warn!("Listing extensions timed out for store '{}'", store_name);
+                        Ok(vec![])
                     }
                 }
             };
-            list_futures.push(future);
+            futures.push(future);
         }
 
-        let results = join_all(list_futures).await;
+        let results = join_all(futures).await;
         for result in results {
             match result {
                 Ok(mut extensions) => all_extensions.append(&mut extensions),
@@ -243,20 +283,19 @@ impl StoreManager {
 
     /// Get extension information from the best available store
     pub async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>> {
-        for store in &self.extension_stores {
-            if !store.store_info().enabled {
+        for managed_store in &self.extension_stores {
+            if !managed_store.config.enabled {
                 continue;
             }
 
-            match store.get_extension_info(name).await {
+            match managed_store.store.get_extension_info(name).await {
                 Ok(info) if !info.is_empty() => return Ok(info),
                 Ok(_) => continue, // Empty result, try next store
                 Err(StoreError::ExtensionNotFound(_)) => continue,
                 Err(e) if e.is_recoverable() => {
                     warn!(
                         "Recoverable error from store '{}': {}",
-                        store.store_info().name,
-                        e
+                        managed_store.config.store_name, e
                     );
                     continue;
                 }
@@ -265,6 +304,75 @@ impl StoreManager {
         }
 
         Err(StoreError::ExtensionNotFound(name.to_string()))
+    }
+
+    /// Get extension manifest from the best available store
+    pub async fn get_extension_manifest(
+        &self,
+        name: &str,
+        version: Option<&str>,
+    ) -> Result<ExtensionManifest> {
+        for managed_store in &self.extension_stores {
+            if !managed_store.config.enabled {
+                continue;
+            }
+
+            match managed_store.store.get_manifest(name, version).await {
+                Ok(manifest) => return Ok(manifest),
+                Err(StoreError::ExtensionNotFound(_)) => continue,
+                Err(e) if e.is_recoverable() => {
+                    warn!(
+                        "Recoverable error from store '{}': {}",
+                        managed_store.config.store_name, e
+                    );
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Err(StoreError::ExtensionNotFound(name.to_string()))
+    }
+
+    /// Find an extension that can handle the given URL
+    pub async fn find_extension_for_url(&self, url: &str) -> Result<Option<(String, String)>> {
+        // 1. First check store manifests for fast URL pattern matching
+        for managed_store in &self.extension_stores {
+            if !managed_store.config.enabled {
+                continue;
+            }
+
+            if let Ok(manifest) = managed_store.store.get_store_manifest().await {
+                let matching_extensions = manifest.find_extensions_for_url(url);
+                if !matching_extensions.is_empty() {
+                    // Return the first match with highest priority
+                    return Ok(Some((
+                        matching_extensions[0].clone(),
+                        managed_store.config.store_name.clone(),
+                    )));
+                }
+            }
+        }
+
+        // 2. Fallback: check individual extension manifests for base_urls
+        let extensions = self.list_all_extensions().await?;
+
+        for ext in extensions {
+            // Try to get the manifest for this extension to check base_urls
+            if let Ok(manifest) = self
+                .get_extension_manifest(&ext.name, Some(&ext.version))
+                .await
+            {
+                // Check if any of the extension's base URLs match the given URL
+                for base_url in &manifest.base_urls {
+                    if url.starts_with(base_url) {
+                        return Ok(Some((ext.name.clone(), ext.store_source.clone())));
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     // Installation Operations
@@ -304,15 +412,20 @@ impl StoreManager {
 
         // Find extension package from discovery stores
         let mut last_error = None;
-        for store in &self.extension_stores {
-            if !store.store_info().enabled {
+        // Try installing from each store in priority order
+        for managed_store in &self.extension_stores {
+            if !managed_store.config.enabled {
                 continue;
             }
 
-            let store_name = store.store_info().name.clone();
+            let store_name = managed_store.config.store_name.clone();
             debug!("Trying to install from store: {}", store_name);
 
-            match store.get_extension_package(name, version).await {
+            match managed_store
+                .store
+                .get_extension_package(name, version)
+                .await
+            {
                 Ok(package) => {
                     // Install using registry store
                     match self
@@ -395,12 +508,13 @@ impl StoreManager {
         let mut all_updates = Vec::new();
         let mut update_futures = Vec::new();
 
-        for store in &self.extension_stores {
-            if !store.store_info().enabled {
+        for managed_store in &self.extension_stores {
+            if !managed_store.config.enabled {
                 continue;
             }
 
-            let store_name = store.store_info().name.clone();
+            let store_name = managed_store.config.store_name.clone();
+            let store = &managed_store.store;
             let installed_slice = installed.clone();
 
             let future = async move {
@@ -470,13 +584,13 @@ impl StoreManager {
         let source_store = self
             .extension_stores
             .iter()
-            .find(|store| store.store_info().name == installed.source_store);
+            .find(|managed_store| managed_store.config.store_name == installed.source_store);
 
-        let store = match source_store {
+        let managed_store = match source_store {
             Some(store) => store,
             None => {
                 warn!(
-                    "Original store '{}' not found for extension '{}', trying all stores",
+                    "Source store '{}' not found for extension '{}'",
                     installed.source_store, name
                 );
                 // Try to update from any available store
@@ -488,12 +602,11 @@ impl StoreManager {
 
         info!(
             "Updating extension '{}' from store '{}'",
-            name,
-            store.store_info().name
+            name, managed_store.config.store_name
         );
 
         // For now, we'll get the latest version and reinstall
-        let latest_version = match store.get_latest_version(name).await? {
+        let latest_version = match managed_store.store.get_latest_version(name).await? {
             Some(version) => version,
             None => return Err(StoreError::ExtensionNotFound(name.to_string())),
         };
@@ -504,7 +617,8 @@ impl StoreManager {
             skip_verification: false,
         };
 
-        match store
+        match managed_store
+            .store
             .get_extension_package(name, Some(&latest_version))
             .await
         {
@@ -633,14 +747,17 @@ impl StoreManager {
         extensions.retain(|ext| {
             let key = format!("{}@{}", ext.name, ext.version);
             if let Some(existing_store) = seen.get(&key) {
-                // Keep if current store is trusted and existing is not
-                let current_store = self.get_extension_store(&ext.store_source);
                 let existing_trusted = self
-                    .get_extension_store(existing_store)
-                    .map(|s| s.store_info().trusted)
+                    .extension_stores
+                    .iter()
+                    .find(|ms| ms.config.store_name == *existing_store)
+                    .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
-                let current_trusted = current_store
-                    .map(|s| s.store_info().trusted)
+                let current_trusted = self
+                    .extension_stores
+                    .iter()
+                    .find(|ms| ms.config.store_name == ext.store_source)
+                    .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
 
                 if current_trusted && !existing_trusted {
@@ -699,12 +816,16 @@ impl StoreManager {
         updates.retain(|update| {
             if let Some(existing_store) = seen.get(&update.extension_name) {
                 let existing_trusted = self
-                    .get_extension_store(existing_store)
-                    .map(|s| s.store_info().trusted)
+                    .extension_stores
+                    .iter()
+                    .find(|ms| ms.config.store_name == *existing_store)
+                    .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
                 let current_trusted = self
-                    .get_extension_store(&update.store_source)
-                    .map(|s| s.store_info().trusted)
+                    .extension_stores
+                    .iter()
+                    .find(|ms| ms.config.store_name == update.store_source)
+                    .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
 
                 if current_trusted && !existing_trusted {

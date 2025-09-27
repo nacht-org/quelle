@@ -14,7 +14,7 @@ use crate::error::{LocalStoreError, Result, StoreError};
 use crate::manifest::ExtensionManifest;
 use crate::models::{
     ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstalledExtension, PackageLayout,
-    SearchQuery, StoreHealth, StoreInfo, UpdateInfo,
+    SearchQuery, StoreHealth, UpdateInfo,
 };
 use crate::publish::{
     ExtensionVisibility, PublishError, PublishOptions, PublishPermissions, PublishRequirements,
@@ -22,13 +22,13 @@ use crate::publish::{
     RateLimits, UnpublishOptions, UnpublishResult, ValidationReport,
 };
 use crate::store::{capabilities, Store};
+use crate::store_manifest::{ExtensionSummary, StoreManifest};
 use crate::validation::{create_default_validator, ValidationEngine};
 
 /// Local file system-based store implementation
 pub struct LocalStore {
     root_path: PathBuf,
     layout: PackageLayout,
-    info: StoreInfo,
     cache: RwLock<HashMap<String, Vec<ExtensionInfo>>>,
     cache_timestamp: RwLock<Option<Instant>>,
     validator: ValidationEngine,
@@ -38,13 +38,10 @@ impl LocalStore {
     /// Create a new LocalStore instance
     pub fn new<P: AsRef<Path>>(root_path: P) -> Result<Self> {
         let root_path = root_path.as_ref().to_path_buf();
-        let info = StoreInfo::new("local".to_string(), "local".to_string())
-            .with_url(format!("file://{}", root_path.display()));
 
         Ok(Self {
             root_path,
             layout: PackageLayout::default(),
-            info,
             cache: RwLock::new(HashMap::new()),
             cache_timestamp: RwLock::new(None),
             validator: create_default_validator(),
@@ -58,8 +55,8 @@ impl LocalStore {
     }
 
     /// Create a LocalStore with a custom name
-    pub fn with_name(mut self, name: String) -> Self {
-        self.info.name = name;
+    pub fn with_name(self, _name: String) -> Self {
+        // Store name is now managed in the manifest
         self
     }
 
@@ -291,7 +288,7 @@ impl LocalStore {
             homepage: None,
             repository: None,
             license: None,
-            store_source: self.info.name.clone(),
+            store_source: "local".to_string(),
         })
     }
 
@@ -517,8 +514,26 @@ impl LocalStore {
 
 #[async_trait]
 impl Store for LocalStore {
-    fn store_info(&self) -> &StoreInfo {
-        &self.info
+    async fn get_store_manifest(&self) -> Result<StoreManifest> {
+        let manifest_path = self.root_path.join("store.json");
+
+        // Try to read existing manifest
+        if manifest_path.exists() {
+            match fs::read_to_string(&manifest_path).await {
+                Ok(content) => match serde_json::from_str::<StoreManifest>(&content) {
+                    Ok(manifest) => return Ok(manifest),
+                    Err(e) => {
+                        warn!("Failed to parse store manifest: {}", e);
+                    }
+                },
+                Err(e) => {
+                    warn!("Failed to read store manifest: {}", e);
+                }
+            }
+        }
+
+        // Generate manifest from current store state
+        self.generate_store_manifest().await
     }
 
     async fn health_check(&self) -> Result<StoreHealth> {
@@ -768,7 +783,7 @@ impl Store for LocalStore {
         let wasm_component = self.get_extension_wasm_internal(name, version).await?;
         let metadata = self.get_metadata(name, version).await?;
 
-        let mut package = ExtensionPackage::new(manifest, wasm_component, self.info.name.clone())
+        let mut package = ExtensionPackage::new(manifest, wasm_component, "local".to_string())
             .with_layout(self.layout.clone());
 
         if let Some(metadata) = metadata {
@@ -823,7 +838,7 @@ impl Store for LocalStore {
                         ext.name.clone(),
                         ext.version.clone(),
                         latest_version,
-                        self.info.name.clone(),
+                        "local".to_string(),
                     );
                     updates.push(update_info);
                 }
@@ -910,6 +925,58 @@ impl Store for LocalStore {
 }
 
 impl LocalStore {
+    /// Generate a store manifest from the current state of the store
+    async fn generate_store_manifest(&self) -> Result<StoreManifest> {
+        let mut manifest = StoreManifest::new(
+            "local".to_string(),
+            "local".to_string(),
+            "1.0.0".to_string(), // Store version, not manifest version
+        )
+        .with_url(format!("file://{}", self.root_path.display()));
+
+        // Scan for extensions and build manifest
+        let extensions = self.list_extensions().await?;
+
+        for ext_info in extensions {
+            // Get the extension manifest to extract base_urls
+            if let Ok(ext_manifest) = self
+                .get_manifest(&ext_info.name, Some(&ext_info.version))
+                .await
+            {
+                let summary = ExtensionSummary {
+                    name: ext_info.name.clone(),
+                    version: ext_info.version.clone(),
+                    base_urls: ext_manifest.base_urls.clone(),
+                    langs: ext_manifest.langs.clone(),
+                    last_updated: ext_info.last_updated.unwrap_or_else(|| Utc::now()),
+                };
+
+                manifest.add_extension(summary);
+            }
+        }
+
+        Ok(manifest)
+    }
+
+    /// Save the store manifest to disk
+    pub async fn save_store_manifest(&self) -> Result<()> {
+        let manifest = self.generate_store_manifest().await?;
+        let manifest_path = self.root_path.join("store.json");
+
+        let content =
+            serde_json::to_string_pretty(&manifest).map_err(StoreError::SerializationError)?;
+
+        fs::write(&manifest_path, content)
+            .await
+            .map_err(|e| StoreError::IoOperation {
+                operation: "write store manifest".to_string(),
+                path: manifest_path,
+                source: e,
+            })?;
+
+        Ok(())
+    }
+
     /// Get the package layout used by this store (LocalStore specific)
     pub fn package_layout(&self) -> &PackageLayout {
         &self.layout
@@ -1129,6 +1196,15 @@ impl PublishableStore for LocalStore {
         );
 
         info!("Successfully published extension {}@{}", name, version);
+
+        // Update store manifest after successful publish
+        if let Err(e) = self.save_store_manifest().await {
+            warn!(
+                "Failed to update store manifest after publishing {}: {}",
+                name, e
+            );
+        }
+
         Ok(result)
     }
 
@@ -1194,6 +1270,14 @@ impl PublishableStore for LocalStore {
             let mut cache = self.cache.write().unwrap();
             cache.remove(name);
             *self.cache_timestamp.write().unwrap() = None;
+        }
+
+        // Update store manifest after successful unpublish
+        if let Err(e) = self.save_store_manifest().await {
+            warn!(
+                "Failed to update store manifest after unpublishing {}: {}",
+                name, e
+            );
         }
 
         Ok(UnpublishResult {
@@ -1354,7 +1438,8 @@ mod tests {
     async fn test_local_store_creation() {
         let temp_dir = TempDir::new().unwrap();
         let store = LocalStore::new(temp_dir.path()).unwrap();
-        assert_eq!(store.store_info().store_type, "local");
+        let manifest = store.get_store_manifest().await.unwrap();
+        assert_eq!(manifest.store_type, "local");
     }
 
     #[tokio::test]

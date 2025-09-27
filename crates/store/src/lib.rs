@@ -30,7 +30,8 @@
 ///
 /// // Add extension stores for discovery
 /// let local_store = LocalStore::new("./local-repo")?;
-/// manager.add_extension_store(local_store);
+/// let registry_config = quelle_store::RegistryStoreConfig::new("local-repo".to_string(), "local".to_string());
+/// manager.add_extension_store(local_store, registry_config).await?;
 ///
 /// // Install an extension
 /// let installed = manager.install("dragontea", None, None).await?;
@@ -66,8 +67,10 @@ pub mod manifest;
 pub mod models;
 pub mod publish;
 pub mod registry;
+pub mod registry_config;
 pub mod source;
 pub mod store;
+pub mod store_manifest;
 pub mod validation;
 
 // Additional store implementations will be added as separate modules:
@@ -92,11 +95,13 @@ pub use registry::{
     InstallationQuery, InstallationStats, LocalRegistryStore, RegistryHealth, RegistryStore,
     ValidationIssue,
 };
+pub use registry_config::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts};
 pub use source::{
     create_store_from_source, ConfigStore, ExtensionSource, LocalConfigStore, RegistryConfig,
     StoreType,
 };
 pub use store::{capabilities, Store};
+pub use store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
 pub use validation::{
     create_default_validator, create_strict_validator, ExtensionValidationReport, RuleResult,
     SecurityRuleConfig, SecurityValidationRule, ValidationConfig, ValidationEngine, ValidationRule,

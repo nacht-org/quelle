@@ -6,14 +6,15 @@ use crate::error::Result;
 use crate::manifest::ExtensionManifest;
 use crate::models::{
     ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions, InstalledExtension,
-    SearchQuery, StoreHealth, StoreInfo, UpdateInfo,
+    SearchQuery, StoreHealth, UpdateInfo,
 };
+use crate::store_manifest::StoreManifest;
 
 /// Core trait defining the interface for all store implementations
 #[async_trait]
 pub trait Store: Send + Sync {
-    /// Get information about this store
-    fn store_info(&self) -> &StoreInfo;
+    /// Get the store manifest containing identity and contents
+    async fn get_store_manifest(&self) -> Result<StoreManifest>;
 
     /// Check the health status of this store
     async fn health_check(&self) -> Result<StoreHealth>;
@@ -189,21 +190,27 @@ mod tests {
 
     // Mock store for testing
     struct MockStore {
-        info: StoreInfo,
+        name: String,
+        store_type: String,
     }
 
     impl MockStore {
         fn new() -> Self {
             Self {
-                info: StoreInfo::new("mock".to_string(), "test".to_string()),
+                name: "mock".to_string(),
+                store_type: "test".to_string(),
             }
         }
     }
 
     #[async_trait]
     impl Store for MockStore {
-        fn store_info(&self) -> &StoreInfo {
-            &self.info
+        async fn get_store_manifest(&self) -> Result<StoreManifest> {
+            Ok(StoreManifest::new(
+                self.name.clone(),
+                self.store_type.clone(),
+                "1.0.0".to_string(),
+            ))
         }
 
         async fn health_check(&self) -> Result<StoreHealth> {
@@ -291,8 +298,9 @@ mod tests {
     #[tokio::test]
     async fn test_mock_store_creation() {
         let store = MockStore::new();
-        assert_eq!(store.store_info().name, "mock");
-        assert_eq!(store.store_info().store_type, "test");
+        let manifest = store.get_store_manifest().await.unwrap();
+        assert_eq!(manifest.store_name, "mock");
+        assert_eq!(manifest.store_type, "test");
     }
 
     #[tokio::test]

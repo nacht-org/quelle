@@ -90,7 +90,13 @@ impl RegistryConfig {
                 match crate::source::create_store_from_source(source).await {
                     Ok(store) => {
                         tracing::info!("Restored store: {} ({})", source.name, source.store_type);
-                        store_manager.add_boxed_extension_store(store);
+                        let registry_config = crate::registry_config::RegistryStoreConfig::new(
+                            source.name.clone(),
+                            source.store_type.to_string(),
+                        );
+                        store_manager
+                            .add_boxed_extension_store(store, registry_config)
+                            .await?;
                     }
                     Err(e) => {
                         tracing::warn!("Failed to restore store '{}': {}", source.name, e);
