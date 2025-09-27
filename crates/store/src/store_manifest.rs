@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 
 /// Store Manifest - Internal metadata about the store's contents and capabilities
@@ -27,7 +29,7 @@ pub struct UrlPattern {
     /// URL prefix that this pattern matches (e.g., "https://example.com")
     pub url_prefix: String,
     /// Extensions that can handle URLs matching this prefix
-    pub extensions: Vec<String>,
+    pub extensions: BTreeSet<String>,
     /// Priority for this pattern (higher = more preferred)
     pub priority: u8,
 }

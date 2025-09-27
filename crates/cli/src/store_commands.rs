@@ -446,6 +446,13 @@ async fn handle_add_store(
             let local_store = LocalStore::new(&path)
                 .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
 
+            // Initialize store with proper metadata
+            info!("Initializing store manifest...");
+            local_store
+                .initialize_store(store_name.clone(), None)
+                .await
+                .map_err(|e| eyre::eyre!("Failed to initialize store manifest: {}", e))?;
+
             // Validate store using health check
             info!("Validating store structure...");
             match local_store.health_check().await {

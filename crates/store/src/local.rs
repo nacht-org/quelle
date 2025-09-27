@@ -27,7 +27,7 @@ use crate::validation::{create_default_validator, ValidationEngine};
 
 /// Local store manifest that extends the base StoreManifest with URL routing
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct LocalStoreManifest {
+pub(crate) struct LocalStoreManifest {
     /// Base store manifest
     #[serde(flatten)]
     pub base: StoreManifest,
@@ -54,20 +54,33 @@ impl LocalStoreManifest {
     }
 
     /// Add a URL pattern for extension matching
-    pub fn add_url_pattern(&mut self, url_prefix: String, extensions: Vec<String>, priority: u8) {
-        self.url_patterns.push(UrlPattern {
-            url_prefix,
-            extensions,
-            priority,
-        });
+    fn add_url_pattern(&mut self, url_prefix: String, extension: String, priority: u8) {
+        // Check if pattern already exists
+        if let Some(pattern) = self
+            .url_patterns
+            .iter_mut()
+            .find(|p| p.url_prefix == url_prefix)
+        {
+            // Add extension if not already present
+            if !pattern.extensions.contains(&extension) {
+                pattern.extensions.insert(extension);
+            }
+        } else {
+            // Create new pattern
+            self.url_patterns.push(UrlPattern {
+                url_prefix,
+                extensions: [extension].into_iter().collect(),
+                priority,
+            });
+        }
 
-        // Sort patterns by priority (highest first)
+        // Sort patterns by priority (higher first)
         self.url_patterns
             .sort_by(|a, b| b.priority.cmp(&a.priority));
     }
 
     /// Add an extension summary to the manifest
-    pub fn add_extension(&mut self, extension: ExtensionSummary) {
+    pub(crate) fn add_extension(&mut self, extension: ExtensionSummary) {
         // Update supported domains from extension base URLs
         for base_url in &extension.base_urls {
             if let Ok(parsed) = url::Url::parse(base_url) {
@@ -78,6 +91,8 @@ impl LocalStoreManifest {
                     }
                 }
             }
+
+            self.add_url_pattern(base_url.clone(), extension.name.clone(), 100);
         }
 
         self.extensions.push(extension);
@@ -87,7 +102,7 @@ impl LocalStoreManifest {
     }
 
     /// Find extensions that can handle the given URL
-    pub fn find_extensions_for_url(&self, url: &str) -> Vec<String> {
+    pub(crate) fn find_extensions_for_url(&self, url: &str) -> Vec<String> {
         let mut matches = Vec::new();
 
         // Check URL patterns first (sorted by priority)
@@ -121,7 +136,7 @@ impl LocalStoreManifest {
     }
 
     /// Get extensions that support a specific domain
-    pub fn find_extensions_for_domain(&self, domain: &str) -> Vec<String> {
+    pub(crate) fn find_extensions_for_domain(&self, domain: &str) -> Vec<String> {
         let mut matches = Vec::new();
 
         for ext in &self.extensions {
@@ -170,10 +185,54 @@ impl LocalStore {
         self
     }
 
-    /// Create a LocalStore with a custom name
+    /// Create a LocalStore with a custom name (deprecated - use initialize_store)
     pub fn with_name(self, _name: String) -> Self {
         // Store name is now managed in the manifest
         self
+    }
+
+    /// Initialize the store with proper metadata
+    pub async fn initialize_store(
+        &self,
+        store_name: String,
+        description: Option<String>,
+    ) -> Result<()> {
+        let manifest_path = self.root_path.join("store.json");
+
+        // Don't overwrite existing manifest
+        if manifest_path.exists() {
+            return Ok(());
+        }
+
+        // Create initial manifest with provided metadata
+        let base_manifest =
+            StoreManifest::new(store_name, "local".to_string(), "1.0.0".to_string())
+                .with_url(format!("file://{}", self.root_path.display()))
+                .with_description(
+                    description.unwrap_or_else(|| "Local extension store".to_string()),
+                );
+
+        let local_manifest = LocalStoreManifest::new(base_manifest);
+
+        let content = serde_json::to_string_pretty(&local_manifest)
+            .map_err(StoreError::SerializationError)?;
+
+        // Ensure directory exists
+        if let Some(parent) = manifest_path.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| StoreError::IoError(e))?;
+        }
+
+        fs::write(&manifest_path, content)
+            .await
+            .map_err(|e| StoreError::IoOperation {
+                operation: "write initial store manifest".to_string(),
+                path: manifest_path,
+                source: e,
+            })?;
+
+        Ok(())
     }
 
     /// Validate extension name to prevent path traversal attacks
@@ -1074,15 +1133,51 @@ impl LocalStore {
         // Generate manifest from current store state
         self.generate_local_store_manifest().await
     }
+
     /// Generate a local store manifest from the current state of the store
     async fn generate_local_store_manifest(&self) -> Result<LocalStoreManifest> {
-        let base_manifest = StoreManifest::new(
-            "local".to_string(),
-            "local".to_string(),
-            "1.0.0".to_string(), // Store version, not manifest version
-        )
-        .with_url(format!("file://{}", self.root_path.display()));
+        // Try to preserve existing store metadata from manifest file
+        let manifest_path = self.root_path.join("store.json");
+        let base_manifest = if manifest_path.exists() {
+            if let Ok(content) = fs::read_to_string(&manifest_path).await {
+                if let Ok(existing_manifest) = serde_json::from_str::<LocalStoreManifest>(&content)
+                {
+                    // Preserve existing base manifest metadata but update URL and timestamp
+                    let mut base = existing_manifest
+                        .base
+                        .with_url(format!("file://{}", self.root_path.display()));
+                    base.touch();
+                    base
+                } else {
+                    // Create default manifest if parsing fails
+                    StoreManifest::new(
+                        "local".to_string(),
+                        "local".to_string(),
+                        "1.0.0".to_string(),
+                    )
+                    .with_url(format!("file://{}", self.root_path.display()))
+                }
+            } else {
+                // Create default manifest if read fails
+                StoreManifest::new(
+                    "local".to_string(),
+                    "local".to_string(),
+                    "1.0.0".to_string(),
+                )
+                .with_url(format!("file://{}", self.root_path.display()))
+            }
+        } else {
+            // Create default manifest if file doesn't exist
+            StoreManifest::new(
+                "local".to_string(),
+                "local".to_string(),
+                "1.0.0".to_string(),
+            )
+            .with_url(format!("file://{}", self.root_path.display()))
+        };
 
+        // Always create a fresh manifest with current extensions
+        // (don't preserve old extensions list as it may be stale)
         let mut local_manifest = LocalStoreManifest::new(base_manifest);
 
         // Scan for extensions and build manifest
@@ -1105,7 +1200,6 @@ impl LocalStore {
                 local_manifest.add_extension(summary);
             }
         }
-
         Ok(local_manifest)
     }
 
