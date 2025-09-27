@@ -313,7 +313,7 @@ mod tests {
     async fn test_mock_store_creation() {
         let store = MockStore::new();
         let manifest = store.get_store_manifest().await.unwrap();
-        assert_eq!(manifest.store_name, "mock");
+        assert_eq!(manifest.name, "mock");
         assert_eq!(manifest.store_type, "test");
     }
 

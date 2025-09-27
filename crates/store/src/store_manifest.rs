@@ -13,10 +13,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StoreManifest {
     /// Store Identity (intrinsic properties of the store itself)
-    pub store_name: String,
+    pub name: String,
     pub store_type: String,
-    pub store_version: String,
-    pub manifest_version: String,
+    pub version: String,
     pub url: Option<String>,
     pub description: Option<String>,
 
@@ -47,10 +46,9 @@ impl StoreManifest {
     /// Create a new store manifest with basic information
     pub fn new(store_name: String, store_type: String, store_version: String) -> Self {
         Self {
-            store_name,
+            name: store_name,
             store_type,
-            store_version,
-            manifest_version: "1.0".to_string(),
+            version: store_version,
             url: None,
             description: None,
             last_updated: chrono::Utc::now(),
@@ -96,10 +94,9 @@ mod tests {
             "local".to_string(),
             "1.0.0".to_string(),
         );
-        assert_eq!(manifest.store_name, "test-store");
+        assert_eq!(manifest.name, "test-store");
         assert_eq!(manifest.store_type, "local");
-        assert_eq!(manifest.store_version, "1.0.0");
-        assert_eq!(manifest.manifest_version, "1.0");
+        assert_eq!(manifest.version, "1.0.0");
     }
 
     #[test]

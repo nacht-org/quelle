@@ -89,7 +89,7 @@ impl StoreManager {
         registry_config: RegistryStoreConfig,
     ) -> Result<()> {
         let manifest = store.get_store_manifest().await?;
-        info!("Adding extension store: {}", manifest.store_name);
+        info!("Adding extension store: {}", manifest.name);
 
         let managed_store = ManagedStore::new(Box::new(store), registry_config);
         self.extension_stores.push(managed_store);
@@ -104,7 +104,7 @@ impl StoreManager {
         registry_config: RegistryStoreConfig,
     ) -> Result<()> {
         let manifest = store.get_store_manifest().await?;
-        info!("Adding extension store: {}", manifest.store_name);
+        info!("Adding extension store: {}", manifest.name);
 
         let managed_store = ManagedStore::new(store, registry_config);
         self.extension_stores.push(managed_store);
