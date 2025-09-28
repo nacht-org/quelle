@@ -197,24 +197,34 @@ async fn handle_fetch_command(
                                             .iter()
                                             .find(|ch| ch.url == url.to_string())
                                         {
-                                            // Create ID from URL - the backend will handle the proper format
-                                            let novel_id = get_novel_id_from_novel(&novel);
-                                            match storage
-                                                .store_chapter_content(
-                                                    &novel_id,
-                                                    volume.index,
-                                                    &url.to_string(),
-                                                    &chapter,
-                                                )
-                                                .await
-                                            {
-                                                Ok(()) => {
-                                                    println!(
-                                                        "💾 Saved chapter content to local library"
-                                                    );
-                                                }
-                                                Err(e) => {
-                                                    eprintln!("⚠️  Failed to save chapter: {}", e);
+                                            // Find the novel ID from the library listing
+                                            let filter =
+                                                storage::NovelFilter { source_ids: vec![] };
+                                            if let Ok(novels) = storage.list_novels(&filter).await {
+                                                if let Some(novel_summary) =
+                                                    novels.iter().find(|n| n.title == novel.title)
+                                                {
+                                                    match storage
+                                                        .store_chapter_content(
+                                                            &novel_summary.id,
+                                                            volume.index,
+                                                            &url.to_string(),
+                                                            &chapter,
+                                                        )
+                                                        .await
+                                                    {
+                                                        Ok(()) => {
+                                                            println!(
+                                                                "💾 Saved chapter content to local library"
+                                                            );
+                                                        }
+                                                        Err(e) => {
+                                                            eprintln!(
+                                                                "⚠️  Failed to save chapter: {}",
+                                                                e
+                                                            );
+                                                        }
+                                                    }
                                                 }
                                             }
                                             break;
@@ -522,8 +532,16 @@ async fn handle_library_command(
 
             match novel {
                 Some(novel) => {
-                    // Create ID from URL - the backend will handle the proper format
-                    let id = get_novel_id_from_novel(&novel);
+                    // Find the novel ID from the library listing
+                    let filter = storage::NovelFilter { source_ids: vec![] };
+                    let novels = storage.list_novels(&filter).await?;
+                    let id = match novels.iter().find(|n| n.title == novel.title) {
+                        Some(summary) => summary.id.clone(),
+                        None => {
+                            println!("Novel not found in library: {}", novel_id);
+                            return Ok(());
+                        }
+                    };
                     let chapters = storage.list_chapters(&id).await?;
 
                     let filtered_chapters: Vec<_> = if downloaded_only {
@@ -585,8 +603,16 @@ async fn handle_library_command(
 
             match novel {
                 Some(novel) => {
-                    // Create ID from URL - the backend will handle the proper format
-                    let id = get_novel_id_from_novel(&novel);
+                    // Find the novel ID from the library listing
+                    let filter = storage::NovelFilter { source_ids: vec![] };
+                    let novels = storage.list_novels(&filter).await?;
+                    let id = match novels.iter().find(|n| n.title == novel.title) {
+                        Some(summary) => summary.id.clone(),
+                        None => {
+                            println!("Novel not found in library: {}", novel_id);
+                            return Ok(());
+                        }
+                    };
 
                     // Find the chapter - either by number or URL
                     let mut found_chapter = None;
@@ -669,8 +695,16 @@ async fn handle_library_command(
                         return Ok(());
                     }
 
-                    // Create ID from URL - the backend will handle the proper format
-                    let id = get_novel_id_from_novel(&novel);
+                    // Find the novel ID from the library listing
+                    let filter = storage::NovelFilter { source_ids: vec![] };
+                    let novels = storage.list_novels(&filter).await?;
+                    let id = match novels.iter().find(|n| n.title == novel.title) {
+                        Some(summary) => summary.id.clone(),
+                        None => {
+                            println!("Novel not found in library: {}", novel_id);
+                            return Ok(());
+                        }
+                    };
                     match storage.delete_novel(&id).await? {
                         true => {
                             println!("✅ Removed '{}' from library.", novel.title);
@@ -731,22 +765,4 @@ async fn handle_library_command(
         }
     }
     Ok(())
-}
-
-/// Helper function to get a NovelId from a novel
-/// This tries to match the backend's ID generation pattern
-fn get_novel_id_from_novel(novel: &storage::Novel) -> storage::NovelId {
-    // Extract domain from URL to match backend logic
-    let source_id = if let Ok(parsed_url) = url::Url::parse(&novel.url) {
-        if let Some(host) = parsed_url.host_str() {
-            host.strip_prefix("www.").unwrap_or(host).to_lowercase()
-        } else {
-            "unknown".to_string()
-        }
-    } else {
-        // Fallback for malformed URLs
-        "unknown".to_string()
-    };
-
-    storage::NovelId::new(format!("{}::{}", source_id, novel.url))
 }
