@@ -1,191 +1,304 @@
 # Extension Management
 
-> **⚠️ Note**: The extension management system is under active development and may change significantly before the 1.0 release. This documentation reflects the current implementation.
+This guide covers how to install, update, and manage extensions in Quelle. Extensions are WASM modules that know how to scrape specific websites.
 
-## Overview
+## What Are Extensions?
 
-Extension management covers the complete lifecycle of extensions in Quelle: discovering, installing, updating, and removing extensions from configured stores.
+Extensions are WebAssembly (WASM) files that contain the logic for scraping specific websites. Each website typically needs its own extension because they all have different page structures and APIs.
 
-## Basic Extension Operations
+Currently available extensions:
+- **dragontea**: Scrapes novels from DragonTea sites
+- **scribblehub**: Scrapes novels from ScribbleHub
 
-### Installing Extensions
+## Extension Commands
 
-Install the latest version of an extension:
+### List Extensions
 
 ```bash
+# List installed extensions
+quelle extension list
+
+# List all available extensions in stores
+quelle store list-extensions
+# or shorter:
+quelle list
+```
+
+### Install Extensions
+
+```bash
+# Install an extension (if available in a store)
 quelle extension install dragontea
-```
 
-Install a specific version:
+# Install specific version (when versioning is implemented)
+quelle extension install dragontea --version 1.0.0
 
-```bash
-quelle extension install dragontea --version 1.2.0
-```
-
-Install with options:
-
-```bash
 # Force reinstall
 quelle extension install dragontea --force
-
-# Skip dependencies
-quelle extension install dragontea --no-deps
 ```
 
-### Listing Installed Extensions
+**Note**: Currently, automatic installation has limitations. You may need to build and copy extensions manually.
 
-View all installed extensions:
-
-```bash
-quelle extension list
-```
-
-Shows extension name, version, source store, size, and installation date.
-
-### Updating Extensions
-
-Update a specific extension:
+### Get Extension Information
 
 ```bash
-quelle extension update dragontea
-```
-
-Update all extensions:
-
-```bash
-quelle extension update all
-```
-
-Check for available updates without installing:
-
-```bash
-quelle extension check-updates
-```
-
-### Removing Extensions
-
-Uninstall an extension:
-
-```bash
-# Remove from registry only
-quelle extension uninstall dragontea
-
-# Remove files completely
-quelle extension uninstall dragontea --remove-files
-```
-
-### Extension Information
-
-Get detailed information about an extension:
-
-```bash
+# Show details about an installed extension
 quelle extension info dragontea
-```
 
-Shows metadata, dependencies, installation details, and available versions.
-
-## Extension Structure
-
-Extensions consist of:
-
-- **WASM Component**: The compiled WebAssembly module
-- **Manifest**: Metadata and configuration (manifest.json)
-- **Assets**: Optional additional files (documentation, examples)
-
-## Installation Process
-
-1. **Discovery**: Find extension in configured stores
-2. **Download**: Retrieve package with integrity verification
-3. **Validation**: Check checksums and compatibility
-4. **Installation**: Extract to local directory
-5. **Registry**: Update local extension registry
-
-## Dependency Management
-
-Currently simplified but will expand:
-
-- Extensions can declare dependencies
-- Dependencies are resolved during installation
-- Circular dependencies are detected and prevented
-
-## Programmatic API
-
-```rust,no_run
-use quelle_store::{StoreManager, InstallOptions};
-use std::path::PathBuf;
-
-// Initialize manager (example)
-let mut manager = StoreManager::new(
-    PathBuf::from("./extensions"),
-    PathBuf::from("./cache")
-).await?;
-
-// Install extension
-let options = InstallOptions::default();
-let installed = manager.install("dragontea", None, Some(options)).await?;
-
-// Check updates
-let updates = manager.check_all_updates().await?;
-
-// List installed
-let installed = manager.list_installed();
-```
-
-## Version Management
-
-- **Semantic Versioning**: Extensions use semver (1.2.3)
-- **Conflict Resolution**: Newer versions preferred unless explicitly specified
-- **Downgrade Protection**: Prevents accidental downgrades
-- **Update Notifications**: Shows available updates with changelog links
-
-## Security Considerations
-
-- **Checksum Verification**: All packages verified with SHA256
-- **Trusted Sources**: Extensions from trusted stores preferred
-- **Sandboxing**: WASM provides natural security boundaries
-- **Integrity Checks**: Regular validation of installed extensions
-
-## Common Workflows
-
-### Setting Up a New Environment
-
-```bash
-# Add a store
-quelle store add local ./extensions
-
-# Install essential extensions
-quelle extension install dragontea
-quelle extension install scribblehub
-
-# Check everything is working
+# Show general extension status
 quelle extension list
 ```
 
-### Regular Maintenance
+### Update Extensions
 
 ```bash
-# Check for updates
-quelle extension check-updates
+# Update a specific extension
+quelle extension update dragontea
 
 # Update all extensions
 quelle extension update all
 
-# Verify store health
+# Include pre-release versions
+quelle extension update dragontea --prerelease
+```
+
+### Uninstall Extensions
+
+```bash
+# Remove an extension
+quelle extension uninstall dragontea
+
+# Remove with cleanup
+quelle extension uninstall dragontea --remove-data
+```
+
+## Manual Extension Setup
+
+Currently, the easiest way to set up extensions is manually:
+
+### 1. Build Extensions
+
+```bash
+# Build DragonTea extension
+just build-extension dragontea
+
+# Build ScribbleHub extension
+just build-extension scribblehub
+
+# This creates WASM files in target/wasm32-unknown-unknown/release/
+```
+
+### 2. Set Up Store
+
+```bash
+# Create store directory
+mkdir ./my-extensions
+
+# Add as store
+quelle store add local ./my-extensions --name "dev"
+```
+
+### 3. Copy Extensions
+
+```bash
+# Copy built extensions to store
+cp target/wasm32-unknown-unknown/release/extension_dragontea.wasm ./my-extensions/
+cp target/wasm32-unknown-unknown/release/extension_scribblehub.wasm ./my-extensions/
+```
+
+### 4. Verify Setup
+
+```bash
+# Check that extensions are found
+quelle list
+
+# Test extension
+quelle fetch novel https://dragontea.ink/novel/example
+```
+
+## Using Extensions
+
+Once extensions are installed, they work automatically when you fetch from supported URLs:
+
+### Automatic Detection
+
+```bash
+# Quelle automatically finds the right extension for each URL
+quelle fetch novel https://dragontea.ink/novel/some-novel
+quelle fetch novel https://scribblehub.com/series/123456/title/
+```
+
+### Search with Extensions
+
+```bash
+# Search across extensions that support search
+quelle search "cultivation novel"
+
+# Search with filters
+quelle search "romance" --author "author name"
+```
+
+### Chapter Fetching
+
+```bash
+# Fetch individual chapters
+quelle fetch chapter https://dragontea.ink/novel/example/chapter-1
+quelle fetch chapter https://scribblehub.com/read/123456/chapter/1/
+```
+
+## Extension Development
+
+### For Developers
+
+If you want to create your own extensions:
+
+1. **Study existing extensions**: Look at `extensions/dragontea/` and `extensions/scribblehub/`
+2. **Understand WIT interfaces**: Check `wit/` directory for the interface definitions
+3. **Use the extension framework**: Import `quelle_extension` crate
+4. **Build as WASM component**: Use `cargo component build`
+
+### Building Custom Extensions
+
+```bash
+# Create new extension (copy existing as template)
+cp -r extensions/dragontea extensions/mysite
+
+# Modify the extension code for your target site
+# Edit extensions/mysite/src/lib.rs
+
+# Build the extension
+just build-extension mysite
+
+# Add to your store
+cp target/wasm32-unknown-unknown/release/extension_mysite.wasm ./my-extensions/
+```
+
+## Publishing Extensions
+
+For development purposes, you can publish extensions to local stores:
+
+```bash
+# Publish to local store
+quelle extension publish ./target/wasm32-unknown-unknown/release/extension_mysite.wasm --store dev
+
+# Publish with overwrite
+quelle extension publish ./extension.wasm --store dev --overwrite
+```
+
+## Extension Status and Health
+
+### Check Extension Status
+
+```bash
+# See what extensions are installed
+quelle extension list
+
+# Check store health (includes extensions)
+quelle store health
+
+# Overall system status
+quelle status
+```
+
+### Extension Metadata
+
+Currently limited, but extensions can provide:
+- Name and description
+- Supported domains
+- Version information
+- Author information
+
+## Current Limitations
+
+### What Works
+- ✅ Loading WASM extensions
+- ✅ Automatic URL-to-extension matching
+- ✅ Basic extension management
+- ✅ Manual installation process
+
+### What's Coming
+- 🔄 Automatic installation from stores
+- 🔄 Version management and updates
+- 🔄 Dependency resolution
+- 🔄 Extension metadata and descriptions
+- 🔄 Built-in extension registry
+- 🔄 Extension compatibility checking
+
+## Troubleshooting
+
+### Extension Not Found
+
+```bash
+# Check if extension exists in stores
+quelle list
+
+# Build and add extension manually
+just build-extension dragontea
+cp target/wasm32-unknown-unknown/release/extension_dragontea.wasm ./my-extensions/
+```
+
+### Extension Fails to Load
+
+```bash
+# Check WASM file exists
+ls -la ./my-extensions/*.wasm
+
+# Rebuild extension
+just build-extension dragontea
+
+# Check extension compatibility (future feature)
+```
+
+### URL Not Supported
+
+```bash
+# Check which extensions are available
+quelle list
+
+# Verify URL format matches what extension expects
+# Some extensions may only support specific URL patterns
+```
+
+### Installation Fails
+
+```bash
+# Try manual installation instead
+just build-extension extension-name
+cp target/wasm32-unknown-unknown/release/extension_*.wasm ./my-extensions/
+
+# Check store configuration
+quelle store list
 quelle store health
 ```
 
-## Limitations and Future Plans
+## Best Practices
 
-**Current Limitations:**
-- Only local stores fully supported
-- Basic dependency resolution
-- Limited metadata support
+1. **Keep extensions updated**: Rebuild when the main project updates
+2. **Test extensions**: Verify they work with real URLs before relying on them
+3. **Organize by source**: Group related extensions in the same stores
+4. **Backup custom extensions**: Keep copies of any extensions you modify
+5. **Document supported sites**: Note which URLs work with each extension
 
-**Planned Features:**
-- Advanced dependency resolution
-- Extension signing and verification
-- Rollback capabilities
-- Extension configuration management
-- Batch operations
+## Extension Registry
 
-For development information, see [Extension Development](../development/extension-development.md).
+Currently, there's no central registry for extensions. You need to:
+- Build from source
+- Copy WASM files manually
+- Manage versions yourself
+
+Future releases will include:
+- Official extension registry
+- Community extension sharing
+- Automatic updates
+- Dependency management
+
+## Getting Help
+
+For extension-related issues:
+1. Check this troubleshooting section
+2. Verify extensions are built and copied correctly
+3. Test URLs in a web browser first
+4. Check the project's GitHub issues for known problems
+5. Look at existing extension code for examples
+
+Extension management will become much simpler as Quelle develops, but the current manual process gives you full control over which extensions are available and how they're organized.

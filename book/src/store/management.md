@@ -1,106 +1,242 @@
 # Store Management
 
-> **⚠️ Note**: The store system is under active development and APIs may change significantly before the 1.0 release. This documentation reflects the current implementation but should be considered preliminary.
+This guide covers how to manage extension stores in Quelle. Stores are directories where extensions (WASM files) are kept and organized.
 
-## Overview
+## What Are Stores?
 
-Store management in Quelle involves adding, configuring, and maintaining the repositories from which extensions can be discovered and installed. The store system is designed to be flexible and extensible, supporting multiple backend types.
+A store is simply a directory that contains extension files. Quelle looks in these directories to find available extensions that can scrape different websites.
 
-## Basic Store Operations
+Currently, Quelle only supports **local stores** - directories on your computer.
 
-### Adding Stores
+## Adding Stores
 
-Currently, only local file system stores are fully implemented:
+### Add a Local Directory
 
 ```bash
-# Add a local store
-quelle store add local ./my-extensions --name "my-store"
+# Add a directory as a store
+quelle store add local ./my-extensions --name "personal"
 
-# Add with default name (uses directory name)
-quelle store add local /path/to/extensions
+# Add without a custom name (auto-generated)
+quelle store add local ./extensions
+
+# Add with absolute path
+quelle store add local /home/user/quelle-extensions --name "main"
 ```
 
-### Listing Stores
+The directory doesn't need to exist yet - Quelle will create it if needed.
 
-View all configured stores:
+## Listing Stores
 
 ```bash
+# Show all configured stores
 quelle store list
 ```
 
-Output shows store name, type, trust level, and location.
-
-### Removing Stores
-
-Remove a store from configuration:
-
-```bash
-quelle store remove "store-name"
+Example output:
+```text
+Configured stores:
+  📦 personal (local) - ./my-extensions
+  📦 main (local) - /home/user/quelle-extensions
 ```
 
-Note: This only removes the store from Quelle's configuration; it doesn't delete the actual files.
-
-### Health Checking
-
-Check if stores are accessible and functioning:
+## Removing Stores
 
 ```bash
+# Remove a store by name
+quelle store remove personal
+
+# This only removes it from Quelle's configuration
+# The directory and files are not deleted
+```
+
+## Checking Store Health
+
+```bash
+# Check if all stores are accessible
 quelle store health
 ```
 
-This command verifies each store's availability and reports any issues.
+Example output:
+```text
+Registry Status:
+  Configured stores: 2
+  personal (local): ✅ Healthy
+    Extensions: 2
+  main (local): ❌ Unhealthy
+    Error: Directory not found: /home/user/quelle-extensions
+```
+
+Common health issues:
+- **Directory not found**: Create the directory or fix the path
+- **Permission denied**: Check directory permissions with `ls -la`
+- **No extensions**: The directory exists but has no WASM files
+
+## Working with Store Contents
+
+### List Extensions in Stores
+
+```bash
+# Show extensions available in all stores
+quelle store list-extensions
+
+# or use the shorter command
+quelle list
+```
+
+This shows extensions found across all your configured stores.
+
+### Search for Extensions
+
+```bash
+# Search by name
+quelle store search "dragontea"
+
+# Search with basic filters
+quelle store search "novel" --author "author-name"
+```
+
+## Managing Store Contents
+
+### Adding Extensions to Stores
+
+Currently, you need to manually copy WASM files:
+
+```bash
+# Build an extension first
+just build-extension dragontea
+
+# Copy to your store directory
+cp target/wasm32-unknown-unknown/release/extension_dragontea.wasm ./my-extensions/
+```
+
+### Store Directory Structure
+
+A typical store directory looks like:
+```text
+my-extensions/
+├── extension_dragontea.wasm
+├── extension_scribblehub.wasm
+└── extension_custom_site.wasm
+```
+
+Just put WASM files directly in the directory. No subdirectories or special organization is needed.
 
 ## Store Configuration
 
-Stores can be configured with various options:
+Stores are saved in `./data/config.json`:
 
-- **Priority**: Determines resolution order when extensions exist in multiple stores
-- **Trust Level**: Trusted stores are preferred during conflict resolution
-- **Custom Layouts**: Different file organization schemes per store
-
-## Programmatic API
-
-For developers building on Quelle:
-
-```rust,no_run
-use quelle_store::{StoreManager, local::LocalStore};
-use std::path::PathBuf;
-
-// Initialize manager
-let install_dir = PathBuf::from("./extensions");
-let cache_dir = PathBuf::from("./cache");
-let mut manager = StoreManager::new(install_dir, cache_dir).await?;
-
-// Add stores
-let local_store = LocalStore::new("./extensions")?;
-manager.add_store(local_store);
-
-// List stores
-let stores = manager.list_stores();
+```json
+{
+  "stores": [
+    {
+      "name": "personal", 
+      "store_type": "local",
+      "path": "./my-extensions"
+    }
+  ]
+}
 ```
 
-## Future Store Types
+This file is created automatically when you add your first store.
 
-The following store types are planned but not yet implemented:
+## Common Tasks
 
-- **Git Stores**: Git repository-based extension storage
-- **HTTP Stores**: Web-based registries with API access
-- **S3 Stores**: Cloud storage backends
+### Set Up Your First Store
 
-## Best Practices
+```bash
+# 1. Create a directory for extensions
+mkdir ./my-extensions
 
-1. **Use descriptive names** for stores to make management easier
-2. **Mark trusted sources** appropriately for security
-3. **Set priorities** based on preference and trust level
-4. **Regular health checks** to ensure store availability
-5. **Backup configurations** before making significant changes
+# 2. Add it as a store
+quelle store add local ./my-extensions --name "dev"
+
+# 3. Build and copy an extension
+just build-extension dragontea
+cp target/wasm32-unknown-unknown/release/extension_dragontea.wasm ./my-extensions/
+
+# 4. Verify everything works
+quelle store health
+quelle list
+```
+
+### Organize Multiple Stores
+
+```bash
+# Separate stores for different purposes
+quelle store add local ./official-extensions --name "official"
+quelle store add local ./community-extensions --name "community"  
+quelle store add local ./dev-extensions --name "dev"
+```
+
+### Clean Up Stores
+
+```bash
+# Remove stores you no longer need
+quelle store remove old-store
+
+# Check what's left
+quelle store list
+```
 
 ## Troubleshooting
 
-Common issues and solutions:
+### Store Not Found
+```bash
+# Check if the directory exists
+ls -la ./my-extensions
 
-- **Store not found**: Check path and permissions
-- **Health check failures**: Verify network connectivity for remote stores
-- **Permission errors**: Ensure read/write access to store directories
+# Create it if missing
+mkdir -p ./my-extensions
 
-For more detailed troubleshooting, see the [Troubleshooting Guide](../advanced/troubleshooting.md).
+# Re-add the store
+quelle store add local ./my-extensions --name "dev"
+```
+
+### Permission Denied
+```bash
+# Check permissions
+ls -la ./my-extensions
+
+# Fix permissions if needed
+chmod 755 ./my-extensions
+```
+
+### No Extensions Found
+```bash
+# Make sure WASM files are in the directory
+ls -la ./my-extensions/*.wasm
+
+# Build and copy extensions if missing
+just build-extension dragontea
+cp target/wasm32-unknown-unknown/release/extension_dragontea.wasm ./my-extensions/
+```
+
+### Store Health Fails
+```bash
+# Run health check to see specific errors
+quelle store health
+
+# Common fixes:
+# - Create missing directories
+# - Fix file permissions
+# - Check paths in config.json
+```
+
+## Best Practices
+
+1. **Use descriptive names**: `--name "official"` instead of `--name "store1"`
+2. **Organize by purpose**: Keep different types of extensions in separate stores
+3. **Regular health checks**: Run `quelle store health` periodically
+4. **Backup important stores**: Keep copies of directories with custom extensions
+5. **Document your setup**: Note which stores contain which extensions
+
+## Future Features
+
+Coming in later releases:
+- **Git stores**: Use Git repositories as extension stores
+- **HTTP stores**: Download extensions from web registries
+- **Automatic publishing**: Easy way to add extensions to stores
+- **Version management**: Handle different extension versions
+- **Dependencies**: Manage extension dependencies
+
+For now, the local store system provides a solid foundation for managing extensions manually.

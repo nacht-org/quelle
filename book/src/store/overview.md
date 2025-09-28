@@ -1,92 +1,131 @@
 # Store Overview
 
-The store system is the heart of Quelle's extension management, providing a comprehensive package management solution for discovering, installing, and maintaining extensions. It offers a flexible, trait-based architecture that supports multiple backend types while maintaining a consistent interface.
+The store system in Quelle manages extensions - the WASM modules that know how to scrape specific websites. Think of it like an app store for website scrapers.
 
 ## What is a Store?
 
-A store is a repository of extensions that Quelle can access to discover, download, and install new functionality. Think of stores like package repositories in other systems (npm registry, apt repositories, etc.), but specifically designed for Quelle's WebAssembly-based extensions.
+A store is simply a place where extensions are kept. Currently, Quelle only supports **local stores** - directories on your computer that contain WASM extension files.
 
-## Store Types
+## How Stores Work
 
-Quelle supports multiple types of stores, each suited for different use cases:
+```bash
+# Add a directory as a store
+quelle store add local ./my-extensions --name "personal"
 
-### Local Stores
-File system-based stores perfect for:
-- Development and testing
-- Private or proprietary extensions
-- Offline usage
-- Custom organizational needs
+# Quelle now knows to look in ./my-extensions for extension files
+```
 
-### Git Stores *(Coming Soon)*
-Git repository-based stores ideal for:
-- Collaborative development
-- Version control integration
-- Distributed extension sharing
-- Community-driven repositories
+When you add a local store, Quelle will:
+1. Remember the directory path
+2. Look for `.wasm` files in that directory
+3. Make those extensions available for installation and use
 
-### HTTP Stores *(Coming Soon)*
-Web-based registries suitable for:
-- Centralized extension distribution
-- Large-scale public repositories
-- API-driven extension management
-- Integration with existing systems
+## Current Store Features
 
-## Key Capabilities
+### What Works
+- ✅ **Local directories**: Point to any folder with WASM files
+- ✅ **Multiple stores**: Add several directories  
+- ✅ **Store health checks**: Verify directories are accessible
+- ✅ **Extension discovery**: Find extensions across all stores
+- ✅ **Basic search**: Search for extensions by name
 
-- **Multi-Store Management**: Work with multiple stores simultaneously, with priority-based resolution
-- **Version Management**: Full semantic versioning support with intelligent conflict resolution
-- **Search and Discovery**: Advanced search across all configured stores with filtering and sorting
-- **Package Management**: Complete lifecycle management - install, update, remove, and rollback
-- **Security**: Checksum verification, trusted store marking, and integrity validation
-- **Performance**: Intelligent caching, parallel operations, and efficient data structures
-- **Reliability**: Comprehensive error handling, health monitoring, and recovery mechanisms
+### What's Coming
+- 🔄 **Git repositories**: Use Git repos as stores
+- 🔄 **HTTP endpoints**: Remote extension registries
+- 🔄 **Automatic updates**: Keep extensions up to date
+- 🔄 **Dependency management**: Handle extension dependencies
 
-## Store Manager
+## Store Commands
 
-The `StoreManager` is the central component that coordinates multiple stores and manages the local extension registry. It provides:
+### Basic Store Management
+```bash
+# Add a store
+quelle store add local ./extensions --name "main"
 
-- **Unified Interface**: Single API to work with multiple store types
-- **Smart Resolution**: Automatically resolves conflicts using store priorities and trust levels
-- **Local Registry**: Tracks installed extensions with metadata and dependencies
-- **Update Management**: Checks for and applies updates across all configured stores
-- **Health Monitoring**: Monitors store availability and performance
+# List all stores
+quelle store list
 
-## Extension Lifecycle
+# Remove a store
+quelle store remove main
 
-Extensions in Quelle follow a well-defined lifecycle:
+# Check if stores are working
+quelle store health
+```
 
-1. **Discovery**: Find extensions through search or browsing
-2. **Installation**: Download and install with dependency resolution
-3. **Usage**: Load and execute extensions in the Quelle engine
-4. **Updates**: Check for and apply updates when available
-5. **Removal**: Clean uninstall with dependency cleanup
+### Finding Extensions
+```bash
+# List extensions in all stores
+quelle store list-extensions
 
-## Getting Started
+# Search for specific extensions
+quelle store search "dragontea"
 
-To get started with the store system:
+# Show publishing requirements
+quelle store requirements
+```
 
-1. **Store Management**: Learn how to [add and configure stores](./management.md)
-2. **Extension Management**: Understand [extension installation and updates](./extensions.md)
-3. **Search**: Explore [search and discovery features](./search.md)
-4. **Configuration**: Set up [advanced configuration options](./configuration.md)
-5. **CLI Reference**: Master the [command-line interface](./cli-reference.md)
+## Current Limitations
 
-For developers interested in the technical details, see the [API Reference](../development/api-reference.md) and [Store Development](../development/store-development.md) guides.
+- **Local only**: Only local directories work right now
+- **Manual setup**: You need to manually copy WASM files to store directories
+- **Basic metadata**: Extension information is limited
+- **No versioning**: Simple file-based system without version management
 
-## Architecture Highlights
+## Example Workflow
 
-The store system is built around several key architectural principles:
+1. **Build an extension**:
+   ```bash
+   just build-extension dragontea
+   ```
 
-### Trait-Based Design
-All stores implement a common `Store` trait, ensuring consistent behavior regardless of the underlying storage mechanism. This allows the system to work with local files, remote repositories, or cloud storage transparently.
+2. **Create a store directory**:
+   ```bash
+   mkdir ./my-extensions
+   ```
 
-### Async-First Architecture
-Every operation is designed with async/await in mind, ensuring the system remains responsive even when working with slow network connections or large extension repositories.
+3. **Copy the WASM file**:
+   ```bash
+   cp target/wasm32-unknown-unknown/release/extension_dragontea.wasm ./my-extensions/
+   ```
 
-### Flexible Package Layouts
-Each store can define its own file organization structure, allowing adaptation to existing repositories without requiring reorganization.
+4. **Add the store**:
+   ```bash
+   quelle store add local ./my-extensions --name "dev"
+   ```
 
-### Security by Default
-All packages are verified with SHA256 checksums, and stores can be marked as trusted to establish a security hierarchy.
+5. **Use the extension**:
+   ```bash
+   quelle fetch novel https://dragontea.ink/novel/example
+   ```
 
-For detailed technical information about the architecture, see the [Development section](../development/architecture.md) of this book.
+## Store Configuration
+
+Stores are tracked in `./data/config.json`:
+```json
+{
+  "stores": [
+    {
+      "name": "dev",
+      "store_type": "local",
+      "path": "./my-extensions"
+    }
+  ]
+}
+```
+
+This file is created automatically when you add your first store.
+
+## Best Practices
+
+1. **Use descriptive names**: `--name "official"` instead of `--name "store1"`
+2. **Organize by source**: Keep different types of extensions in separate stores
+3. **Regular health checks**: Run `quelle store health` to catch issues early
+4. **Backup important stores**: Keep copies of your extension directories
+
+## Getting Help
+
+- Check [Store Management](./management.md) for detailed commands
+- See [Extension Management](./extensions.md) for working with extensions
+- Review [CLI Reference](./cli-reference.md) for all available options
+
+The store system is the foundation for managing extensions in Quelle. While it's currently simple, it provides a solid base for the more advanced features coming in future releases.

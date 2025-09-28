@@ -1,81 +1,74 @@
 # Introduction
 
-Welcome to Quelle, an open-source, extensible, and portable e-book scraper that enables users to download e-books from multiple online sources. Built with Rust and WebAssembly, Quelle provides a powerful yet flexible platform for accessing digital content from various web novel and e-book platforms.
+Quelle is an open-source e-book scraper built with Rust and WebAssembly. It downloads novels from web sources using a modular extension system.
 
 ## What is Quelle?
 
-Quelle is designed with modularity and extensibility at its core. Rather than being limited to specific websites or formats, Quelle uses a plugin-based architecture where each source is implemented as a WebAssembly (WASM) extension. This approach provides several key benefits:
+Quelle uses WebAssembly (WASM) extensions to scrape different websites. Each website gets its own extension, making it easy to add new sources without changing the main program.
 
-- **Cross-platform compatibility**: WASM extensions run consistently across different operating systems
-- **Security**: Extensions are sandboxed and cannot access system resources beyond what's explicitly allowed
-- **Performance**: Native-level performance with the safety of managed execution
-- **Extensibility**: Easy to add support for new sources without modifying the core engine
+**Key Benefits:**
+- **Secure**: Extensions run in a sandbox and can't access your system files
+- **Fast**: Built with Rust for high performance  
+- **Cross-platform**: Works on Windows, macOS, and Linux
+- **Extensible**: Easy to add support for new websites
 
-## Key Features
+## Current Status
 
-### Modular Architecture
-- **Engine**: Core runtime built with Wasmtime for loading and managing extensions
-- **Extensions**: Individual WASM components for different e-book sources
-- **Store System**: Comprehensive package management for discovering, installing, and updating extensions
-- **CLI Interface**: User-friendly command-line tools for all operations
+🚧 **Status**: Early Development
 
-### Store System
-The store system is one of Quelle's most powerful features, providing:
+Quelle is still being built. Here's what works now:
 
-- **Multiple Store Types**: Local file systems, Git repositories, HTTP registries
-- **Package Management**: Install, update, and remove extensions with dependency resolution
-- **Version Management**: Semantic versioning with conflict resolution
-- **Search and Discovery**: Find extensions across multiple stores with advanced filtering
-- **Security**: Checksum verification and trusted store management
+**✅ Working:**
+- Core WASM engine for running extensions
+- CLI with basic commands
+- Store system for managing extensions
+- Two sample extensions (DragonTea, ScribbleHub)
+- Fetching novel info and chapters
 
-### Supported Operations
-- Search for novels across multiple sources
-- Download complete novels with all chapters
-- Export to multiple formats (EPUB, PDF, plain text, Markdown)
-- Batch operations for multiple novels
-- Resume interrupted downloads
+**🔄 Coming Soon:**
+- More extensions for popular sites
+- EPUB/PDF export
+- Better search across multiple sites
+- Pre-built downloads
 
-## Project Status
+## Basic Concepts
 
-🚧 **Current Status**: Pre-MVP Development
+- **Extensions**: WASM modules that know how to scrape specific websites
+- **Stores**: Places where extensions are kept (like app stores)
+- **CLI**: Command-line tool to search, fetch, and manage everything
 
-Quelle is currently under active development. The core architecture is in place and functional, including:
+## Quick Example
 
-- ✅ Core WASM runtime engine
-- ✅ Extension loading system
-- ✅ Complete store management system
-- ✅ CLI interface for store and extension management
-- ✅ Sample extensions (dragontea, scribblehub)
+Once set up, using Quelle looks like this:
 
-### What's Coming
-- 🔄 Enhanced CLI interface for novel operations
-- 🔄 Multiple output formats (EPUB, PDF, etc.)
-- 🔄 Cross-platform binaries
-- 🔄 Git and HTTP store implementations
-- 🔄 Web interface
+```bash
+# Search for a novel
+quelle search "novel title"
+
+# Get novel info from a URL  
+quelle fetch novel https://example.com/novel-page
+
+# Get a specific chapter
+quelle fetch chapter https://example.com/chapter-1
+```
+
+## Current Limitations
+
+Since this is early development:
+
+- **Manual setup required**: No simple installer yet
+- **Limited extensions**: Only 2 working extensions
+- **Development-focused**: Mainly for developers right now
+- **Local stores only**: No online extension repositories yet
 
 ## Getting Started
 
-To get started with Quelle:
+Ready to try it? Check out:
 
-1. **Installation**: Follow the [Installation Guide](./installation.md)
-2. **Basic Usage**: Learn the fundamentals in [Basic Usage](./basic-usage.md)
-3. **Store Management**: Set up extension stores in [Store Management](./store/management.md)
-4. **Extension Management**: Install and manage extensions in [Extension Management](./store/extensions.md)
+1. [Installation](./installation.md) - How to build from source
+2. [Getting Started](./getting-started.md) - First steps and basic usage
+3. [Basic Usage](./basic-usage.md) - Common commands and workflows
 
-## Community and Contributing
+## Legal Note
 
-Quelle is an open-source project that welcomes contributions from the community. Whether you're interested in:
-
-- Adding support for new e-book sources
-- Improving the core engine
-- Writing documentation
-- Reporting bugs or suggesting features
-
-Your contributions help make Quelle better for everyone. Check out our development guides to get started contributing.
-
-## Legal Considerations
-
-**Important**: Quelle is a tool for accessing publicly available content. Users are responsible for ensuring their use complies with the terms of service of the websites they access and applicable copyright laws. Always respect content creators and website policies when using Quelle.
-
-The developer of this application does not have any affiliation with the content providers available through extensions.
+Quelle is a tool for accessing publicly available content. You're responsible for following website terms of service and copyright laws. Always respect content creators and website policies.

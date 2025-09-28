@@ -1,230 +1,237 @@
 # Installation
 
-> **⚠️ Note**: Quelle is currently in pre-MVP development. The installation process will become simpler as the project matures.
+This guide will help you install Quelle on your system. Currently, Quelle must be built from source since it's still in early development.
 
 ## System Requirements
 
-- **Operating System**: Linux, macOS, or Windows
+- **Operating System**: Windows, macOS, or Linux
 - **Rust**: Latest stable version (1.70+)
-- **Memory**: 512MB RAM minimum, 2GB recommended
-- **Storage**: 100MB for base installation, additional space for extensions
+- **Git**: For cloning the repository
+- **Disk Space**: ~500MB for source code and build artifacts
 
-## Development Installation (Current)
+## Prerequisites
 
-Since Quelle is in active development, installation currently requires building from source:
+### Install Rust
 
-### 1. Install Prerequisites
+If you don't have Rust installed:
 
-#### Rust Toolchain
 ```bash
-# Install Rust (if not already installed)
+# Install Rust (follow prompts to complete installation)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Reload your shell or restart terminal
 source ~/.cargo/env
 
-# Add WebAssembly target
+# Verify installation
+rustc --version
+cargo --version
+```
+
+### Install Build Tools
+
+```bash
+# Install just (command runner)
+cargo install just
+
+# Install cargo-component (for building WASM extensions)
+cargo install cargo-component
+
+# Add WASM target
 rustup target add wasm32-unknown-unknown
 ```
 
-#### Required Tools
-```bash
-# Install just (task runner)
-cargo install just
+## Installation Steps
 
-# Install cargo-component (for WASM components)
-cargo install cargo-component
-```
-
-### 2. Clone and Build
+### 1. Clone Repository
 
 ```bash
-# Clone the repository
-git clone https://github.com/nacht-org/quelle.git
+# Clone the project
+git clone https://github.com/nacht-org/quelle
 cd quelle
 
-# Build the CLI
+# Verify you're in the right directory
+ls -la
+# You should see Cargo.toml, justfile, and other project files
+```
+
+### 2. Build Quelle
+
+```bash
+# Build the CLI tool
 cargo build --release -p quelle_cli
 
-# Verify installation
-./target/release/quelle_cli --help
+# This creates the binary at target/release/quelle_cli
+# Build time: 2-5 minutes depending on your system
 ```
 
-### 3. Optional: Install to PATH
+### 3. Build Sample Extensions
 
 ```bash
-# Copy to local binary directory
-cp target/release/quelle_cli ~/.local/bin/quelle
-
-# Or create a symbolic link
-ln -s $(pwd)/target/release/quelle_cli ~/.local/bin/quelle
-
-# Verify it's in your PATH
-quelle --help
-```
-
-## Future Installation Methods
-
-The following installation methods are planned for future releases:
-
-### Pre-compiled Binaries (Planned)
-```bash
-# Download and install (future)
-curl -sSL https://get.quelle.org | sh
-```
-
-### Package Managers (Planned)
-
-#### Cargo (Rust Package Manager)
-```bash
-# Install from crates.io (future)
-cargo install quelle
-```
-
-#### Homebrew (macOS/Linux)
-```bash
-# Install via Homebrew (future)
-brew install quelle
-```
-
-#### APT (Debian/Ubuntu)
-```bash
-# Install via APT (future)
-sudo apt update
-sudo apt install quelle
-```
-
-#### Scoop (Windows)
-```bash
-# Install via Scoop (future)
-scoop install quelle
-```
-
-## Directory Structure
-
-After installation, Quelle uses the following directories:
-
-### Default Locations
-
-- **Extensions**: `~/.local/share/quelle/extensions/`
-- **Cache**: `~/.cache/quelle/`
-- **Configuration**: `~/.config/quelle/`
-- **Logs**: `~/.local/share/quelle/logs/`
-
-### Custom Locations
-
-You can override default locations using environment variables:
-
-```bash
-export QUELLE_INSTALL_DIR="/custom/extensions/path"
-export QUELLE_CACHE_DIR="/custom/cache/path"
-export QUELLE_CONFIG_DIR="/custom/config/path"
-```
-
-## Verification
-
-After installation, verify everything is working:
-
-```bash
-# Check version and help
-quelle --help
-
-# Check store system
-quelle store list
-
-# Check extension system
-quelle extension list
-
-# Test with a simple command
-quelle store health
-```
-
-## Building Extensions
-
-To work with extensions, you'll also need to build them:
-
-```bash
-# Build sample extensions
+# Build DragonTea extension
 just build-extension dragontea
+
+# Build ScribbleHub extension  
 just build-extension scribblehub
 
 # Verify extensions were built
 ls target/wasm32-unknown-unknown/release/extension_*.wasm
 ```
 
+### 4. Verify Installation
+
+```bash
+# Test the CLI
+./target/release/quelle_cli --help
+
+# Check version info
+./target/release/quelle_cli --version
+```
+
+You should see the help output with available commands.
+
+## Optional: Add to PATH
+
+To use `quelle` from anywhere:
+
+### Linux/macOS
+
+```bash
+# Copy to a directory in your PATH
+sudo cp target/release/quelle_cli /usr/local/bin/quelle
+
+# Or create a symlink
+sudo ln -s $(pwd)/target/release/quelle_cli /usr/local/bin/quelle
+
+# Test it works
+quelle --help
+```
+
+### Windows
+
+```powershell
+# Copy to a directory in your PATH, or add the target/release directory to PATH
+# Example: copy to C:\Users\<username>\bin\ (if that's in your PATH)
+copy target\release\quelle_cli.exe C:\Users\%USERNAME%\bin\quelle.exe
+```
+
 ## Troubleshooting
 
-### Common Issues
+### Rust Not Found
 
-#### Rust Not Found
 ```bash
-# Ensure Rust is in your PATH
-source ~/.cargo/env
+# Make sure Rust is in your PATH
+echo $PATH | grep cargo
 
-# Or restart your terminal
+# If not found, add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
+export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
-#### WASM Target Missing
-```bash
-# Add the WebAssembly target
-rustup target add wasm32-unknown-unknown
-```
+### Build Fails
 
-#### Build Failures
 ```bash
+# Update Rust to latest stable
+rustup update
+
 # Clean and rebuild
 cargo clean
 cargo build --release -p quelle_cli
 ```
 
-#### Permission Errors
+### Extension Build Fails
+
 ```bash
-# Ensure directories exist and are writable
-mkdir -p ~/.local/share/quelle
-mkdir -p ~/.cache/quelle
-mkdir -p ~/.config/quelle
+# Make sure you have the WASM target
+rustup target add wasm32-unknown-unknown
+
+# Make sure cargo-component is installed
+cargo install cargo-component --force
+
+# Try building again
+just build-extension dragontea
 ```
 
-### Getting Help
+### Permission Errors (Linux/macOS)
 
-If you encounter issues during installation:
+```bash
+# If you can't write to /usr/local/bin
+mkdir -p ~/bin
+cp target/release/quelle_cli ~/bin/quelle
 
-1. Check the [Troubleshooting Guide](./advanced/troubleshooting.md)
-2. Review the [GitHub Issues](https://github.com/nacht-org/quelle/issues)
-3. Join the community discussions
-4. File a bug report if needed
+# Add ~/bin to PATH in your shell profile
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+# Then restart your terminal or run: source ~/.bashrc
+```
+
+## What's Installed
+
+After successful installation, you'll have:
+
+- **quelle_cli**: The main command-line tool
+- **Extensions**: WASM files for DragonTea and ScribbleHub
+- **Source Code**: Full project source for development
+
+## File Locations
+
+```text
+quelle/
+├── target/release/quelle_cli          # Main executable
+├── target/wasm32-unknown-unknown/
+│   └── release/
+│       ├── extension_dragontea.wasm   # DragonTea extension
+│       └── extension_scribblehub.wasm # ScribbleHub extension
+└── data/                              # Created when you first run CLI
+    ├── config.json                    # Store configuration
+    └── registry/                      # Installed extensions
+```
+
+## Next Steps
+
+Now that Quelle is installed:
+
+1. **Set up your first store**: See [Getting Started](./getting-started.md)
+2. **Try basic commands**: Check out [Basic Usage](./basic-usage.md)
+3. **Test with a novel URL**: Try fetching from a supported site
 
 ## Updating
 
-Currently, updates require rebuilding from source:
+Since Quelle is in active development, you may want to update regularly:
 
 ```bash
-# Pull latest changes
+# Update source code
 cd quelle
-git pull
+git pull origin main
 
 # Rebuild
 cargo build --release -p quelle_cli
 
-# Replace binary if installed to PATH
-cp target/release/quelle_cli ~/.local/bin/quelle
+# Rebuild extensions if needed
+just build-extension dragontea
+just build-extension scribblehub
 ```
-
-In the future, updates will be available through standard package managers and automated update mechanisms.
 
 ## Uninstallation
 
 To remove Quelle:
 
 ```bash
-# Remove binary
-rm ~/.local/bin/quelle
-
-# Remove data directories (optional)
-rm -rf ~/.local/share/quelle
-rm -rf ~/.cache/quelle
-rm -rf ~/.config/quelle
+# Remove from PATH (if you added it)
+sudo rm /usr/local/bin/quelle
 
 # Remove source directory
-rm -rf /path/to/quelle
+rm -rf quelle/
+
+# Remove Rust tools (optional)
+cargo uninstall just
+cargo uninstall cargo-component
 ```
 
-Note that removing data directories will delete all installed extensions and configuration.
+## Getting Help
+
+If you run into issues:
+
+1. Check this troubleshooting section
+2. Make sure you have the latest Rust stable
+3. Verify all prerequisites are installed
+4. Check the project's GitHub issues for known problems
+
+The installation process should take 5-10 minutes on most systems. If it takes much longer, something may be wrong with your setup.

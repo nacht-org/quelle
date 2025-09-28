@@ -1,25 +1,26 @@
 # Getting Started
 
-> **⚠️ Note**: Quelle is currently in pre-MVP development. Some features may be incomplete or change significantly before the 1.0 release.
+This guide will help you get Quelle running on your system. Since Quelle is still in early development, you'll need to build it from source.
 
 ## Prerequisites
 
-- Rust toolchain (latest stable)
-- Git for cloning the repository
-- Basic familiarity with command-line tools
+You need these tools installed:
+
+- **Rust** (latest stable version)
+- **Git** for cloning the repository
+- **just** command runner: `cargo install just`
+- **cargo-component**: `cargo install cargo-component`
 
 ## Installation
 
-Currently, Quelle must be built from source:
+### 1. Clone and Build
 
 ```bash
 # Clone the repository
 git clone https://github.com/nacht-org/quelle
 cd quelle
 
-# Install required tools
-cargo install just
-cargo install cargo-component
+# Add WASM target for building extensions
 rustup target add wasm32-unknown-unknown
 
 # Build the CLI
@@ -28,99 +29,164 @@ cargo build --release -p quelle_cli
 # The binary will be at target/release/quelle_cli
 ```
 
-## First Steps
-
-### 1. Verify Installation
-
-Check that Quelle is working:
+### 2. Verify Installation
 
 ```bash
+# Check that it works
 ./target/release/quelle_cli --help
 ```
 
-You should see the main command help with store and extension management options.
+You should see the main help with available commands.
 
-### 2. Check Current Status
+## First Steps
 
-Initially, you won't have any stores or extensions configured:
+### 1. Check Current Status
+
+When you first run Quelle, nothing is configured:
 
 ```bash
-# Check stores
+# Check stores (should be empty)
 ./target/release/quelle_cli store list
-# Output: No stores configured.
 
-# Check extensions
+# Check extensions (should be empty)  
 ./target/release/quelle_cli extension list
-# Output: No extensions installed.
+
+# Check overall status
+./target/release/quelle_cli status
 ```
 
-### 3. Add Your First Store
+### 2. Build Sample Extensions
 
-For development, you can create a local store:
+Build the included sample extensions:
 
 ```bash
-# Create a directory for extensions (this would contain actual extensions in practice)
+# Build DragonTea extension
+just build-extension dragontea
+
+# Build ScribbleHub extension  
+just build-extension scribblehub
+```
+
+This creates WASM files in `target/wasm32-unknown-unknown/release/`.
+
+### 3. Set Up a Local Store
+
+Create a local store to manage your extensions:
+
+```bash
+# Create a directory for your extensions
 mkdir -p ./my-extensions
 
 # Add it as a store
-./target/release/quelle_cli store add local ./my-extensions --name "dev-store"
+./target/release/quelle_cli store add local ./my-extensions --name "dev"
 
 # Verify it was added
 ./target/release/quelle_cli store list
 ```
 
-### 4. Check Store Health
+## Basic Usage
 
-Verify your store is accessible:
+### Fetch Novel Information
+
+Once you have extensions built, you can fetch novel info:
 
 ```bash
-./target/release/quelle_cli store health
+# Example with a DragonTea URL (replace with real URL)
+./target/release/quelle_cli fetch novel https://dragontea.ink/novel/example
+
+# Example with ScribbleHub URL
+./target/release/quelle_cli fetch novel https://scribblehub.com/series/123456/example/
 ```
 
-## Building Extensions
-
-Currently, you need to build extensions manually. For example, to build the DragonTea extension:
+### Fetch Chapter Content
 
 ```bash
-# Build an extension
-just build-extension dragontea
+# Fetch a specific chapter
+./target/release/quelle_cli fetch chapter https://dragontea.ink/novel/example/chapter-1
+```
 
-# This creates a WASM file at:
-# target/wasm32-unknown-unknown/release/extension_dragontea.wasm
+### Search (Basic)
+
+```bash
+# Search for novels (if extensions support it)
+./target/release/quelle_cli search "novel title"
+
+# Search with filters
+./target/release/quelle_cli search "novel title" --author "author name"
+```
+
+### List Available Extensions
+
+```bash
+# See what extensions are available in your stores
+./target/release/quelle_cli list
+
+# Check store health
+./target/release/quelle_cli status
 ```
 
 ## Current Limitations
 
-Since Quelle is in early development:
+Keep these in mind while using Quelle:
 
-- **Limited Extensions**: Only a few sample extensions exist
-- **Local Stores Only**: Git and HTTP stores are not yet implemented  
-- **Manual Setup**: Extension installation requires manual file management
-- **Development Focus**: The system is primarily for developers right now
+- **Manual extension setup**: You need to build extensions yourself
+- **Limited extensions**: Only DragonTea and ScribbleHub work
+- **No export formats**: Can't save as EPUB/PDF yet
+- **Basic functionality**: Missing many planned features
+- **Development tool**: Made for developers, not end users yet
 
-## Development Workflow
+## Troubleshooting
 
-If you're developing extensions or contributing to Quelle:
+### Extension Build Fails
 
-1. **Set up the development environment** as shown above
-2. **Build extensions** using the `just` command
-3. **Test with the CLI** using direct WASM file paths
-4. **Use the store system** for managing multiple extensions
+```bash
+# Make sure you have the WASM target
+rustup target add wasm32-unknown-unknown
 
-## Getting Help
+# Make sure cargo-component is installed
+cargo install cargo-component
 
-- Check the [CLI Reference](./store/cli-reference.md) for command details
-- Review [Store Management](./store/management.md) for store configuration
-- See [Extension Management](./store/extensions.md) for working with extensions
-- For development, check the [Development](./development/) section
+# Try building again
+just build-extension dragontea
+```
 
-## What's Next?
+### CLI Not Found
+
+```bash
+# Make sure you built the CLI
+cargo build --release -p quelle_cli
+
+# Run with full path
+./target/release/quelle_cli --help
+```
+
+### Store Issues
+
+```bash
+# Check store health
+./target/release/quelle_cli status
+
+# Make sure directory exists and has permissions
+ls -la ./my-extensions
+```
+
+## Next Steps
 
 Once you have the basics working:
 
-- Explore the store system capabilities
-- Try building your own extensions
-- Contribute to the project development
-- Follow the project for updates as it approaches MVP
+1. **Try the extensions**: Test fetching novels from DragonTea or ScribbleHub
+2. **Explore commands**: Run `--help` on different commands to see options  
+3. **Check the code**: Look at `extensions/` to understand how they work
+4. **Follow development**: Watch for updates as new features are added
 
-Remember that Quelle is rapidly evolving, so check back frequently for updates and new features!
+## Development Notes
+
+If you want to contribute or modify Quelle:
+
+- Extension code is in `extensions/`
+- CLI code is in `crates/cli/`  
+- Engine code is in `crates/engine/`
+- Use `just build-extension <name>` to build extensions
+- Use `cargo run -p quelle_cli -- <args>` to run without building
+
+The project is evolving quickly, so check back often for updates!
