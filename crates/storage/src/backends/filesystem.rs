@@ -149,6 +149,36 @@ impl FilesystemStorage {
         format!("{:x}", md5::compute(input.as_bytes()))
     }
 
+    fn extract_source_id(&self, url: &str) -> String {
+        // Extract domain from URL to use as source ID
+        if let Ok(parsed_url) = url::Url::parse(url) {
+            if let Some(host) = parsed_url.host_str() {
+                // Remove www. prefix if present and convert to lowercase
+                let clean_host = host.strip_prefix("www.").unwrap_or(host).to_lowercase();
+                return clean_host;
+            }
+        }
+
+        // Fallback: try to extract domain manually for malformed URLs
+        if let Some(start) = url.find("://") {
+            let after_protocol = &url[start + 3..];
+            if let Some(end) = after_protocol.find('/') {
+                let host = &after_protocol[..end];
+                let clean_host = host.strip_prefix("www.").unwrap_or(host).to_lowercase();
+                return clean_host;
+            } else {
+                let clean_host = after_protocol
+                    .strip_prefix("www.")
+                    .unwrap_or(after_protocol)
+                    .to_lowercase();
+                return clean_host;
+            }
+        }
+
+        // Final fallback
+        "unknown".to_string()
+    }
+
     async fn load_index(&self) -> Result<StorageIndex> {
         let index_path = self.get_index_path();
         if !index_path.exists() {
@@ -273,15 +303,41 @@ impl FilesystemStorage {
 
         Ok(count)
     }
+
+    async fn update_index_stored_chapters(&self, novel_id: &NovelId) -> Result<()> {
+        let mut index = self.load_index().await?;
+
+        // Find the novel in the index and update its stored chapter count
+        if let Some(indexed_novel) = index.novels.iter_mut().find(|n| n.id == *novel_id) {
+            indexed_novel.stored_chapters = self.count_stored_chapters_for_novel(novel_id).await?;
+            self.save_index(&index).await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
 impl BookStorage for FilesystemStorage {
     async fn store_novel(&self, novel: &Novel) -> Result<NovelId> {
+        // Validate input data
+        if novel.url.trim().is_empty() {
+            return Err(BookStorageError::InvalidNovelData {
+                message: "Novel URL cannot be empty".to_string(),
+                source: None,
+            });
+        }
+
+        if novel.title.trim().is_empty() {
+            return Err(BookStorageError::InvalidNovelData {
+                message: "Novel title cannot be empty".to_string(),
+                source: None,
+            });
+        }
+
         // Generate an ID based on the novel URL for this backend
-        // In a real implementation, you might want to pass source_id as part of the novel
-        // or derive it from the URL, but for now we'll use a simple URL-based ID
-        let id_string = format!("unknown::{}", novel.url);
+        let source_id = self.extract_source_id(&novel.url);
+        let id_string = format!("{}::{}", source_id, novel.url);
         let novel_id = NovelId::new(id_string);
         let novel_file = self.get_novel_file(&novel_id);
 
@@ -306,8 +362,9 @@ impl BookStorage for FilesystemStorage {
         let novel_json = novel_to_json(novel)?;
 
         // Store metadata separately
+        let source_id = self.extract_source_id(&novel.url);
         let metadata = NovelStorageMetadata {
-            source_id: "unknown".to_string(), // Backend can decide how to track sources
+            source_id,
             stored_at: chrono::Utc::now().to_rfc3339(),
         };
 
@@ -494,6 +551,29 @@ impl BookStorage for FilesystemStorage {
         chapter_url: &str,
         content: &ChapterContent,
     ) -> Result<()> {
+        // Validate input data
+        if chapter_url.trim().is_empty() {
+            return Err(BookStorageError::InvalidChapterData {
+                message: "Chapter URL cannot be empty".to_string(),
+                source: None,
+            });
+        }
+
+        if content.data.trim().is_empty() {
+            return Err(BookStorageError::InvalidChapterData {
+                message: "Chapter content cannot be empty".to_string(),
+                source: None,
+            });
+        }
+
+        // Check if novel exists
+        if !self.exists_novel(novel_id).await? {
+            return Err(BookStorageError::NovelNotFound {
+                id: novel_id.to_string(),
+                source: None,
+            });
+        }
+
         let chapter_file = self.get_chapter_file(novel_id, volume_index, chapter_url);
 
         // Create directory structure
@@ -557,6 +637,9 @@ impl BookStorage for FilesystemStorage {
             }
         })?;
 
+        // Update index to reflect the new stored chapter count
+        self.update_index_stored_chapters(novel_id).await?;
+
         Ok(())
     }
 
@@ -616,6 +699,9 @@ impl BookStorage for FilesystemStorage {
             .map_err(|e| BookStorageError::BackendError {
                 source: Some(eyre::eyre!("Failed to delete chapter file: {}", e)),
             })?;
+
+        // Update index to reflect the reduced stored chapter count
+        self.update_index_stored_chapters(novel_id).await?;
 
         Ok(true)
     }
@@ -923,5 +1009,156 @@ mod tests {
             .await
             .unwrap();
         assert!(not_found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_validation_errors() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        // Test empty URL validation
+        let mut invalid_novel = create_test_novel();
+        invalid_novel.url = "".to_string();
+        let result = storage.store_novel(&invalid_novel).await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::error::BookStorageError::InvalidNovelData { .. }
+        ));
+
+        // Test empty title validation
+        let mut invalid_novel = create_test_novel();
+        invalid_novel.title = "".to_string();
+        let result = storage.store_novel(&invalid_novel).await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::error::BookStorageError::InvalidNovelData { .. }
+        ));
+
+        // Test chapter validation - empty URL
+        let novel = create_test_novel();
+        let novel_id = storage.store_novel(&novel).await.unwrap();
+        let content = ChapterContent {
+            data: "Test content".to_string(),
+        };
+        let result = storage
+            .store_chapter_content(&novel_id, 1, "", &content)
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::error::BookStorageError::InvalidChapterData { .. }
+        ));
+
+        // Test chapter validation - empty content
+        let content = ChapterContent {
+            data: "".to_string(),
+        };
+        let result = storage
+            .store_chapter_content(&novel_id, 1, "https://test.com/chapter", &content)
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::error::BookStorageError::InvalidChapterData { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_chapter_counting_updates() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        let novel = create_test_novel();
+        let novel_id = storage.store_novel(&novel).await.unwrap();
+
+        // Initially no stored chapters
+        let stats = storage.get_storage_stats().await.unwrap();
+        assert_eq!(stats.total_chapters, 0);
+
+        // Store a chapter
+        let content = ChapterContent {
+            data: "Test chapter content".to_string(),
+        };
+        storage
+            .store_chapter_content(&novel_id, 1, "https://test.com/chapter-1", &content)
+            .await
+            .unwrap();
+
+        // Check that stats are updated
+        let stats = storage.get_storage_stats().await.unwrap();
+        assert_eq!(stats.total_chapters, 1);
+
+        // Store another chapter
+        storage
+            .store_chapter_content(&novel_id, 1, "https://test.com/chapter-2", &content)
+            .await
+            .unwrap();
+
+        // Check that stats are updated again
+        let stats = storage.get_storage_stats().await.unwrap();
+        assert_eq!(stats.total_chapters, 2);
+
+        // Delete a chapter
+        let deleted = storage
+            .delete_chapter_content(&novel_id, 1, "https://test.com/chapter-1")
+            .await
+            .unwrap();
+        assert!(deleted);
+
+        // Check that stats are updated after deletion
+        let stats = storage.get_storage_stats().await.unwrap();
+        assert_eq!(stats.total_chapters, 1);
+    }
+
+    #[tokio::test]
+    async fn test_source_id_extraction() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        // Test URL with domain
+        let mut novel = create_test_novel();
+        novel.url = "https://example.com/novel/test".to_string();
+        let novel_id = storage.store_novel(&novel).await.unwrap();
+        assert!(novel_id.as_str().starts_with("example.com::"));
+
+        // Test URL with www prefix
+        let mut novel2 = create_test_novel();
+        novel2.url = "https://www.example.com/novel/test2".to_string();
+        let novel_id2 = storage.store_novel(&novel2).await.unwrap();
+        assert!(novel_id2.as_str().starts_with("example.com::")); // www should be stripped
+
+        // Verify storage stats show correct source grouping
+        let stats = storage.get_storage_stats().await.unwrap();
+        assert_eq!(stats.novels_by_source.len(), 1); // Both should be grouped under example.com
+        assert_eq!(stats.novels_by_source[0].0, "example.com");
+        assert_eq!(stats.novels_by_source[0].1, 2);
+    }
+
+    #[tokio::test]
+    async fn test_chapter_storage_nonexistent_novel() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        let fake_novel_id = NovelId::new("fake::https://fake.com/novel".to_string());
+        let content = ChapterContent {
+            data: "Test content".to_string(),
+        };
+
+        // Try to store chapter for non-existent novel
+        let result = storage
+            .store_chapter_content(&fake_novel_id, 1, "https://fake.com/chapter", &content)
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::error::BookStorageError::NovelNotFound { .. }
+        ));
     }
 }
