@@ -7,6 +7,7 @@ use crate::bindings::quelle::extension::{
 use crate::http::{Http, HttpExecutor};
 use chrono::Local;
 use tracing::event;
+use wasmtime::component::HasData;
 
 pub struct State {
     pub http: Http,
@@ -20,6 +21,10 @@ impl State {
             panic_error: None,
         }
     }
+}
+
+impl HasData for State {
+    type Data<'a> = &'a mut Self;
 }
 
 impl novel::Host for State {}
