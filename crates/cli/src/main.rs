@@ -523,25 +523,29 @@ async fn handle_library_command(
             downloaded_only,
         } => {
             // Try to find novel by ID or URL
-            let novel = if novel_id.starts_with("http") {
-                storage.find_novel_by_url(&novel_id).await?
+            let (novel, novel_storage_id) = if novel_id.starts_with("http") {
+                match storage.find_novel_by_url(&novel_id).await? {
+                    Some(novel) => {
+                        // Find the storage ID from the library listing
+                        let filter = storage::NovelFilter { source_ids: vec![] };
+                        let novels = storage.list_novels(&filter).await?;
+                        let storage_id = novels
+                            .iter()
+                            .find(|n| n.title == novel.title)
+                            .map(|n| n.id.clone())
+                            .unwrap_or_else(|| storage::NovelId::new(novel_id.clone()));
+                        (Some(novel), storage_id)
+                    }
+                    None => (None, storage::NovelId::new(novel_id.clone())),
+                }
             } else {
                 let id = storage::NovelId::new(novel_id.clone());
-                storage.get_novel(&id).await?
+                (storage.get_novel(&id).await?, id)
             };
 
             match novel {
                 Some(novel) => {
-                    // Find the novel ID from the library listing
-                    let filter = storage::NovelFilter { source_ids: vec![] };
-                    let novels = storage.list_novels(&filter).await?;
-                    let id = match novels.iter().find(|n| n.title == novel.title) {
-                        Some(summary) => summary.id.clone(),
-                        None => {
-                            println!("Novel not found in library: {}", novel_id);
-                            return Ok(());
-                        }
-                    };
+                    let id = novel_storage_id;
                     let chapters = storage.list_chapters(&id).await?;
 
                     let filtered_chapters: Vec<_> = if downloaded_only {
@@ -594,25 +598,29 @@ async fn handle_library_command(
         }
         LibraryCommands::Read { novel_id, chapter } => {
             // Try to find novel by ID or URL
-            let novel = if novel_id.starts_with("http") {
-                storage.find_novel_by_url(&novel_id).await?
+            let (novel, novel_storage_id) = if novel_id.starts_with("http") {
+                match storage.find_novel_by_url(&novel_id).await? {
+                    Some(novel) => {
+                        // Find the storage ID from the library listing
+                        let filter = storage::NovelFilter { source_ids: vec![] };
+                        let novels = storage.list_novels(&filter).await?;
+                        let storage_id = novels
+                            .iter()
+                            .find(|n| n.title == novel.title)
+                            .map(|n| n.id.clone())
+                            .unwrap_or_else(|| storage::NovelId::new(novel_id.clone()));
+                        (Some(novel), storage_id)
+                    }
+                    None => (None, storage::NovelId::new(novel_id.clone())),
+                }
             } else {
                 let id = storage::NovelId::new(novel_id.clone());
-                storage.get_novel(&id).await?
+                (storage.get_novel(&id).await?, id)
             };
 
             match novel {
                 Some(novel) => {
-                    // Find the novel ID from the library listing
-                    let filter = storage::NovelFilter { source_ids: vec![] };
-                    let novels = storage.list_novels(&filter).await?;
-                    let id = match novels.iter().find(|n| n.title == novel.title) {
-                        Some(summary) => summary.id.clone(),
-                        None => {
-                            println!("Novel not found in library: {}", novel_id);
-                            return Ok(());
-                        }
-                    };
+                    let id = novel_storage_id;
 
                     // Find the chapter - either by number or URL
                     let mut found_chapter = None;
@@ -677,11 +685,24 @@ async fn handle_library_command(
         }
         LibraryCommands::Remove { novel_id, force } => {
             // Try to find novel by ID or URL
-            let novel = if novel_id.starts_with("http") {
-                storage.find_novel_by_url(&novel_id).await?
+            let (novel, novel_storage_id) = if novel_id.starts_with("http") {
+                match storage.find_novel_by_url(&novel_id).await? {
+                    Some(novel) => {
+                        // Find the storage ID from the library listing
+                        let filter = storage::NovelFilter { source_ids: vec![] };
+                        let novels = storage.list_novels(&filter).await?;
+                        let storage_id = novels
+                            .iter()
+                            .find(|n| n.title == novel.title)
+                            .map(|n| n.id.clone())
+                            .unwrap_or_else(|| storage::NovelId::new(novel_id.clone()));
+                        (Some(novel), storage_id)
+                    }
+                    None => (None, storage::NovelId::new(novel_id.clone())),
+                }
             } else {
                 let id = storage::NovelId::new(novel_id.clone());
-                storage.get_novel(&id).await?
+                (storage.get_novel(&id).await?, id)
             };
 
             match novel {
@@ -695,16 +716,7 @@ async fn handle_library_command(
                         return Ok(());
                     }
 
-                    // Find the novel ID from the library listing
-                    let filter = storage::NovelFilter { source_ids: vec![] };
-                    let novels = storage.list_novels(&filter).await?;
-                    let id = match novels.iter().find(|n| n.title == novel.title) {
-                        Some(summary) => summary.id.clone(),
-                        None => {
-                            println!("Novel not found in library: {}", novel_id);
-                            return Ok(());
-                        }
-                    };
+                    let id = novel_storage_id;
                     match storage.delete_novel(&id).await? {
                         true => {
                             println!("✅ Removed '{}' from library.", novel.title);

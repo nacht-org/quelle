@@ -151,9 +151,25 @@ impl FilesystemStorage {
         format!("{:x}", md5::compute(input.as_bytes()))
     }
 
+    /// Normalize URL by removing trailing slashes and trimming whitespace
+    fn normalize_url(&self, url: &str) -> String {
+        let trimmed = url.trim();
+        if trimmed.is_empty() {
+            return String::new();
+        }
+
+        // Remove trailing slash unless it's just the protocol (e.g., "https://")
+        if trimmed.ends_with('/') && trimmed.len() > 1 && !trimmed.ends_with("://") {
+            trimmed.trim_end_matches('/').to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
     fn extract_source_id(&self, url: &str) -> String {
+        let normalized_url = self.normalize_url(url);
         // Extract domain from URL to use as source ID
-        if let Ok(parsed_url) = url::Url::parse(url) {
+        if let Ok(parsed_url) = url::Url::parse(&normalized_url) {
             if let Some(host) = parsed_url.host_str() {
                 // Remove www. prefix if present and convert to lowercase
                 let clean_host = host.strip_prefix("www.").unwrap_or(host).to_lowercase();
@@ -162,8 +178,8 @@ impl FilesystemStorage {
         }
 
         // Fallback: try to extract domain manually for malformed URLs
-        if let Some(start) = url.find("://") {
-            let after_protocol = &url[start + 3..];
+        if let Some(start) = normalized_url.find("://") {
+            let after_protocol = &normalized_url[start + 3..];
             if let Some(end) = after_protocol.find('/') {
                 let host = &after_protocol[..end];
                 let clean_host = host.strip_prefix("www.").unwrap_or(host).to_lowercase();
@@ -325,8 +341,9 @@ impl FilesystemStorage {
 #[async_trait]
 impl BookStorage for FilesystemStorage {
     async fn store_novel(&self, novel: &Novel) -> Result<NovelId> {
-        // Validate input data
-        if novel.url.trim().is_empty() {
+        // Normalize and validate input data
+        let normalized_url = self.normalize_url(&novel.url);
+        if normalized_url.is_empty() {
             return Err(BookStorageError::InvalidNovelData {
                 message: "Novel URL cannot be empty".to_string(),
                 source: None,
@@ -340,9 +357,9 @@ impl BookStorage for FilesystemStorage {
             });
         }
 
-        // Generate an ID based on the novel URL for this backend
-        let source_id = self.extract_source_id(&novel.url);
-        let id_string = format!("{}::{}", source_id, novel.url);
+        // Generate an ID based on the normalized novel URL for this backend
+        let source_id = self.extract_source_id(&normalized_url);
+        let id_string = format!("{}::{}", source_id, normalized_url);
         let novel_id = NovelId::new(id_string);
         let novel_file = self.get_novel_file(&novel_id);
 
@@ -367,7 +384,7 @@ impl BookStorage for FilesystemStorage {
         let novel_json = novel_to_json(novel)?;
 
         // Store metadata separately
-        let source_id = self.extract_source_id(&novel.url);
+        let source_id = self.extract_source_id(&normalized_url);
         let metadata = NovelStorageMetadata {
             source_id,
             stored_at: Utc::now(),
@@ -556,8 +573,9 @@ impl BookStorage for FilesystemStorage {
         chapter_url: &str,
         content: &ChapterContent,
     ) -> Result<()> {
-        // Validate input data
-        if chapter_url.trim().is_empty() {
+        // Normalize and validate input data
+        let normalized_chapter_url = self.normalize_url(chapter_url);
+        if normalized_chapter_url.is_empty() {
             return Err(BookStorageError::InvalidChapterData {
                 message: "Chapter URL cannot be empty".to_string(),
                 source: None,
@@ -579,7 +597,7 @@ impl BookStorage for FilesystemStorage {
             });
         }
 
-        let chapter_file = self.get_chapter_file(novel_id, volume_index, chapter_url);
+        let chapter_file = self.get_chapter_file(novel_id, volume_index, &normalized_chapter_url);
 
         // Create directory structure
         if let Some(parent) = chapter_file.parent() {
@@ -597,7 +615,7 @@ impl BookStorage for FilesystemStorage {
         let content_size = content.data.len() as u64;
         let metadata = ChapterStorageMetadata {
             volume_index,
-            chapter_url: chapter_url.to_string(),
+            chapter_url: normalized_chapter_url.clone(),
             stored_at: Utc::now(),
             content_size,
         };
@@ -656,7 +674,8 @@ impl BookStorage for FilesystemStorage {
         volume_index: i32,
         chapter_url: &str,
     ) -> Result<Option<ChapterContent>> {
-        let chapter_file = self.get_chapter_file(novel_id, volume_index, chapter_url);
+        let normalized_chapter_url = self.normalize_url(chapter_url);
+        let chapter_file = self.get_chapter_file(novel_id, volume_index, &normalized_chapter_url);
 
         if !chapter_file.exists() {
             return Ok(None);
@@ -695,19 +714,21 @@ impl BookStorage for FilesystemStorage {
         volume_index: i32,
         chapter_url: &str,
     ) -> Result<bool> {
-        let chapter_file = self.get_chapter_file(novel_id, volume_index, chapter_url);
+        let normalized_chapter_url = self.normalize_url(chapter_url);
+        let chapter_file = self.get_chapter_file(novel_id, volume_index, &normalized_chapter_url);
 
         if !chapter_file.exists() {
             return Ok(false);
         }
 
+        // Remove the chapter file
         fs::remove_file(&chapter_file)
             .await
             .map_err(|e| BookStorageError::BackendError {
                 source: Some(eyre::eyre!("Failed to delete chapter file: {}", e)),
             })?;
 
-        // Update index to reflect the reduced stored chapter count
+        // Update stored chapter count for the novel
         self.update_index_stored_chapters(novel_id).await?;
 
         Ok(true)
@@ -719,9 +740,9 @@ impl BookStorage for FilesystemStorage {
         volume_index: i32,
         chapter_url: &str,
     ) -> Result<bool> {
-        Ok(self
-            .get_chapter_file(novel_id, volume_index, chapter_url)
-            .exists())
+        let normalized_chapter_url = self.normalize_url(chapter_url);
+        let chapter_file = self.get_chapter_file(novel_id, volume_index, &normalized_chapter_url);
+        Ok(chapter_file.exists())
     }
 
     async fn list_novels(&self, filter: &NovelFilter) -> Result<Vec<NovelSummary>> {
@@ -759,13 +780,14 @@ impl BookStorage for FilesystemStorage {
     }
 
     async fn find_novel_by_url(&self, url: &str) -> Result<Option<Novel>> {
+        let normalized_url = self.normalize_url(url);
         let index = self.load_index().await?;
 
-        // Find the novel in our index that matches the URL
+        // Find the novel in our index that matches the normalized URL
         for indexed_novel in &index.novels {
             let parts: Vec<&str> = indexed_novel.id.as_str().splitn(2, "::").collect();
             if let Some(novel_url) = parts.get(1) {
-                if *novel_url == url {
+                if *novel_url == normalized_url {
                     return self.get_novel(&indexed_novel.id).await;
                 }
             }
@@ -1268,5 +1290,61 @@ mod tests {
         assert_eq!(chapters[0].content_size(), Some(29));
         assert!(chapters[0].stored_at().is_some());
         assert!(chapters[0].updated_at().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_url_normalization() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        // Test URL normalization
+        assert_eq!(
+            storage.normalize_url("https://example.com"),
+            "https://example.com"
+        );
+        assert_eq!(
+            storage.normalize_url("https://example.com/"),
+            "https://example.com"
+        );
+        assert_eq!(
+            storage.normalize_url("https://example.com/path/"),
+            "https://example.com/path"
+        );
+        assert_eq!(
+            storage.normalize_url("  https://example.com/  "),
+            "https://example.com"
+        );
+        assert_eq!(storage.normalize_url("https://"), "https://"); // Don't remove protocol slash
+        assert_eq!(storage.normalize_url(""), "");
+        assert_eq!(storage.normalize_url("   "), "");
+
+        // Test that novels with trailing slashes are treated as the same
+        let mut novel1 = create_test_novel();
+        novel1.url = "https://example.com/novel".to_string();
+
+        let mut novel2 = create_test_novel();
+        novel2.url = "https://example.com/novel/".to_string();
+
+        // Store first novel
+        let id1 = storage.store_novel(&novel1).await.unwrap();
+
+        // Try to store second novel with trailing slash - should fail as it's the same novel
+        let result = storage.store_novel(&novel2).await;
+        assert!(result.is_err()); // Should fail because it's already stored
+
+        // But we should be able to find it with either URL
+        let found1 = storage
+            .find_novel_by_url("https://example.com/novel")
+            .await
+            .unwrap();
+        let found2 = storage
+            .find_novel_by_url("https://example.com/novel/")
+            .await
+            .unwrap();
+
+        assert!(found1.is_some());
+        assert!(found2.is_some());
+        assert_eq!(found1.unwrap().url, found2.unwrap().url);
     }
 }
