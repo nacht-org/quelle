@@ -15,7 +15,6 @@ pub use error::{BookStorageError, Result};
 pub use traits::BookStorage;
 pub use types::{
     ChapterContentStatus, ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary,
-    StorageStats,
 };
 
 // Import the WIT types that we'll be working with

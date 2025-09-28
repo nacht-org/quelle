@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 
 use crate::error::Result;
-use crate::types::{ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary, StorageStats};
+use crate::types::{ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary};
 
 use crate::{ChapterContent, Novel};
 
@@ -99,21 +99,10 @@ pub trait BookStorage: Send + Sync {
     /// List novels with optional filtering.
     async fn list_novels(&self, filter: &NovelFilter) -> Result<Vec<NovelSummary>>;
 
-    /// Find novels from a specific source.
-    async fn find_novels_by_source(&self, source_id: &str) -> Result<Vec<NovelSummary>>;
-
     /// Find a novel by its URL.
     ///
     /// This is the most common lookup pattern since users typically know the novel URL.
     async fn find_novel_by_url(&self, url: &str) -> Result<Option<Novel>>;
-
-    /// Search novels by text query.
-    ///
-    /// Performs a text-based search across novel titles, authors, and descriptions.
-    async fn search_novels(&self, query: &str) -> Result<Vec<NovelSummary>>;
-
-    /// Count total novels matching filter.
-    async fn count_novels(&self, filter: &NovelFilter) -> Result<u64>;
 
     /// List chapters for a novel.
     ///
@@ -133,10 +122,4 @@ pub trait BookStorage: Send + Sync {
     /// # Returns
     /// A report detailing what was cleaned up and any errors encountered
     async fn cleanup_dangling_data(&self) -> Result<CleanupReport>;
-
-    /// Get storage statistics.
-    ///
-    /// Returns information about the current state of the storage,
-    /// including counts and size information.
-    async fn get_storage_stats(&self) -> Result<StorageStats>;
 }

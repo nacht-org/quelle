@@ -11,7 +11,7 @@ use crate::models::{
     chapter_content_from_json, chapter_content_to_json, novel_from_json, novel_to_json,
 };
 use crate::traits::BookStorage;
-use crate::types::{ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary, StorageStats};
+use crate::types::{ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary};
 use crate::{ChapterContent, Novel};
 
 /// Filesystem-based storage backend.
@@ -731,34 +731,11 @@ impl BookStorage for FilesystemStorage {
             .novels
             .into_iter()
             .filter(|novel| {
-                // Apply filters
+                // Filter by source IDs if provided
                 if !filter.source_ids.is_empty() {
                     let parts: Vec<&str> = novel.id.as_str().splitn(2, "::").collect();
                     let source_id = parts.get(0).unwrap_or(&"unknown");
                     if !filter.source_ids.contains(&source_id.to_string()) {
-                        return false;
-                    }
-                }
-
-                if !filter.statuses.is_empty() && !filter.statuses.contains(&novel.status) {
-                    return false;
-                }
-
-                if let Some(ref title_filter) = filter.title_contains {
-                    if !novel
-                        .title
-                        .to_lowercase()
-                        .contains(&title_filter.to_lowercase())
-                    {
-                        return false;
-                    }
-                }
-
-                if let Some(has_content) = filter.has_content {
-                    if has_content && novel.stored_chapters == 0 {
-                        return false;
-                    }
-                    if !has_content && novel.stored_chapters > 0 {
                         return false;
                     }
                 }
@@ -781,14 +758,6 @@ impl BookStorage for FilesystemStorage {
         Ok(summaries)
     }
 
-    async fn find_novels_by_source(&self, source_id: &str) -> Result<Vec<NovelSummary>> {
-        let filter = NovelFilter {
-            source_ids: vec![source_id.to_string()],
-            ..Default::default()
-        };
-        self.list_novels(&filter).await
-    }
-
     async fn find_novel_by_url(&self, url: &str) -> Result<Option<Novel>> {
         let index = self.load_index().await?;
 
@@ -803,19 +772,6 @@ impl BookStorage for FilesystemStorage {
         }
 
         Ok(None)
-    }
-
-    async fn search_novels(&self, query: &str) -> Result<Vec<NovelSummary>> {
-        let filter = NovelFilter {
-            title_contains: Some(query.to_string()),
-            ..Default::default()
-        };
-        self.list_novels(&filter).await
-    }
-
-    async fn count_novels(&self, filter: &NovelFilter) -> Result<u64> {
-        let novels = self.list_novels(filter).await?;
-        Ok(novels.len() as u64)
     }
 
     async fn list_chapters(&self, novel_id: &NovelId) -> Result<Vec<ChapterInfo>> {
@@ -918,29 +874,6 @@ impl BookStorage for FilesystemStorage {
 
         // For now, just return empty report
         Ok(report)
-    }
-
-    async fn get_storage_stats(&self) -> Result<StorageStats> {
-        let index = self.load_index().await?;
-
-        let total_novels = index.novels.len() as u64;
-        let total_chapters: u64 = index.novels.iter().map(|n| n.stored_chapters as u64).sum();
-
-        // Group by source
-        let mut novels_by_source = std::collections::HashMap::new();
-        for novel in &index.novels {
-            let parts: Vec<&str> = novel.id.as_str().splitn(2, "::").collect();
-            let source_id = parts.get(0).unwrap_or(&"unknown").to_string();
-            *novels_by_source.entry(source_id).or_insert(0) += 1;
-        }
-
-        let novels_by_source: Vec<(String, u64)> = novels_by_source.into_iter().collect();
-
-        Ok(StorageStats {
-            total_novels,
-            total_chapters,
-            novels_by_source,
-        })
     }
 }
 
@@ -1139,8 +1072,9 @@ mod tests {
         let novel_id = storage.store_novel(&novel).await.unwrap();
 
         // Initially no stored chapters
-        let stats = storage.get_storage_stats().await.unwrap();
-        assert_eq!(stats.total_chapters, 0);
+        let chapters = storage.list_chapters(&novel_id).await.unwrap();
+        let stored_count = chapters.iter().filter(|c| c.has_content()).count();
+        assert_eq!(stored_count, 0);
 
         // Store a chapter
         let content = ChapterContent {
@@ -1151,19 +1085,10 @@ mod tests {
             .await
             .unwrap();
 
-        // Check that stats are updated
-        let stats = storage.get_storage_stats().await.unwrap();
-        assert_eq!(stats.total_chapters, 1);
-
-        // Store another chapter
-        storage
-            .store_chapter_content(&novel_id, 1, "https://test.com/chapter-2", &content)
-            .await
-            .unwrap();
-
-        // Check that stats are updated again
-        let stats = storage.get_storage_stats().await.unwrap();
-        assert_eq!(stats.total_chapters, 2);
+        // Check that chapter is now marked as stored
+        let chapters = storage.list_chapters(&novel_id).await.unwrap();
+        let stored_count = chapters.iter().filter(|c| c.has_content()).count();
+        assert_eq!(stored_count, 1);
 
         // Delete a chapter
         let deleted = storage
@@ -1172,9 +1097,10 @@ mod tests {
             .unwrap();
         assert!(deleted);
 
-        // Check that stats are updated after deletion
-        let stats = storage.get_storage_stats().await.unwrap();
-        assert_eq!(stats.total_chapters, 1);
+        // Check that chapter is no longer marked as stored
+        let chapters = storage.list_chapters(&novel_id).await.unwrap();
+        let stored_count = chapters.iter().filter(|c| c.has_content()).count();
+        assert_eq!(stored_count, 0);
     }
 
     #[tokio::test]
@@ -1195,11 +1121,12 @@ mod tests {
         let novel_id2 = storage.store_novel(&novel2).await.unwrap();
         assert!(novel_id2.as_str().starts_with("example.com::")); // www should be stripped
 
-        // Verify storage stats show correct source grouping
-        let stats = storage.get_storage_stats().await.unwrap();
-        assert_eq!(stats.novels_by_source.len(), 1); // Both should be grouped under example.com
-        assert_eq!(stats.novels_by_source[0].0, "example.com");
-        assert_eq!(stats.novels_by_source[0].1, 2);
+        // Verify novels can be filtered by source
+        let filter = crate::types::NovelFilter {
+            source_ids: vec!["example.com".to_string()],
+        };
+        let novels = storage.list_novels(&filter).await.unwrap();
+        assert_eq!(novels.len(), 2); // Both should be found under example.com
     }
 
     #[tokio::test]

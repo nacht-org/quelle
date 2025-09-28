@@ -66,9 +66,6 @@ pub enum NovelStatus {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct NovelFilter {
     pub source_ids: Vec<String>,
-    pub statuses: Vec<NovelStatus>,
-    pub title_contains: Option<String>,
-    pub has_content: Option<bool>,
 }
 
 /// Status of chapter content storage.
@@ -243,31 +240,6 @@ impl CleanupReport {
 }
 
 impl Default for CleanupReport {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Storage system statistics.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StorageStats {
-    pub total_novels: u64,
-    pub total_chapters: u64,
-    pub novels_by_source: Vec<(String, u64)>,
-}
-
-impl StorageStats {
-    /// Create a new empty storage stats
-    pub fn new() -> Self {
-        Self {
-            total_novels: 0,
-            total_chapters: 0,
-            novels_by_source: Vec::new(),
-        }
-    }
-}
-
-impl Default for StorageStats {
     fn default() -> Self {
         Self::new()
     }

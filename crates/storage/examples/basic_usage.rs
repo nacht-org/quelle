@@ -9,7 +9,7 @@
 use quelle_engine::bindings::quelle::extension::novel::{
     Chapter, ChapterContent, Novel, NovelStatus, Volume,
 };
-use storage::{BookStorage, ChapterContentStatus, FilesystemStorage};
+use storage::{BookStorage, ChapterContentStatus, FilesystemStorage, NovelFilter};
 use tempfile::TempDir;
 
 #[tokio::main]
@@ -114,11 +114,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Storage statistics
-    let stats = storage.get_storage_stats().await?;
-    println!("\nStorage stats:");
-    println!("  Novels: {}", stats.total_novels);
-    println!("  Chapters with content: {}", stats.total_chapters);
+    // Show summary
+    let filter = NovelFilter { source_ids: vec![] };
+    let novels = storage.list_novels(&filter).await?;
+    let stored_chapters_count = chapters.iter().filter(|c| c.has_content()).count();
+
+    println!("\nSummary:");
+    println!("  Novels: {}", novels.len());
+    println!("  Chapters with content: {}", stored_chapters_count);
 
     Ok(())
 }
