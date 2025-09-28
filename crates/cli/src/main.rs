@@ -7,8 +7,9 @@ use clap::Parser;
 
 use quelle_engine::ExtensionEngine;
 use quelle_store::{ConfigStore, LocalConfigStore, LocalRegistryStore, SearchQuery, StoreManager};
+use storage::{BookStorage, FilesystemStorage, NovelFilter};
 
-use crate::cli::{Commands, FetchCommands};
+use crate::cli::{Commands, FetchCommands, LibraryCommands};
 use crate::store_commands::{handle_extension_command, handle_store_command};
 
 #[tokio::main]
@@ -29,13 +30,18 @@ async fn main() -> eyre::Result<()> {
     let registry_store = Box::new(LocalRegistryStore::new(registry_dir).await?);
     let mut store_manager = StoreManager::new(registry_store).await?;
 
+    // Initialize storage for local library
+    let storage_dir = PathBuf::from("./data/library");
+    let storage = FilesystemStorage::new(&storage_dir);
+    storage.initialize().await?;
+
     // Load configuration and apply to registry
     let config = config_store.load().await?;
     config.apply(&mut store_manager).await?;
 
     match cli.command {
         Commands::Fetch { command } => {
-            handle_fetch_command(command, &mut store_manager).await?;
+            handle_fetch_command(command, &mut store_manager, &storage).await?;
         }
         Commands::Search {
             query,
@@ -55,6 +61,9 @@ async fn main() -> eyre::Result<()> {
         Commands::Store { command } => {
             handle_store_command(command, &config, &mut store_manager, &config_store).await?;
         }
+        Commands::Library { command } => {
+            handle_library_command(command, &storage).await?;
+        }
         Commands::Extension { command } => {
             handle_extension_command(command, &config, &mut store_manager).await?;
         }
@@ -66,6 +75,7 @@ async fn main() -> eyre::Result<()> {
 async fn handle_fetch_command(
     cmd: FetchCommands,
     store_manager: &mut StoreManager,
+    storage: &FilesystemStorage,
 ) -> eyre::Result<()> {
     match cmd {
         FetchCommands::Novel { url } => {
@@ -110,6 +120,16 @@ async fn handle_fetch_command(
                                     novel.volumes.iter().map(|v| v.chapters.len() as u32).sum();
                                 println!("  Total chapters: {}", total_chapters);
                                 println!("  Status: {:?}", novel.status);
+
+                                // Save to local storage
+                                match storage.store_novel(&novel).await {
+                                    Ok(novel_id) => {
+                                        println!("💾 Saved to local library with ID: {}", novel_id);
+                                    }
+                                    Err(e) => {
+                                        eprintln!("⚠️  Failed to save to library: {}", e);
+                                    }
+                                }
                             }
                             Err(e) => {
                                 eprintln!("❌ Failed to fetch novel info: {}", e);
@@ -165,6 +185,46 @@ async fn handle_fetch_command(
                                     chapter.data.clone()
                                 };
                                 println!("  Preview: {}", preview);
+
+                                // Try to save chapter to storage if we can find the novel
+                                if let Ok(Some(novel)) =
+                                    storage.find_novel_by_url(&url.to_string()).await
+                                {
+                                    // Find the chapter in the novel structure
+                                    for volume in novel.volumes.iter() {
+                                        if let Some(_ch) = volume
+                                            .chapters
+                                            .iter()
+                                            .find(|ch| ch.url == url.to_string())
+                                        {
+                                            // Create ID from URL - the backend will handle the proper format
+                                            let novel_id = get_novel_id_from_novel(&novel);
+                                            match storage
+                                                .store_chapter_content(
+                                                    &novel_id,
+                                                    volume.index,
+                                                    &url.to_string(),
+                                                    &chapter,
+                                                )
+                                                .await
+                                            {
+                                                Ok(()) => {
+                                                    println!(
+                                                        "💾 Saved chapter content to local library"
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    eprintln!("⚠️  Failed to save chapter: {}", e);
+                                                }
+                                            }
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    println!(
+                                        "ℹ️  Chapter not saved - novel not found in library. Fetch the novel first."
+                                    );
+                                }
                             }
                             Err(e) => {
                                 eprintln!("❌ Failed to fetch chapter: {}", e);
@@ -373,4 +433,320 @@ async fn fetch_chapter_with_extension(
         Ok(chapter) => Ok(chapter),
         Err(wit_error) => Err(eyre::eyre!("Extension error: {:?}", wit_error)),
     }
+}
+
+async fn handle_library_command(
+    cmd: LibraryCommands,
+    storage: &FilesystemStorage,
+) -> eyre::Result<()> {
+    match cmd {
+        LibraryCommands::List { source } => {
+            let filter = if let Some(source) = source {
+                NovelFilter {
+                    source_ids: vec![source],
+                }
+            } else {
+                NovelFilter { source_ids: vec![] }
+            };
+
+            let novels = storage.list_novels(&filter).await?;
+            if novels.is_empty() {
+                println!("No novels found in library.");
+                println!("Use 'quelle fetch novel <url>' to add novels to your library.");
+            } else {
+                println!("📚 Library ({} novels):", novels.len());
+                for novel in novels {
+                    println!("  📖 {} by {}", novel.title, novel.authors.join(", "));
+                    println!("     ID: {}", novel.id);
+                    println!("     Status: {:?}", novel.status);
+                    if novel.total_chapters > 0 {
+                        println!(
+                            "     Chapters: {} total, {} downloaded",
+                            novel.total_chapters, novel.stored_chapters
+                        );
+                    }
+                    println!();
+                }
+            }
+        }
+        LibraryCommands::Show { novel_id } => {
+            // Try to find novel by ID or URL
+            let novel = if novel_id.starts_with("http") {
+                storage.find_novel_by_url(&novel_id).await?
+            } else {
+                let id = storage::NovelId::new(novel_id.clone());
+                storage.get_novel(&id).await?
+            };
+
+            match novel {
+                Some(novel) => {
+                    println!("📖 {}", novel.title);
+                    println!("Authors: {}", novel.authors.join(", "));
+                    println!("URL: {}", novel.url);
+                    println!("Status: {:?}", novel.status);
+                    if !novel.langs.is_empty() {
+                        println!("Languages: {}", novel.langs.join(", "));
+                    }
+                    if !novel.description.is_empty() {
+                        println!("Description: {}", novel.description.join(" "));
+                    }
+                    if let Some(cover) = &novel.cover {
+                        println!("Cover: {}", cover);
+                    }
+
+                    let total_chapters: u32 =
+                        novel.volumes.iter().map(|v| v.chapters.len() as u32).sum();
+                    println!("Total chapters: {}", total_chapters);
+
+                    println!("\nVolumes:");
+                    for volume in &novel.volumes {
+                        println!("  📚 {} ({} chapters)", volume.name, volume.chapters.len());
+                    }
+                }
+                None => {
+                    println!("Novel not found: {}", novel_id);
+                }
+            }
+        }
+        LibraryCommands::Chapters {
+            novel_id,
+            downloaded_only,
+        } => {
+            // Try to find novel by ID or URL
+            let novel = if novel_id.starts_with("http") {
+                storage.find_novel_by_url(&novel_id).await?
+            } else {
+                let id = storage::NovelId::new(novel_id.clone());
+                storage.get_novel(&id).await?
+            };
+
+            match novel {
+                Some(novel) => {
+                    // Create ID from URL - the backend will handle the proper format
+                    let id = get_novel_id_from_novel(&novel);
+                    let chapters = storage.list_chapters(&id).await?;
+
+                    let filtered_chapters: Vec<_> = if downloaded_only {
+                        chapters.into_iter().filter(|ch| ch.has_content()).collect()
+                    } else {
+                        chapters
+                    };
+
+                    if filtered_chapters.is_empty() {
+                        if downloaded_only {
+                            println!("No downloaded chapters found for '{}'", novel.title);
+                        } else {
+                            println!("No chapters found for '{}'", novel.title);
+                        }
+                    } else {
+                        println!(
+                            "📄 Chapters for '{}' ({} shown):",
+                            novel.title,
+                            filtered_chapters.len()
+                        );
+                        for chapter in filtered_chapters {
+                            match &chapter.content_status {
+                                storage::ChapterContentStatus::NotStored => {
+                                    println!(
+                                        "  ❌ {}: {}",
+                                        chapter.chapter_index, chapter.chapter_title
+                                    );
+                                }
+                                storage::ChapterContentStatus::Stored {
+                                    content_size,
+                                    stored_at,
+                                    ..
+                                } => {
+                                    println!(
+                                        "  ✅ {}: {} ({} chars, {})",
+                                        chapter.chapter_index,
+                                        chapter.chapter_title,
+                                        content_size,
+                                        stored_at.format("%Y-%m-%d")
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                None => {
+                    println!("Novel not found: {}", novel_id);
+                }
+            }
+        }
+        LibraryCommands::Read { novel_id, chapter } => {
+            // Try to find novel by ID or URL
+            let novel = if novel_id.starts_with("http") {
+                storage.find_novel_by_url(&novel_id).await?
+            } else {
+                let id = storage::NovelId::new(novel_id.clone());
+                storage.get_novel(&id).await?
+            };
+
+            match novel {
+                Some(novel) => {
+                    // Create ID from URL - the backend will handle the proper format
+                    let id = get_novel_id_from_novel(&novel);
+
+                    // Find the chapter - either by number or URL
+                    let mut found_chapter = None;
+                    let mut chapter_url = None;
+                    let mut volume_index = 0;
+
+                    if chapter.starts_with("http") {
+                        // Search by URL
+                        for volume in &novel.volumes {
+                            if let Some(ch) = volume.chapters.iter().find(|ch| ch.url == chapter) {
+                                found_chapter = Some(ch);
+                                chapter_url = Some(ch.url.clone());
+                                volume_index = volume.index;
+                                break;
+                            }
+                        }
+                    } else if let Ok(chapter_num) = chapter.parse::<i32>() {
+                        // Search by chapter number
+                        for volume in &novel.volumes {
+                            if let Some(ch) =
+                                volume.chapters.iter().find(|ch| ch.index == chapter_num)
+                            {
+                                found_chapter = Some(ch);
+                                chapter_url = Some(ch.url.clone());
+                                volume_index = volume.index;
+                                break;
+                            }
+                        }
+                    }
+
+                    match (found_chapter, chapter_url) {
+                        (Some(ch), Some(url)) => {
+                            match storage.get_chapter_content(&id, volume_index, &url).await? {
+                                Some(content) => {
+                                    println!("📖 {} - {}", novel.title, ch.title);
+                                    println!("═══════════════════════════════════════");
+                                    println!();
+                                    println!("{}", content.data);
+                                }
+                                None => {
+                                    println!(
+                                        "Chapter '{}' found but content not downloaded.",
+                                        ch.title
+                                    );
+                                    println!("Use 'quelle fetch chapter {}' to download it.", url);
+                                }
+                            }
+                        }
+                        _ => {
+                            println!("Chapter not found: {}", chapter);
+                            println!(
+                                "Use 'quelle library chapters {}' to see available chapters.",
+                                novel_id
+                            );
+                        }
+                    }
+                }
+                None => {
+                    println!("Novel not found: {}", novel_id);
+                }
+            }
+        }
+        LibraryCommands::Remove { novel_id, force } => {
+            // Try to find novel by ID or URL
+            let novel = if novel_id.starts_with("http") {
+                storage.find_novel_by_url(&novel_id).await?
+            } else {
+                let id = storage::NovelId::new(novel_id.clone());
+                storage.get_novel(&id).await?
+            };
+
+            match novel {
+                Some(novel) => {
+                    if !force {
+                        println!(
+                            "⚠️  This will permanently remove '{}' and all its chapters.",
+                            novel.title
+                        );
+                        println!("Use --force to confirm removal.");
+                        return Ok(());
+                    }
+
+                    // Create ID from URL - the backend will handle the proper format
+                    let id = get_novel_id_from_novel(&novel);
+                    match storage.delete_novel(&id).await? {
+                        true => {
+                            println!("✅ Removed '{}' from library.", novel.title);
+                        }
+                        false => {
+                            println!("Novel not found in library: {}", novel_id);
+                        }
+                    }
+                }
+                None => {
+                    println!("Novel not found: {}", novel_id);
+                }
+            }
+        }
+        LibraryCommands::Cleanup => {
+            println!("🧹 Running library cleanup...");
+            let report = storage.cleanup_dangling_data().await?;
+
+            println!("✅ Cleanup completed:");
+            if report.orphaned_chapters_removed > 0 {
+                println!(
+                    "  Removed {} orphaned chapters",
+                    report.orphaned_chapters_removed
+                );
+            }
+            if report.novels_fixed > 0 {
+                println!("  Fixed {} novels", report.novels_fixed);
+            }
+            if report.errors_encountered.is_empty() {
+                println!("  No errors encountered");
+            } else {
+                println!("  {} errors encountered:", report.errors_encountered.len());
+                for error in &report.errors_encountered {
+                    println!("    - {}", error);
+                }
+            }
+        }
+        LibraryCommands::Stats => {
+            let filter = NovelFilter { source_ids: vec![] };
+            let novels = storage.list_novels(&filter).await?;
+
+            let mut total_chapters = 0;
+            let mut downloaded_chapters = 0;
+
+            for novel_summary in &novels {
+                total_chapters += novel_summary.total_chapters;
+                downloaded_chapters += novel_summary.stored_chapters;
+            }
+
+            println!("📊 Library Statistics:");
+            println!("  Novels: {}", novels.len());
+            println!("  Total chapters: {}", total_chapters);
+            println!("  Downloaded chapters: {}", downloaded_chapters);
+            if total_chapters > 0 {
+                let percentage = (downloaded_chapters as f64 / total_chapters as f64) * 100.0;
+                println!("  Download progress: {:.1}%", percentage);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Helper function to get a NovelId from a novel
+/// This tries to match the backend's ID generation pattern
+fn get_novel_id_from_novel(novel: &storage::Novel) -> storage::NovelId {
+    // Extract domain from URL to match backend logic
+    let source_id = if let Ok(parsed_url) = url::Url::parse(&novel.url) {
+        if let Some(host) = parsed_url.host_str() {
+            host.strip_prefix("www.").unwrap_or(host).to_lowercase()
+        } else {
+            "unknown".to_string()
+        }
+    } else {
+        // Fallback for malformed URLs
+        "unknown".to_string()
+    };
+
+    storage::NovelId::new(format!("{}::{}", source_id, novel.url))
 }

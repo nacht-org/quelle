@@ -2848,6 +2848,7 @@ dependencies = [
  "eyre",
  "quelle_engine",
  "quelle_store",
+ "storage",
  "tokio",
  "tracing",
  "tracing-subscriber",
