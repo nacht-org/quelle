@@ -13,7 +13,10 @@ pub mod types;
 pub use backends::FilesystemStorage;
 pub use error::{BookStorageError, Result};
 pub use traits::BookStorage;
-pub use types::{ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary, StorageStats};
+pub use types::{
+    ChapterContentStatus, ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary,
+    StorageStats,
+};
 
 // Import the WIT types that we'll be working with
 pub use quelle_engine::bindings::quelle::extension::novel::{

@@ -1,5 +1,6 @@
 //! Supporting types for the book storage system.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Unique identifier for a novel within the storage system.
@@ -70,13 +71,146 @@ pub struct NovelFilter {
     pub has_content: Option<bool>,
 }
 
-/// Information about a chapter with volume context.
+/// Status of chapter content storage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ChapterContentStatus {
+    /// Chapter content is not stored
+    NotStored,
+    /// Chapter content is stored with metadata
+    Stored {
+        stored_at: DateTime<Utc>,
+        content_size: u64,
+        updated_at: DateTime<Utc>,
+    },
+}
+
+impl ChapterContentStatus {
+    /// Check if content is stored
+    pub fn is_stored(&self) -> bool {
+        matches!(self, ChapterContentStatus::Stored { .. })
+    }
+
+    /// Get content size if stored
+    pub fn content_size(&self) -> Option<u64> {
+        match self {
+            ChapterContentStatus::NotStored => None,
+            ChapterContentStatus::Stored { content_size, .. } => Some(*content_size),
+        }
+    }
+
+    /// Get stored timestamp if stored
+    pub fn stored_at(&self) -> Option<DateTime<Utc>> {
+        match self {
+            ChapterContentStatus::NotStored => None,
+            ChapterContentStatus::Stored { stored_at, .. } => Some(*stored_at),
+        }
+    }
+
+    /// Get last updated timestamp if stored
+    pub fn updated_at(&self) -> Option<DateTime<Utc>> {
+        match self {
+            ChapterContentStatus::NotStored => None,
+            ChapterContentStatus::Stored { updated_at, .. } => Some(*updated_at),
+        }
+    }
+}
+
+/// Information about a chapter with volume context and storage metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChapterInfo {
     pub volume_index: i32,
     pub chapter_url: String,
     pub chapter_title: String,
     pub chapter_index: i32,
+
+    // Storage status
+    pub content_status: ChapterContentStatus,
+}
+
+impl ChapterInfo {
+    /// Create a new ChapterInfo without storage metadata (content not stored)
+    pub fn new(
+        volume_index: i32,
+        chapter_url: String,
+        chapter_title: String,
+        chapter_index: i32,
+    ) -> Self {
+        Self {
+            volume_index,
+            chapter_url,
+            chapter_title,
+            chapter_index,
+            content_status: ChapterContentStatus::NotStored,
+        }
+    }
+
+    /// Create a new ChapterInfo with storage metadata (content is stored)
+    pub fn with_content(
+        volume_index: i32,
+        chapter_url: String,
+        chapter_title: String,
+        chapter_index: i32,
+        stored_at: DateTime<Utc>,
+        content_size: u64,
+    ) -> Self {
+        Self {
+            volume_index,
+            chapter_url,
+            chapter_title,
+            chapter_index,
+            content_status: ChapterContentStatus::Stored {
+                stored_at,
+                content_size,
+                updated_at: stored_at,
+            },
+        }
+    }
+
+    /// Update storage metadata when content is stored
+    pub fn mark_stored(&mut self, content_size: u64) {
+        let now = Utc::now();
+        match &self.content_status {
+            ChapterContentStatus::NotStored => {
+                self.content_status = ChapterContentStatus::Stored {
+                    stored_at: now,
+                    content_size,
+                    updated_at: now,
+                };
+            }
+            ChapterContentStatus::Stored { stored_at, .. } => {
+                self.content_status = ChapterContentStatus::Stored {
+                    stored_at: *stored_at, // Keep original stored time
+                    content_size,
+                    updated_at: now,
+                };
+            }
+        }
+    }
+
+    /// Mark content as removed
+    pub fn mark_removed(&mut self) {
+        self.content_status = ChapterContentStatus::NotStored;
+    }
+
+    /// Check if content is stored
+    pub fn has_content(&self) -> bool {
+        self.content_status.is_stored()
+    }
+
+    /// Get content size if available
+    pub fn content_size(&self) -> Option<u64> {
+        self.content_status.content_size()
+    }
+
+    /// Get stored timestamp if available
+    pub fn stored_at(&self) -> Option<DateTime<Utc>> {
+        self.content_status.stored_at()
+    }
+
+    /// Get updated timestamp if available
+    pub fn updated_at(&self) -> Option<DateTime<Utc>> {
+        self.content_status.updated_at()
+    }
 }
 
 /// Report from cleanup operations.

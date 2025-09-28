@@ -1,6 +1,7 @@
 //! Filesystem-based storage backend implementation.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -40,20 +41,21 @@ pub struct FilesystemStorage {
 #[derive(Debug, Serialize, Deserialize)]
 struct NovelStorageMetadata {
     source_id: String,
-    stored_at: String, // ISO 8601 timestamp
+    stored_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ChapterStorageMetadata {
     volume_index: i32,
     chapter_url: String,
-    stored_at: String, // ISO 8601 timestamp
+    stored_at: DateTime<Utc>,
+    content_size: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct StorageIndex {
     novels: Vec<IndexedNovel>,
-    last_updated: String,
+    last_updated: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -64,8 +66,8 @@ struct IndexedNovel {
     status: crate::types::NovelStatus,
     total_chapters: u32,
     stored_chapters: u32,
-    created_at: String,
-    updated_at: String,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 
 impl FilesystemStorage {
@@ -182,7 +184,10 @@ impl FilesystemStorage {
     async fn load_index(&self) -> Result<StorageIndex> {
         let index_path = self.get_index_path();
         if !index_path.exists() {
-            return Ok(StorageIndex::default());
+            return Ok(StorageIndex {
+                novels: Vec::new(),
+                last_updated: Utc::now(),
+            });
         }
 
         let content =
@@ -219,7 +224,7 @@ impl FilesystemStorage {
 
     async fn update_index_for_novel(&self, novel_id: &NovelId, novel: &Novel) -> Result<()> {
         let mut index = self.load_index().await?;
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = Utc::now();
 
         // Remove existing entry if it exists
         index.novels.retain(|n| n.id != *novel_id);
@@ -235,8 +240,8 @@ impl FilesystemStorage {
             status: novel.status.into(),
             total_chapters: self.count_total_chapters(novel),
             stored_chapters,
-            created_at: now.clone(),
-            updated_at: now.clone(),
+            created_at: now,
+            updated_at: now,
         };
 
         index.novels.push(indexed_novel);
@@ -248,7 +253,7 @@ impl FilesystemStorage {
     async fn remove_from_index(&self, novel_id: &NovelId) -> Result<()> {
         let mut index = self.load_index().await?;
         index.novels.retain(|n| n.id != *novel_id);
-        index.last_updated = chrono::Utc::now().to_rfc3339();
+        index.last_updated = Utc::now();
         self.save_index(&index).await
     }
 
@@ -365,7 +370,7 @@ impl BookStorage for FilesystemStorage {
         let source_id = self.extract_source_id(&novel.url);
         let metadata = NovelStorageMetadata {
             source_id,
-            stored_at: chrono::Utc::now().to_rfc3339(),
+            stored_at: Utc::now(),
         };
 
         let metadata_json = serde_json::to_string_pretty(&metadata).map_err(|e| {
@@ -471,7 +476,7 @@ impl BookStorage for FilesystemStorage {
                 .next()
                 .unwrap_or("unknown")
                 .to_string(),
-            stored_at: chrono::Utc::now().to_rfc3339(),
+            stored_at: Utc::now(),
         };
 
         let metadata_json = serde_json::to_string_pretty(&metadata).map_err(|e| {
@@ -589,10 +594,12 @@ impl BookStorage for FilesystemStorage {
         let content_json = chapter_content_to_json(content)?;
 
         // Store metadata separately
+        let content_size = content.data.len() as u64;
         let metadata = ChapterStorageMetadata {
             volume_index,
             chapter_url: chapter_url.to_string(),
-            stored_at: chrono::Utc::now().to_rfc3339(),
+            stored_at: Utc::now(),
+            content_size,
         };
 
         let metadata_json = serde_json::to_string_pretty(&metadata).map_err(|e| {
@@ -819,28 +826,84 @@ impl BookStorage for FilesystemStorage {
             None => return Ok(Vec::new()),
         };
 
-        let mut stored_chapters = Vec::new();
+        let mut chapter_infos = Vec::new();
 
         // Iterate through volumes and chapters
         for volume in &novel.volumes {
             for chapter in &volume.chapters {
-                stored_chapters.push(ChapterInfo {
-                    volume_index: volume.index,
-                    chapter_url: chapter.url.clone(),
-                    chapter_title: chapter.title.clone(),
-                    chapter_index: chapter.index,
-                });
+                let chapter_file = self.get_chapter_file(novel_id, volume.index, &chapter.url);
+
+                let chapter_info = if chapter_file.exists() {
+                    if let Ok(content) = fs::read_to_string(&chapter_file).await {
+                        if let Ok(combined) = serde_json::from_str::<serde_json::Value>(&content) {
+                            // Extract metadata
+                            if let Some(metadata) = combined.get("metadata") {
+                                if let Ok(chapter_metadata) =
+                                    serde_json::from_value::<ChapterStorageMetadata>(
+                                        metadata.clone(),
+                                    )
+                                {
+                                    ChapterInfo::with_content(
+                                        volume.index,
+                                        chapter.url.clone(),
+                                        chapter.title.clone(),
+                                        chapter.index,
+                                        chapter_metadata.stored_at,
+                                        chapter_metadata.content_size,
+                                    )
+                                } else {
+                                    ChapterInfo::new(
+                                        volume.index,
+                                        chapter.url.clone(),
+                                        chapter.title.clone(),
+                                        chapter.index,
+                                    )
+                                }
+                            } else {
+                                ChapterInfo::new(
+                                    volume.index,
+                                    chapter.url.clone(),
+                                    chapter.title.clone(),
+                                    chapter.index,
+                                )
+                            }
+                        } else {
+                            ChapterInfo::new(
+                                volume.index,
+                                chapter.url.clone(),
+                                chapter.title.clone(),
+                                chapter.index,
+                            )
+                        }
+                    } else {
+                        ChapterInfo::new(
+                            volume.index,
+                            chapter.url.clone(),
+                            chapter.title.clone(),
+                            chapter.index,
+                        )
+                    }
+                } else {
+                    ChapterInfo::new(
+                        volume.index,
+                        chapter.url.clone(),
+                        chapter.title.clone(),
+                        chapter.index,
+                    )
+                };
+
+                chapter_infos.push(chapter_info);
             }
         }
 
         // Sort by volume index, then chapter index
-        stored_chapters.sort_by(|a, b| {
+        chapter_infos.sort_by(|a, b| {
             a.volume_index
                 .cmp(&b.volume_index)
                 .then(a.chapter_index.cmp(&b.chapter_index))
         });
 
-        Ok(stored_chapters)
+        Ok(chapter_infos)
     }
 
     async fn cleanup_dangling_data(&self) -> Result<CleanupReport> {
@@ -1160,5 +1223,123 @@ mod tests {
             result.unwrap_err(),
             crate::error::BookStorageError::NovelNotFound { .. }
         ));
+    }
+
+    #[tokio::test]
+    async fn test_chapter_storage_metadata() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        let novel = create_test_novel();
+        let novel_id = storage.store_novel(&novel).await.unwrap();
+
+        // Initially no chapters should have content
+        let chapters = storage.list_chapters(&novel_id).await.unwrap();
+        assert_eq!(chapters.len(), 1); // Novel has 1 chapter
+        assert!(!chapters[0].has_content());
+        assert!(chapters[0].stored_at().is_none());
+        assert!(chapters[0].content_size().is_none());
+
+        // Store chapter content
+        let content = ChapterContent {
+            data: "This is test chapter content with some text.".to_string(),
+        };
+        let content_size = content.data.len() as u64;
+
+        storage
+            .store_chapter_content(&novel_id, 1, "https://test.com/chapter-1", &content)
+            .await
+            .unwrap();
+
+        // Check that metadata is now populated
+        let chapters = storage.list_chapters(&novel_id).await.unwrap();
+        assert_eq!(chapters.len(), 1);
+        assert!(chapters[0].has_content());
+        assert!(chapters[0].stored_at().is_some());
+        assert_eq!(chapters[0].content_size(), Some(content_size));
+        assert!(chapters[0].updated_at().is_some());
+
+        // Verify timestamps are recent (within last minute)
+        let now = Utc::now();
+        let stored_at = chapters[0].stored_at().unwrap();
+        let diff = now.signed_duration_since(stored_at);
+        assert!(diff.num_seconds() < 60);
+
+        // Delete chapter content
+        let deleted = storage
+            .delete_chapter_content(&novel_id, 1, "https://test.com/chapter-1")
+            .await
+            .unwrap();
+        assert!(deleted);
+
+        // Check that has_content is now false and no storage metadata
+        let chapters = storage.list_chapters(&novel_id).await.unwrap();
+        assert_eq!(chapters.len(), 1);
+        assert!(!chapters[0].has_content());
+        assert!(chapters[0].stored_at().is_none()); // No historical data when file deleted
+        assert!(chapters[0].content_size().is_none()); // Size cleared
+    }
+
+    #[tokio::test]
+    async fn test_chapter_content_status_pattern_matching() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        let novel = create_test_novel();
+        let novel_id = storage.store_novel(&novel).await.unwrap();
+
+        let chapters = storage.list_chapters(&novel_id).await.unwrap();
+        assert_eq!(chapters.len(), 1);
+
+        // Test pattern matching on NotStored
+        match &chapters[0].content_status {
+            crate::types::ChapterContentStatus::NotStored => {
+                println!("Chapter content not stored - as expected");
+            }
+            crate::types::ChapterContentStatus::Stored { .. } => {
+                panic!("Expected NotStored, got Stored");
+            }
+        }
+
+        // Store content
+        let content = ChapterContent {
+            data: "Pattern matching test content".to_string(),
+        };
+        storage
+            .store_chapter_content(&novel_id, 1, "https://test.com/chapter-1", &content)
+            .await
+            .unwrap();
+
+        let chapters = storage.list_chapters(&novel_id).await.unwrap();
+
+        // Test pattern matching on Stored with destructuring
+        match &chapters[0].content_status {
+            crate::types::ChapterContentStatus::NotStored => {
+                panic!("Expected Stored, got NotStored");
+            }
+            crate::types::ChapterContentStatus::Stored {
+                stored_at,
+                content_size,
+                updated_at,
+            } => {
+                assert_eq!(*content_size, 29); // Length of test content
+                assert!(stored_at <= updated_at);
+                let now = Utc::now();
+                assert!(now.signed_duration_since(*stored_at).num_seconds() < 60);
+                println!(
+                    "Chapter stored at {} with {} bytes",
+                    stored_at.format("%Y-%m-%d %H:%M:%S"),
+                    content_size
+                );
+            }
+        }
+
+        // Test helper methods work consistently
+        assert!(chapters[0].has_content());
+        assert_eq!(chapters[0].content_size(), Some(29));
+        assert!(chapters[0].stored_at().is_some());
+        assert!(chapters[0].updated_at().is_some());
     }
 }
