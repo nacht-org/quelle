@@ -49,7 +49,7 @@ async fn handle_list_novels(source: Option<String>, storage: &FilesystemStorage)
         println!("📚 Library ({} novels):", novels.len());
         for novel in novels {
             println!("  📖 {} by {}", novel.title, novel.authors.join(", "));
-            println!("     ID: {}", novel.id.0);
+            println!("     ID: {}", novel.id.as_str());
             println!("     Status: {:?}", novel.status);
             if novel.total_chapters > 0 {
                 println!(
@@ -82,7 +82,7 @@ async fn handle_show_novel(novel_id: String, storage: &FilesystemStorage) -> Res
             }
         }
         None => {
-            println!("❌ Novel not found: {}", id.0);
+            println!("❌ Novel not found: {}", id.as_str());
         }
     }
     Ok(())
@@ -97,11 +97,11 @@ async fn handle_list_chapters(
     let chapters = storage.list_chapters(&id).await?;
 
     if chapters.is_empty() {
-        println!("📄 No chapters found for novel: {}", id.0);
+        println!("📄 No chapters found for novel: {}", id.as_str());
         return Ok(());
     }
 
-    println!("📄 Chapters for {}:", id.0);
+    println!("📄 Chapters for {}:", id.as_str());
     for chapter in chapters {
         if !downloaded_only || chapter.has_content() {
             let status = if chapter.has_content() { "✅" } else { "⬜" };
@@ -161,30 +161,65 @@ async fn handle_read_chapter(
 
 async fn handle_sync_novels(novel_id: String, dry_run: bool) -> Result<()> {
     if dry_run {
-        println!("Would sync: {}", novel_id);
+        if novel_id == "all" {
+            println!("Would sync all novels for new chapters");
+        } else {
+            println!("Would sync novel {} for new chapters", novel_id);
+        }
         return Ok(());
     }
 
     if novel_id == "all" {
-        println!("🚧 Sync all novels is not yet implemented");
+        println!("🔄 Syncing all novels for new chapters...");
+        println!("🚧 This feature requires:");
+        println!("  1. Extension engine to re-fetch novel metadata");
+        println!("  2. Comparison with stored chapter lists");
+        println!("  3. Detection of new chapters since last sync");
+        println!("💡 This would check all novels in your library for new chapters");
+        println!("💡 Use 'quelle library update all' to download new content");
     } else {
-        println!("🚧 Sync novel is not yet implemented");
-        println!("📚 Novel ID: {}", novel_id);
+        let id = NovelId::new(novel_id.clone());
+        println!("🔄 Syncing novel {} for new chapters...", id.as_str());
+        println!("🚧 This feature requires:");
+        println!(
+            "  1. Extension engine to re-fetch novel metadata for: {}",
+            novel_id
+        );
+        println!("  2. Comparison with stored chapter list");
+        println!("  3. Detection of new chapters since last sync");
+        println!(
+            "💡 Use 'quelle library update {}' to download new content",
+            novel_id
+        );
     }
     Ok(())
 }
 
 async fn handle_update_novels(novel_id: String, dry_run: bool) -> Result<()> {
     if dry_run {
-        println!("Would update: {}", novel_id);
+        if novel_id == "all" {
+            println!("Would fetch new chapters for all novels");
+        } else {
+            println!("Would fetch new chapters for novel: {}", novel_id);
+        }
         return Ok(());
     }
 
     if novel_id == "all" {
-        println!("🚧 Update all novels is not yet implemented");
+        println!("📥 Updating all novels with new chapters...");
+        println!("🚧 This feature requires:");
+        println!("  1. Integration with fetch command logic");
+        println!("  2. Automatic detection of novels that need updates");
+        println!("  3. Batch processing of chapter downloads");
+        println!("💡 For now, use 'quelle fetch chapters <novel_id>' for individual novels");
     } else {
-        println!("🚧 Update novel is not yet implemented");
-        println!("📚 Novel ID: {}", novel_id);
+        let id = NovelId::new(novel_id.clone());
+        println!("📥 Updating novel {} with new chapters...", id.as_str());
+        println!("🚧 This feature requires:");
+        println!("  1. Integration with fetch command logic");
+        println!("  2. Detection of new chapters for: {}", novel_id);
+        println!("  3. Automatic chapter content download");
+        println!("💡 For now, use 'quelle fetch chapters {}'", novel_id);
     }
     Ok(())
 }
@@ -219,7 +254,7 @@ async fn handle_remove_novel(
             println!("✅ Removed novel: {}", novel.title);
         }
         None => {
-            println!("❌ Novel not found: {}", id.0);
+            println!("❌ Novel not found: {}", id.as_str());
         }
     }
     Ok(())

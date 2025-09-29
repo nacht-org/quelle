@@ -103,21 +103,66 @@ async fn handle_list_extensions(detailed: bool, store_manager: &mut StoreManager
 
 async fn handle_update_extension(
     id: String,
-    _prerelease: bool,
-    _force: bool,
-    _store_manager: &mut StoreManager,
+    prerelease: bool,
+    force: bool,
+    store_manager: &mut StoreManager,
     dry_run: bool,
 ) -> Result<()> {
     if dry_run {
-        println!("Would update extension: {}", id);
+        if id == "all" {
+            println!("Would update all extensions");
+        } else {
+            println!("Would update extension: {}", id);
+        }
         return Ok(());
     }
 
     if id == "all" {
-        println!("🚧 Update all extensions is not yet implemented");
+        println!("📦 Updating all extensions...");
+
+        let installed = store_manager.list_installed().await?;
+        if installed.is_empty() {
+            println!("📦 No extensions installed");
+            return Ok(());
+        }
+
+        let updated_count = 0;
+        let failed_count = 0;
+
+        for ext in installed {
+            print!("📦 Checking {} for updates...", ext.name);
+            io::stdout().flush()?;
+
+            // For now, just report that we would check for updates
+            println!(" 🚧 Update checking not yet implemented");
+            // TODO: Implement actual update checking once store supports it
+        }
+
+        println!(
+            "📊 Update complete: {} updated, {} failed",
+            updated_count, failed_count
+        );
     } else {
-        println!("🚧 Update extension is not yet implemented");
-        println!("📦 Extension ID: {}", id);
+        println!("📦 Updating extension: {}", id);
+
+        match store_manager.get_installed(&id).await? {
+            Some(installed) => {
+                println!("  Current version: {}", installed.version);
+                println!("  🚧 Update checking not yet implemented");
+                println!("  💡 This would check for newer versions and install if available");
+
+                if prerelease {
+                    println!("  📋 Would include pre-release versions");
+                }
+                if force {
+                    println!("  🔧 Would force update even if no newer version");
+                }
+            }
+            None => {
+                println!("❌ Extension not installed: {}", id);
+                println!("💡 Use 'quelle extension install {}' to install it", id);
+            }
+        }
     }
     Ok(())
 }
@@ -168,8 +213,8 @@ async fn handle_remove_extension(
 
 async fn handle_search_extensions(
     query: String,
-    _author: Option<String>,
-    _limit: usize,
+    author: Option<String>,
+    limit: usize,
     dry_run: bool,
 ) -> Result<()> {
     if dry_run {
@@ -177,9 +222,17 @@ async fn handle_search_extensions(
         return Ok(());
     }
 
-    println!("🚧 Extension search is not yet fully implemented");
-    println!("🔍 Query: {}", query);
+    println!("🔍 Searching for extensions: {}", query);
+
+    // Build search query
+    let _search_query = quelle_store::models::SearchQuery::new()
+        .with_text(query)
+        .with_author(author.unwrap_or_default())
+        .limit(limit);
+
+    println!("🚧 Extension search across stores is not yet fully implemented");
     println!("💡 This would search across all configured extension stores");
+    println!("💡 Currently only local installed extensions are supported");
     Ok(())
 }
 
