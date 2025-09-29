@@ -242,13 +242,27 @@ impl LocalStore {
 
         // Don't overwrite existing manifest
         if manifest_path.exists() {
-            return Ok(());
+            return Err(StoreError::InvalidPackage {
+                reason: format!(
+                    "Store manifest already exists at {}. Refusing to overwrite.",
+                    manifest_path.display()
+                ),
+            });
         }
+
+        let canonical_root_path =
+            fs::canonicalize(&self.root_path)
+                .await
+                .map_err(|e| StoreError::IoOperation {
+                    operation: "canonicalize root path".to_string(),
+                    path: self.root_path.clone(),
+                    source: e,
+                })?;
 
         // Create initial manifest with provided metadata
         let base_manifest =
             StoreManifest::new(store_name, "local".to_string(), "1.0.0".to_string())
-                .with_url(format!("file://{}", self.root_path.display()))
+                .with_url(format!("file://{}", canonical_root_path.display()))
                 .with_description(
                     description.unwrap_or_else(|| "Local extension store".to_string()),
                 );
@@ -744,7 +758,7 @@ impl BaseStore for LocalStore {
 
         // If no manifest exists, the store hasn't been properly initialized
         Err(StoreError::InvalidPackage {
-            reason: "Store manifest not found. Use initialize_store() to create a properly configured store.".to_string(),
+            reason: format!("Store manifest not found at {}. Use initialize_store() to create a properly configured store.", manifest_path.display()),
         })
     }
 

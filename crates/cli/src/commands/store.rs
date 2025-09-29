@@ -1,5 +1,6 @@
 use eyre::Result;
-use quelle_store::{RegistryConfig, StoreManager, StoreType};
+use quelle_store::stores::local::LocalStore;
+use quelle_store::{BaseStore, RegistryConfig, StoreManager, StoreType};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -46,6 +47,53 @@ async fn handle_add_store(
     if !store_path.exists() {
         println!("❌ Local path does not exist: {}", path);
         return Ok(());
+    }
+
+    // If the directory exists but is empty, initialize it as a store
+    if store_path.is_file() {
+        return Err(eyre::eyre!(
+            "Path '{}' is a file, expected a directory",
+            path
+        ));
+    }
+
+    let is_empty = store_path.read_dir()?.next().is_none();
+    if is_empty {
+        println!("📂 Initializing empty directory as a local store: {}", path);
+
+        let local_store = LocalStore::new(&path)
+            .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
+
+        local_store
+            .initialize_store(name.clone(), None)
+            .await
+            .map_err(|e| eyre::eyre!("Failed to initialize store: {}", e))?;
+    } else {
+        println!("📂 Using existing directory as local store: {}", path);
+
+        let local_store = LocalStore::new(&path)
+            .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
+
+        // Validate existing store - don't write anything to it
+        match local_store.health_check().await {
+            Ok(health) => {
+                if !health.healthy {
+                    let error_msg = health.error.unwrap_or_default();
+                    tracing::error!("Existing store validation failed: {}", error_msg);
+                    return Err(eyre::eyre!("Store validation failed: {}", error_msg));
+                }
+
+                if let Some(count) = health.extension_count {
+                    tracing::info!("Validated existing store with {} extensions", count);
+                } else {
+                    tracing::info!("Validated existing store structure");
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to validate existing store: {}", e);
+                return Err(eyre::eyre!("Store validation failed: {}", e));
+            }
+        }
     }
 
     // Convert to absolute path to ensure consistency
