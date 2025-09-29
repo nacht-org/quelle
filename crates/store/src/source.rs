@@ -46,13 +46,11 @@ impl std::fmt::Display for StoreType {
 }
 
 /// Registry configuration containing extension sources and other settings
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RegistryConfig {
     #[serde(default)]
     pub extension_sources: Vec<ExtensionSource>,
 }
-
 
 impl RegistryConfig {
     pub fn add_source(&mut self, source: ExtensionSource) {

@@ -93,7 +93,7 @@ impl LocalStoreManifest {
                 }
             }
 
-            self.add_url_pattern(base_url.clone(), extension.name.clone(), 100);
+            self.add_url_pattern(base_url.clone(), extension.id.clone(), 100);
         }
 
         self.extensions.push(extension);
@@ -895,6 +895,11 @@ impl ReadableStore for LocalStore {
             .map_err(StoreError::from)?;
         let manifest_path = version_path.join(&self.layout.manifest_file);
 
+        debug!(
+            "Loading extension manifest from {}",
+            manifest_path.display()
+        );
+
         if !manifest_path.exists() {
             return Err(StoreError::ExtensionNotFound(format!("{}@{}", id, version)));
         }
@@ -1084,6 +1089,15 @@ impl LocalStore {
 
     /// Generate a local store manifest from the current state of the store
     async fn generate_local_store_manifest(&self) -> Result<LocalStoreManifest> {
+        let canonical_root_path =
+            fs::canonicalize(&self.root_path)
+                .await
+                .map_err(|e| StoreError::IoOperation {
+                    operation: "canonicalize root path".to_string(),
+                    path: self.root_path.clone(),
+                    source: e,
+                })?;
+
         // Try to preserve existing store metadata from manifest file
         let manifest_path = self.root_path.join("store.json");
         let base_manifest = if manifest_path.exists() {
@@ -1093,7 +1107,7 @@ impl LocalStore {
                     // Preserve existing base manifest metadata but update URL and timestamp
                     let mut base = existing_manifest
                         .base
-                        .with_url(format!("file://{}", self.root_path.display()));
+                        .with_url(format!("file://{}", canonical_root_path.display()));
                     base.touch();
                     // Ensure store_type is always "local" for local stores
                     base.store_type = "local".to_string();
@@ -1129,20 +1143,27 @@ impl LocalStore {
 
         for ext_info in extensions {
             // Get the extension manifest to extract base_urls
-            if let Ok(ext_manifest) = self
-                .get_extension_manifest(&ext_info.name, Some(&ext_info.version))
+            match self
+                .get_extension_manifest(&ext_info.id, Some(&ext_info.version))
                 .await
             {
-                let summary = ExtensionSummary {
-                    id: ext_manifest.id.clone(),
-                    name: ext_info.name.clone(),
-                    version: ext_info.version.clone(),
-                    base_urls: ext_manifest.base_urls.clone(),
-                    langs: ext_manifest.langs.clone(),
-                    last_updated: ext_info.last_updated.unwrap_or_else(Utc::now),
-                };
-
-                local_manifest.add_extension(summary);
+                Ok(ext_manifest) => {
+                    let summary = ExtensionSummary {
+                        id: ext_manifest.id.clone(),
+                        name: ext_info.name.clone(),
+                        version: ext_info.version.clone(),
+                        base_urls: ext_manifest.base_urls.clone(),
+                        langs: ext_manifest.langs.clone(),
+                        last_updated: ext_info.last_updated.unwrap_or_else(Utc::now),
+                    };
+                    local_manifest.add_extension(summary);
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to load manifest for {}@{}: {}",
+                        ext_info.name, ext_info.version, e
+                    );
+                }
             }
         }
         Ok(local_manifest)
