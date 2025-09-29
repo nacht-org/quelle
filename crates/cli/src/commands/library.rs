@@ -5,6 +5,7 @@ use quelle_storage::{
     traits::BookStorage,
     types::{NovelFilter, NovelId},
 };
+use quelle_store::StoreManager;
 use tracing::{error, info, warn};
 
 use crate::cli::LibraryCommands;
@@ -12,6 +13,7 @@ use crate::cli::LibraryCommands;
 pub async fn handle_library_command(
     cmd: LibraryCommands,
     storage: &FilesystemStorage,
+    store_manager: &mut StoreManager,
     dry_run: bool,
 ) -> Result<()> {
     match cmd {
@@ -24,7 +26,9 @@ pub async fn handle_library_command(
         LibraryCommands::Read { novel_id, chapter } => {
             handle_read_chapter(novel_id, chapter, storage).await
         }
-        LibraryCommands::Sync { novel_id } => handle_sync_novels(novel_id, storage, dry_run).await,
+        LibraryCommands::Sync { novel_id } => {
+            handle_sync_novels(novel_id, storage, store_manager, dry_run).await
+        }
         LibraryCommands::Update { novel_id } => {
             handle_update_novels(novel_id, storage, dry_run).await
         }
@@ -165,7 +169,8 @@ async fn handle_read_chapter(
 
 async fn handle_sync_novels(
     novel_id: String,
-    storage: &FilesystemStorage,
+    storage: &dyn BookStorage,
+    store_manager: &mut StoreManager,
     dry_run: bool,
 ) -> Result<()> {
     if dry_run {
@@ -176,10 +181,6 @@ async fn handle_sync_novels(
         }
         return Ok(());
     }
-
-    // Initialize extension infrastructure
-    let mut store_manager = crate::utils::create_store_manager().await?;
-    let engine = crate::utils::create_extension_engine()?;
 
     if novel_id == "all" {
         println!("🔄 Syncing all novels for new chapters...");
@@ -195,7 +196,7 @@ async fn handle_sync_novels(
         let mut failed_count = 0;
 
         for novel_summary in novels {
-            match sync_single_novel(&novel_summary.id, storage, &mut store_manager, &engine).await {
+            match sync_single_novel(&novel_summary.id, storage, store_manager).await {
                 Ok(new_chapters) => {
                     if new_chapters > 0 {
                         println!(
@@ -229,7 +230,7 @@ async fn handle_sync_novels(
         let id = NovelId::new(novel_id.clone());
         println!("🔄 Syncing novel {} for new chapters...", id.as_str());
 
-        match sync_single_novel(&id, storage, &mut store_manager, &engine).await {
+        match sync_single_novel(&id, storage, store_manager).await {
             Ok(new_chapters) => {
                 if new_chapters > 0 {
                     println!("✅ Found {} new chapters", new_chapters);
@@ -332,9 +333,8 @@ async fn handle_update_novels(
 
 async fn sync_single_novel(
     novel_id: &NovelId,
-    storage: &FilesystemStorage,
+    storage: &dyn BookStorage,
     store_manager: &mut quelle_store::StoreManager,
-    engine: &quelle_engine::ExtensionEngine,
 ) -> Result<u32> {
     // Get the stored novel
     let stored_novel = storage

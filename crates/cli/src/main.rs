@@ -81,7 +81,7 @@ async fn main() -> Result<()> {
             .await
         }
         Commands::Library { command } => {
-            handle_library_command(command, &storage, cli.dry_run).await
+            handle_library_command(command, &storage, &mut store_manager, cli.dry_run).await
         }
         Commands::List => handle_list_command(&store_manager).await,
         Commands::Status => handle_status_command(&store_manager).await,
