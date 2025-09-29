@@ -340,7 +340,7 @@ impl LocalRegistryStore {
                 auto_update_enabled += 1;
             }
             if let Some(updated) = extension.last_updated {
-                if last_updated.map_or(true, |lu| updated > lu) {
+                if last_updated.is_none_or(|lu| updated > lu) {
                     last_updated = Some(updated);
                 }
             }

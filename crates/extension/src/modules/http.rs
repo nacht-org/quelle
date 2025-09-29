@@ -59,7 +59,7 @@ impl Request {
     }
 
     pub fn send(&self, client: &Client) -> Result<Response, ResponseError> {
-        client.request(&self)
+        client.request(self)
     }
 }
 
@@ -92,6 +92,12 @@ impl Response {
 
 pub struct RequestFormBuilder {
     params: Vec<(String, FormPart)>,
+}
+
+impl Default for RequestFormBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RequestFormBuilder {

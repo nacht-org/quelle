@@ -639,21 +639,13 @@ impl Default for StoreConfig {
 
 /// Installation options
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct InstallOptions {
     pub auto_update: bool,
     pub force_reinstall: bool,
     pub skip_verification: bool,
 }
 
-impl Default for InstallOptions {
-    fn default() -> Self {
-        Self {
-            auto_update: false,
-            force_reinstall: false,
-            skip_verification: false,
-        }
-    }
-}
 
 /// Update options
 #[derive(Debug, Clone)]

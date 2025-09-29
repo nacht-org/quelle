@@ -62,7 +62,7 @@ impl Exporter for EpubExporter {
             epub_builder.metadata("language", &novel.langs[0])?;
         }
         if !novel.description.is_empty() {
-            epub_builder.metadata("description", &novel.description.join(" "))?;
+            epub_builder.metadata("description", novel.description.join(" "))?;
         }
 
         // Add cover image if available and requested

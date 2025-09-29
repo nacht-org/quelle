@@ -124,7 +124,7 @@ impl FilesystemStorage {
         // Extract source_id and novel_url from the composite ID
         let id_str = novel_id.as_str();
         let parts: Vec<&str> = id_str.splitn(2, "::").collect();
-        let source_id = parts.get(0).unwrap_or(&"unknown");
+        let source_id = parts.first().unwrap_or(&"unknown");
         let novel_url = parts.get(1).unwrap_or(&id_str);
 
         let novel_hash = self.hash_string(novel_url);
@@ -328,7 +328,7 @@ impl FilesystemStorage {
                 })?;
 
         while let Ok(Some(entry)) = entries.next_entry().await {
-            if entry.file_type().await.map_or(false, |ft| ft.is_dir()) {
+            if entry.file_type().await.is_ok_and(|ft| ft.is_dir()) {
                 let volume_dir = entry.path();
                 let mut volume_entries = fs::read_dir(&volume_dir).await.map_err(|e| {
                     BookStorageError::BackendError {
@@ -340,7 +340,7 @@ impl FilesystemStorage {
                     if chapter_entry
                         .file_type()
                         .await
-                        .map_or(false, |ft| ft.is_file())
+                        .is_ok_and(|ft| ft.is_file())
                         && chapter_entry
                             .file_name()
                             .to_string_lossy()
@@ -820,7 +820,7 @@ impl BookStorage for FilesystemStorage {
                 // Filter by source IDs if provided
                 if !filter.source_ids.is_empty() {
                     let parts: Vec<&str> = novel.id.as_str().splitn(2, "::").collect();
-                    let source_id = parts.get(0).unwrap_or(&"unknown");
+                    let source_id = parts.first().unwrap_or(&"unknown");
                     if !filter.source_ids.contains(&source_id.to_string()) {
                         return false;
                     }

@@ -19,8 +19,7 @@ use crate::models::{
     SearchQuery, StoreHealth, UpdateInfo,
 };
 use crate::publish::{
-    ExtensionVisibility, PublishOptions, PublishPermissions, PublishRequirements, PublishResult,
-    PublishStats, PublishUpdateOptions, RateLimitStatus, RateLimits, UnpublishOptions,
+    ExtensionVisibility, PublishOptions, PublishRequirements, PublishResult, PublishUpdateOptions, UnpublishOptions,
     UnpublishResult,
 };
 use crate::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
@@ -263,7 +262,7 @@ impl LocalStore {
         if let Some(parent) = manifest_path.parent() {
             fs::create_dir_all(parent)
                 .await
-                .map_err(|e| StoreError::IoError(e))?;
+                .map_err(StoreError::IoError)?;
         }
 
         fs::write(&manifest_path, content)
@@ -488,7 +487,7 @@ impl LocalStore {
                 .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|duration| {
                     chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
-                        .unwrap_or_else(|| Utc::now())
+                        .unwrap_or_else(Utc::now)
                 }),
             Err(_) => None,
         };
@@ -670,8 +669,8 @@ impl LocalStore {
             crate::models::SearchSortBy::LastUpdated => {
                 results.sort_by(|a, b| {
                     b.last_updated
-                        .unwrap_or_else(|| Utc::now())
-                        .cmp(&a.last_updated.unwrap_or_else(|| Utc::now()))
+                        .unwrap_or_else(Utc::now)
+                        .cmp(&a.last_updated.unwrap_or_else(Utc::now))
                 });
             }
             crate::models::SearchSortBy::DownloadCount => {
@@ -1126,7 +1125,7 @@ impl LocalStore {
                     version: ext_info.version.clone(),
                     base_urls: ext_manifest.base_urls.clone(),
                     langs: ext_manifest.langs.clone(),
-                    last_updated: ext_info.last_updated.unwrap_or_else(|| Utc::now()),
+                    last_updated: ext_info.last_updated.unwrap_or_else(Utc::now),
                 };
 
                 local_manifest.add_extension(summary);
@@ -1268,9 +1267,7 @@ impl LocalStore {
         };
 
         self.verify_extension_integrity(name, &version)
-            .await
-            .map_err(StoreError::from)
-    }
+            .await}
 }
 
 #[async_trait]

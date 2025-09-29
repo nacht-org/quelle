@@ -48,8 +48,8 @@ async fn handle_install_extension(
     println!("📦 Installing extension: {}", id);
 
     // Check if already installed
-    if !force {
-        if let Some(installed) = store_manager.get_installed(&id).await? {
+    if !force
+        && let Some(installed) = store_manager.get_installed(&id).await? {
             println!(
                 "⚠️ Extension {} v{} is already installed",
                 installed.name, installed.version
@@ -57,7 +57,6 @@ async fn handle_install_extension(
             println!("💡 Use --force to reinstall");
             return Ok(());
         }
-    }
 
     // Install the extension
     match store_manager.install(&id, version.as_deref(), None).await {

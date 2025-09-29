@@ -47,6 +47,12 @@ pub struct HeadlessChromeExecutor {
     browser: Browser,
 }
 
+impl Default for HeadlessChromeExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HeadlessChromeExecutor {
     #[tracing::instrument]
     pub fn new() -> Self {
@@ -62,8 +68,8 @@ impl HttpExecutor for HeadlessChromeExecutor {
     async fn execute(&self, request: http::Request) -> Result<http::Response, http::ResponseError> {
         // Build the final URL with parameters
         let mut url = request.url.clone();
-        if let Some(params) = &request.params {
-            if !params.is_empty() {
+        if let Some(params) = &request.params
+            && !params.is_empty() {
                 let mut parsed_url = url::Url::parse(&url)
                     .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?;
 
@@ -73,7 +79,6 @@ impl HttpExecutor for HeadlessChromeExecutor {
 
                 url = parsed_url.to_string();
             }
-        }
 
         tracing::info!(url = url, "executing http request in headless chrome");
 

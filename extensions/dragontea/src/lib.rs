@@ -237,12 +237,9 @@ mod jumble {
     pub fn reorder_html_text(doc: &mut Html, node_ids: Vec<NodeId>) {
         for node_id in node_ids {
             if let Some(mut node) = doc.tree.get_mut(node_id) {
-                match node.value() {
-                    scraper::Node::Text(text) => {
-                        let reordered = reorder_text(&text.text);
-                        text.text = reordered.into();
-                    }
-                    _ => (),
+                if let scraper::Node::Text(text) = node.value() {
+                    let reordered = reorder_text(&text.text);
+                    text.text = reordered.into();
                 }
             }
         }

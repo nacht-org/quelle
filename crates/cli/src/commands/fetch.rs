@@ -45,7 +45,7 @@ async fn handle_fetch_novel(
     }
 
     // Find extension that can handle this URL
-    match find_extension_for_url(&url.to_string(), store_manager).await? {
+    match find_extension_for_url(url.as_ref(), store_manager).await? {
         Some((extension_id, _store_name)) => {
             println!("📦 Found extension: {}", extension_id);
 
@@ -70,7 +70,7 @@ async fn handle_fetch_novel(
             println!("📖 Fetching novel info from: {}", url);
 
             if let Some(installed) = store_manager.get_installed(&extension_id).await? {
-                match fetch_novel_with_extension(&installed, &url.to_string()).await {
+                match fetch_novel_with_extension(&installed, url.as_ref()).await {
                     Ok(novel) => {
                         println!("✅ Successfully fetched novel information:");
                         println!("  📖 Title: {}", novel.title);
@@ -121,7 +121,7 @@ async fn handle_fetch_novel(
                     }
                     Err(e) => {
                         eprintln!("❌ Failed to fetch novel info: {}", e);
-                        return Err(e.into());
+                        return Err(e);
                     }
                 }
             } else {
@@ -151,7 +151,7 @@ async fn handle_fetch_chapter(
     }
 
     // Find extension that can handle this URL
-    match find_extension_for_url(&url.to_string(), store_manager).await? {
+    match find_extension_for_url(url.as_ref(), store_manager).await? {
         Some((extension_id, _store_name)) => {
             println!("📦 Found extension: {}", extension_id);
 
@@ -176,7 +176,7 @@ async fn handle_fetch_chapter(
             println!("📄 Fetching chapter from: {}", url);
 
             if let Some(installed) = store_manager.get_installed(&extension_id).await? {
-                match fetch_chapter_with_extension(&installed, &url.to_string()).await {
+                match fetch_chapter_with_extension(&installed, url.as_ref()).await {
                     Ok(chapter) => {
                         println!("✅ Successfully fetched chapter:");
                         println!("  📄 Content length: {} characters", chapter.data.len());
@@ -190,7 +190,7 @@ async fn handle_fetch_chapter(
                         println!("  📖 Preview: {}", preview.replace('\n', " ").trim());
 
                         // Try to save chapter to storage if we can find the novel
-                        if let Ok(Some(novel)) = storage.find_novel_by_url(&url.to_string()).await {
+                        if let Ok(Some(novel)) = storage.find_novel_by_url(url.as_ref()).await {
                             // Find the chapter in the novel structure
                             let mut saved = false;
                             for volume in novel.volumes.iter() {
@@ -200,15 +200,15 @@ async fn handle_fetch_chapter(
                                     // Find the novel ID from the library listing
                                     let filter =
                                         quelle_storage::types::NovelFilter { source_ids: vec![] };
-                                    if let Ok(novels) = storage.list_novels(&filter).await {
-                                        if let Some(novel_summary) =
+                                    if let Ok(novels) = storage.list_novels(&filter).await
+                                        && let Some(novel_summary) =
                                             novels.iter().find(|n| n.title == novel.title)
                                         {
                                             match storage
                                                 .store_chapter_content(
                                                     &novel_summary.id,
                                                     volume.index,
-                                                    &url.to_string(),
+                                                    url.as_ref(),
                                                     &chapter,
                                                 )
                                                 .await
@@ -224,7 +224,6 @@ async fn handle_fetch_chapter(
                                                 }
                                             }
                                         }
-                                    }
                                     break;
                                 }
                             }
@@ -242,7 +241,7 @@ async fn handle_fetch_chapter(
                     }
                     Err(e) => {
                         eprintln!("❌ Failed to fetch chapter: {}", e);
-                        return Err(e.into());
+                        return Err(e);
                     }
                 }
             } else {

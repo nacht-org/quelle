@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use tokio::fs;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Default)]
 pub struct Config {
     #[serde(default)]
     pub storage: StorageConfig,
@@ -65,16 +66,6 @@ impl Default for FetchConfig {
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            storage: StorageConfig::default(),
-            export: ExportConfig::default(),
-            fetch: FetchConfig::default(),
-            registry: RegistryConfig::default(),
-        }
-    }
-}
 
 impl Config {
     pub fn get_config_path() -> PathBuf {
@@ -175,7 +166,7 @@ impl Config {
                 .export
                 .output_dir
                 .clone()
-                .unwrap_or_else(|| "".to_string()),
+                .unwrap_or_default(),
             ["fetch", "auto_fetch_covers"] => self.fetch.auto_fetch_covers.to_string(),
             ["fetch", "auto_fetch_assets"] => self.fetch.auto_fetch_assets.to_string(),
             _ => {

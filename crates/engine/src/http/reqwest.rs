@@ -7,6 +7,12 @@ pub struct ReqwestExecutor {
     client: reqwest::Client,
 }
 
+impl Default for ReqwestExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReqwestExecutor {
     pub fn new() -> Self {
         Self {

@@ -224,12 +224,10 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
 
         let time = element
             .select_first_opt(".fic_date_pub")?
-            .map(|e| e.attr_opt("title"))
-            .flatten();
+            .and_then(|e| e.attr_opt("title"));
 
         let updated_at = time
-            .map(|time| parse_date_or_relative_time(&time, "%b %d, %Y").ok())
-            .flatten()
+            .and_then(|time| parse_date_or_relative_time(&time, "%b %d, %Y").ok())
             .map(|time| time.and_utc().to_rfc3339());
 
         let chapter = Chapter {

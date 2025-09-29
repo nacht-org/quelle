@@ -376,6 +376,12 @@ impl Default for SecurityRuleConfig {
     }
 }
 
+impl Default for SecurityValidationRule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SecurityValidationRule {
     pub fn new() -> Self {
         Self {
@@ -479,7 +485,7 @@ impl ValidationRule for SecurityValidationRule {
         }
 
         // Check for forbidden files in assets
-        for (asset_path, _content) in &package.assets {
+        for asset_path in package.assets.keys() {
             if self.is_forbidden_file(asset_path) {
                 issues.push(ValidationIssue {
                     extension_name: package.manifest.name.clone(),

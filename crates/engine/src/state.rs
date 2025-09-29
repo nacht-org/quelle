@@ -32,13 +32,13 @@ impl novel::Host for State {}
 impl source::Host for State {}
 
 impl wit_error::Host for State {
-    fn report_panic(&mut self, error: wit_error::Error) -> () {
+    fn report_panic(&mut self, error: wit_error::Error) {
         self.panic_error = Some(error);
     }
 }
 
 impl wit_tracing::Host for State {
-    fn on_event(&mut self, event: LogEvent) -> () {
+    fn on_event(&mut self, event: LogEvent) {
         macro_rules! log_event {
             ($level:expr) => {
                 event!(
