@@ -213,7 +213,14 @@ fn volumes(client: &Client, id: &str) -> Result<Vec<Volume>, eyre::Report> {
     let doc = Html::new(&text);
     let mut volume = Volume::default();
 
-    for element in doc.select("li.toc_w")? {
+    let elements = doc
+        .select("li.toc_w")?
+        .into_iter()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev();
+
+    for element in elements {
         let Some(a) = element.select_first_opt("a")? else {
             continue;
         };
