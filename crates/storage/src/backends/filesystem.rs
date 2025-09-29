@@ -175,8 +175,10 @@ impl FilesystemStorage {
     }
 
     fn hash_string(&self, input: &str) -> String {
-        // Simple hash for filesystem safety - in production you might want something more sophisticated
-        format!("{:x}", md5::compute(input.as_bytes()))
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(input.as_bytes());
+        format!("{:x}", hasher.finalize())
     }
 
     /// Generate a filesystem-safe asset ID based on a UUID
@@ -1820,6 +1822,38 @@ mod tests {
                 asset.id.as_str()
             );
         }
+    }
+
+    #[test]
+    fn test_sha256_hashing() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+
+        // Test that hash_string produces consistent SHA-256 hashes
+        let input = "test_string_for_hashing";
+        let hash1 = storage.hash_string(input);
+        let hash2 = storage.hash_string(input);
+
+        // Should be consistent
+        assert_eq!(hash1, hash2);
+
+        // Should be 64 characters (SHA-256 hex)
+        assert_eq!(hash1.len(), 64);
+
+        // Should be hexadecimal
+        assert!(hash1.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Should produce different hashes for different inputs
+        let different_input = "different_test_string";
+        let different_hash = storage.hash_string(different_input);
+        assert_ne!(hash1, different_hash);
+
+        // Test known SHA-256 value for "test"
+        let test_hash = storage.hash_string("test");
+        assert_eq!(
+            test_hash,
+            "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        );
     }
 
     #[tokio::test]
