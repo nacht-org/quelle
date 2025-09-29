@@ -244,3 +244,54 @@ impl Default for CleanupReport {
         Self::new()
     }
 }
+
+// === Asset Types ===
+
+/// Unique identifier for an asset within the storage system.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AssetId(pub String);
+
+impl AssetId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for AssetId {
+    fn from(id: String) -> Self {
+        Self(id)
+    }
+}
+
+impl From<&str> for AssetId {
+    fn from(id: &str) -> Self {
+        Self(id.to_string())
+    }
+}
+
+/// Asset metadata without binary data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Asset {
+    pub id: AssetId,
+    pub novel_id: NovelId,
+    pub original_url: String,
+    pub mime_type: String,
+    pub size: u64,
+}
+
+/// Complete asset with binary data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetWithData {
+    pub asset: Asset,
+    pub data: Vec<u8>,
+}
+
+/// Summary information about an asset (without binary data)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetSummary {
+    pub id: AssetId,
+    pub novel_id: NovelId,
+    pub original_url: String,
+    pub mime_type: String,
+    pub size: u64,
+}

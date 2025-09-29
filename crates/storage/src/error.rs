@@ -61,6 +61,49 @@ pub enum BookStorageError {
         #[source]
         source: Option<eyre::Report>,
     },
+
+    #[error("Asset not found: {id}")]
+    AssetNotFound {
+        id: String,
+        #[source]
+        source: Option<eyre::Report>,
+    },
+
+    #[error("Asset already exists: {id}")]
+    AssetAlreadyExists {
+        id: String,
+        #[source]
+        source: Option<eyre::Report>,
+    },
+
+    #[error("Invalid asset data: {message}")]
+    InvalidAssetData {
+        message: String,
+        #[source]
+        source: Option<eyre::Report>,
+    },
+
+    #[error("Asset operation failed: {operation}")]
+    AssetOperationFailed {
+        operation: String,
+        #[source]
+        source: Option<eyre::Report>,
+    },
+
+    #[error("Asset size too large: {size} bytes (max: {max_size} bytes)")]
+    AssetTooLarge {
+        size: u64,
+        max_size: u64,
+        #[source]
+        source: Option<eyre::Report>,
+    },
+
+    #[error("Unsupported asset type: {asset_type}")]
+    UnsupportedAssetType {
+        asset_type: String,
+        #[source]
+        source: Option<eyre::Report>,
+    },
 }
 
 /// Result type alias for book storage operations.

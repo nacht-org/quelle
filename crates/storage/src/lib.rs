@@ -14,7 +14,8 @@ pub use backends::FilesystemStorage;
 pub use error::{BookStorageError, Result};
 pub use traits::BookStorage;
 pub use types::{
-    ChapterContentStatus, ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary,
+    Asset, AssetId, AssetSummary, ChapterContentStatus, ChapterInfo, CleanupReport, NovelFilter,
+    NovelId, NovelSummary,
 };
 
 // Import the WIT types that we'll be working with

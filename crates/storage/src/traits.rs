@@ -1,9 +1,12 @@
 //! Trait definitions for the book storage system.
 
 use async_trait::async_trait;
+use tokio::io::AsyncRead;
 
 use crate::error::Result;
-use crate::types::{ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary};
+use crate::types::{
+    Asset, AssetId, AssetSummary, ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary,
+};
 
 use crate::{ChapterContent, Novel};
 
@@ -112,14 +115,39 @@ pub trait BookStorage: Send + Sync {
 
     // === Maintenance Operations ===
 
-    /// Remove orphaned chapter content and fix inconsistencies.
+    /// Remove orphaned chapter content and assets, and fix inconsistencies.
     ///
     /// This operation scans the storage for:
     /// - Chapter content without corresponding novels
+    /// - Assets without corresponding novels
     /// - Broken references and inconsistent data
     /// - Other integrity issues
     ///
     /// # Returns
     /// A report detailing what was cleaned up and any errors encountered
     async fn cleanup_dangling_data(&self) -> Result<CleanupReport>;
+
+    // === Asset Operations ===
+
+    /// Store an asset with data from a reader.
+    async fn store_asset(
+        &self,
+        asset: Asset,
+        reader: Box<dyn AsyncRead + Send + Unpin>,
+    ) -> Result<AssetId>;
+
+    /// Get asset metadata by ID.
+    async fn get_asset(&self, asset_id: &AssetId) -> Result<Option<Asset>>;
+
+    /// Get only the binary data of an asset.
+    async fn get_asset_data(&self, asset_id: &AssetId) -> Result<Option<Vec<u8>>>;
+
+    /// Delete an asset.
+    async fn delete_asset(&self, asset_id: &AssetId) -> Result<bool>;
+
+    /// Find an asset by its original URL.
+    async fn find_asset_by_url(&self, url: &str) -> Result<Option<AssetId>>;
+
+    /// Get all assets for a novel.
+    async fn get_novel_assets(&self, novel_id: &NovelId) -> Result<Vec<AssetSummary>>;
 }

@@ -4,14 +4,16 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tokio::fs;
+use tokio::{fs, io::AsyncReadExt};
 
 use crate::error::{BookStorageError, Result};
 use crate::models::{
     chapter_content_from_json, chapter_content_to_json, novel_from_json, novel_to_json,
 };
 use crate::traits::BookStorage;
-use crate::types::{ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary};
+use crate::types::{
+    Asset, AssetId, AssetSummary, ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary,
+};
 use crate::{ChapterContent, Novel};
 
 /// Filesystem-based storage backend.
@@ -55,6 +57,7 @@ struct ChapterStorageMetadata {
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct StorageIndex {
     novels: Vec<IndexedNovel>,
+    assets: Vec<IndexedAsset>,
     last_updated: DateTime<Utc>,
 }
 
@@ -68,6 +71,16 @@ struct IndexedNovel {
     stored_chapters: u32,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct IndexedAsset {
+    id: AssetId,
+    novel_id: NovelId,
+    original_url: String,
+    mime_type: String,
+    size: u64,
+    stored_at: DateTime<Utc>,
 }
 
 impl FilesystemStorage {
@@ -146,6 +159,12 @@ impl FilesystemStorage {
         self.root_path.join("metadata").join("index.json")
     }
 
+    fn get_asset_file(&self, novel_id: &NovelId, asset_id: &AssetId) -> PathBuf {
+        let asset_hash = self.hash_string(asset_id.as_str());
+        self.get_novel_dir(novel_id)
+            .join(format!("asset_{}.json", asset_hash))
+    }
+
     fn hash_string(&self, input: &str) -> String {
         // Simple hash for filesystem safety - in production you might want something more sophisticated
         format!("{:x}", md5::compute(input.as_bytes()))
@@ -202,6 +221,7 @@ impl FilesystemStorage {
         if !index_path.exists() {
             return Ok(StorageIndex {
                 novels: Vec::new(),
+                assets: Vec::new(),
                 last_updated: Utc::now(),
             });
         }
@@ -335,6 +355,41 @@ impl FilesystemStorage {
         }
 
         Ok(())
+    }
+
+    async fn add_asset_to_index(&self, asset: &Asset, data_size: u64) -> Result<()> {
+        let mut index = self.load_index().await?;
+
+        let indexed_asset = IndexedAsset {
+            id: asset.id.clone(),
+            novel_id: asset.novel_id.clone(),
+            original_url: self.normalize_url(&asset.original_url),
+            mime_type: asset.mime_type.clone(),
+            size: data_size,
+            stored_at: Utc::now(),
+        };
+
+        // Remove existing entry if it exists
+        index.assets.retain(|a| a.id != asset.id);
+        index.assets.push(indexed_asset);
+
+        self.save_index(&index).await?;
+        Ok(())
+    }
+
+    async fn remove_asset_from_index(&self, asset_id: &AssetId) -> Result<()> {
+        let mut index = self.load_index().await?;
+        index.assets.retain(|a| a.id != *asset_id);
+        self.save_index(&index).await?;
+        Ok(())
+    }
+
+    fn find_asset_in_index<'a>(
+        &self,
+        index: &'a StorageIndex,
+        asset_id: &AssetId,
+    ) -> Option<&'a IndexedAsset> {
+        index.assets.iter().find(|a| a.id == *asset_id)
     }
 }
 
@@ -885,17 +940,187 @@ impl BookStorage for FilesystemStorage {
     }
 
     async fn cleanup_dangling_data(&self) -> Result<CleanupReport> {
-        let report = CleanupReport::new();
+        let mut report = CleanupReport::new();
+        let index = self.load_index().await?;
 
-        // TODO: Implement cleanup logic
-        // This would involve:
-        // 1. Finding chapter files without corresponding novels
-        // 2. Finding novels without proper index entries
-        // 3. Cleaning up empty directories
-        // 4. Validating JSON files
+        // Clean up orphaned assets (assets in index but novel doesn't exist)
+        let mut orphaned_assets = Vec::new();
+        for indexed_asset in &index.assets {
+            if !self.exists_novel(&indexed_asset.novel_id).await? {
+                orphaned_assets.push(indexed_asset.id.clone());
+            }
+        }
 
-        // For now, just return empty report
+        // Remove orphaned assets
+        for asset_id in orphaned_assets {
+            if self.delete_asset(&asset_id).await? {
+                report.orphaned_chapters_removed += 1; // Reusing field for assets too
+            }
+        }
+
+        // TODO: Implement additional cleanup logic for chapters and novels
         Ok(report)
+    }
+
+    // === Asset Operations ===
+
+    async fn store_asset(
+        &self,
+        asset: Asset,
+        mut reader: Box<dyn tokio::io::AsyncRead + Send + Unpin>,
+    ) -> Result<AssetId> {
+        let asset_file = self.get_asset_file(&asset.novel_id, &asset.id);
+
+        // Create directory structure
+        if let Some(parent) = asset_file.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| BookStorageError::BackendError {
+                    source: Some(eyre::eyre!("Failed to create asset directory: {}", e)),
+                })?;
+        }
+
+        // Check if asset already exists
+        if asset_file.exists() {
+            return Err(BookStorageError::AssetAlreadyExists {
+                id: asset.id.as_str().to_string(),
+                source: None,
+            });
+        }
+
+        // Read all data from the reader
+        let mut data = Vec::new();
+        reader
+            .read_to_end(&mut data)
+            .await
+            .map_err(|e| BookStorageError::BackendError {
+                source: Some(eyre::eyre!("Failed to read asset data: {}", e)),
+            })?;
+
+        // Create AssetWithData for storage
+        let asset_with_data = crate::types::AssetWithData {
+            asset: asset.clone(),
+            data,
+        };
+
+        // Convert asset to JSON and write to file
+        let asset_json = serde_json::to_string_pretty(&asset_with_data).map_err(|e| {
+            BookStorageError::DataConversionError {
+                message: "Failed to serialize asset".to_string(),
+                source: Some(eyre::eyre!("JSON error: {}", e)),
+            }
+        })?;
+
+        fs::write(&asset_file, asset_json)
+            .await
+            .map_err(|e| BookStorageError::BackendError {
+                source: Some(eyre::eyre!("Failed to write asset file: {}", e)),
+            })?;
+
+        // Add to index
+        self.add_asset_to_index(&asset, asset_with_data.data.len() as u64)
+            .await?;
+
+        Ok(asset.id)
+    }
+
+    async fn get_asset(&self, asset_id: &AssetId) -> Result<Option<Asset>> {
+        let index = self.load_index().await?;
+
+        if let Some(indexed_asset) = self.find_asset_in_index(&index, asset_id) {
+            let asset = Asset {
+                id: indexed_asset.id.clone(),
+                novel_id: indexed_asset.novel_id.clone(),
+                original_url: indexed_asset.original_url.clone(),
+                mime_type: indexed_asset.mime_type.clone(),
+                size: indexed_asset.size,
+            };
+            return Ok(Some(asset));
+        }
+
+        Ok(None)
+    }
+
+    async fn get_asset_data(&self, asset_id: &AssetId) -> Result<Option<Vec<u8>>> {
+        let index = self.load_index().await?;
+
+        if let Some(indexed_asset) = self.find_asset_in_index(&index, asset_id) {
+            let asset_file = self.get_asset_file(&indexed_asset.novel_id, asset_id);
+
+            if asset_file.exists() {
+                let content = fs::read_to_string(&asset_file).await.map_err(|e| {
+                    BookStorageError::BackendError {
+                        source: Some(eyre::eyre!("Failed to read asset file: {}", e)),
+                    }
+                })?;
+
+                let asset_with_data: crate::types::AssetWithData = serde_json::from_str(&content)
+                    .map_err(|e| {
+                    BookStorageError::DataConversionError {
+                        message: "Failed to deserialize asset".to_string(),
+                        source: Some(eyre::eyre!("JSON error: {}", e)),
+                    }
+                })?;
+
+                return Ok(Some(asset_with_data.data));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn delete_asset(&self, asset_id: &AssetId) -> Result<bool> {
+        let index = self.load_index().await?;
+
+        if let Some(indexed_asset) = self.find_asset_in_index(&index, asset_id) {
+            let asset_file = self.get_asset_file(&indexed_asset.novel_id, asset_id);
+
+            if asset_file.exists() {
+                fs::remove_file(&asset_file)
+                    .await
+                    .map_err(|e| BookStorageError::BackendError {
+                        source: Some(eyre::eyre!("Failed to delete asset file: {}", e)),
+                    })?;
+
+                // Remove from index
+                self.remove_asset_from_index(asset_id).await?;
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    async fn find_asset_by_url(&self, url: &str) -> Result<Option<AssetId>> {
+        let index = self.load_index().await?;
+        let normalized_url = self.normalize_url(url);
+
+        for indexed_asset in &index.assets {
+            if indexed_asset.original_url == normalized_url {
+                return Ok(Some(indexed_asset.id.clone()));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn get_novel_assets(&self, novel_id: &NovelId) -> Result<Vec<AssetSummary>> {
+        let index = self.load_index().await?;
+
+        let summaries = index
+            .assets
+            .iter()
+            .filter(|asset| asset.novel_id == *novel_id)
+            .map(|indexed_asset| AssetSummary {
+                id: indexed_asset.id.clone(),
+                novel_id: indexed_asset.novel_id.clone(),
+                original_url: indexed_asset.original_url.clone(),
+                mime_type: indexed_asset.mime_type.clone(),
+                size: indexed_asset.size,
+            })
+            .collect();
+
+        Ok(summaries)
     }
 }
 

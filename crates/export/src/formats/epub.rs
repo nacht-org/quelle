@@ -68,9 +68,15 @@ impl Exporter for EpubExporter {
         // Add cover image if available and requested
         if options.include_images {
             if let Some(cover_url) = &novel.cover {
-                // Note: In a real implementation, you'd download the cover image
-                // For now, we'll skip it
-                let _ = cover_url;
+                if let Some(asset_id) = storage.find_asset_by_url(cover_url).await? {
+                    if let Some(asset_data) = storage.get_asset_data(&asset_id).await? {
+                        epub_builder.add_content(
+                            EpubContent::new("cover.jpg", asset_data.as_slice())
+                                .title("Cover")
+                                .reftype(ReferenceType::Cover),
+                        )?;
+                    }
+                }
             }
         }
 
