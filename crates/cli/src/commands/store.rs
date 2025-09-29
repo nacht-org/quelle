@@ -14,23 +14,21 @@ pub async fn handle_store_command(
     match cmd {
         StoreCommands::Add {
             name,
-            location,
-            store_type,
+            path,
             priority,
-        } => handle_add_store(name, location, store_type, priority, config_store).await,
+        } => handle_add_store(name, path, priority, config_store).await,
         StoreCommands::Remove { name, force } => {
             handle_remove_store(name, force, config_store).await
         }
         StoreCommands::List => handle_list_stores(config).await,
-        StoreCommands::Update { name } => handle_update_store(name, store_manager).await,
+        StoreCommands::Update { name } => handle_update_store(name, config).await,
         StoreCommands::Info { name } => handle_store_info(name, config, store_manager).await,
     }
 }
 
 async fn handle_add_store(
     name: String,
-    location: String,
-    store_type: Option<String>,
+    path: String,
     priority: u32,
     config_store: &dyn ConfigStore,
 ) -> Result<()> {
@@ -44,38 +42,15 @@ async fn handle_add_store(
         return Ok(());
     }
 
-    // Determine store type
-    let store_type = if let Some(t) = store_type {
-        match t.as_str() {
-            "local" => StoreType::Local {
-                path: PathBuf::from(&location),
-            },
-            "http" | "git" => {
-                println!("❌ HTTP and Git stores are not yet implemented");
-                return Ok(());
-            }
-            _ => {
-                println!("❌ Invalid store type: {}", t);
-                println!("💡 Valid types: local, http, git");
-                return Ok(());
-            }
-        }
-    } else {
-        // For now, only support local stores
-        let path = PathBuf::from(&location);
-        if !path.exists() {
-            println!("❌ Local path does not exist: {}", location);
-            return Ok(());
-        }
-        StoreType::Local { path: path.clone() }
-    };
+    // Only support local stores
+    let store_path = PathBuf::from(&path);
+    if !store_path.exists() {
+        println!("❌ Local path does not exist: {}", path);
+        return Ok(());
+    }
 
     // Create extension source
-    let source = match &store_type {
-        StoreType::Local { path } => {
-            ExtensionSource::local(name.clone(), path.clone()).with_priority(priority)
-        }
-    };
+    let source = ExtensionSource::local(name.clone(), store_path.clone()).with_priority(priority);
 
     // Add to configuration
     config.add_source(source);
@@ -84,8 +59,8 @@ async fn handle_add_store(
     config_store.save(&config).await?;
 
     println!("✅ Added store '{}'", name);
-    println!("  Type: {:?}", store_type);
-    println!("  Location: {}", location);
+    println!("  Type: Local");
+    println!("  Path: {}", path);
     println!("  Priority: {}", priority);
 
     Ok(())
@@ -150,12 +125,11 @@ async fn handle_list_stores(config: &RegistryConfig) -> Result<()> {
     Ok(())
 }
 
-async fn handle_update_store(name: String, store_manager: &mut StoreManager) -> Result<()> {
+async fn handle_update_store(name: String, config: &RegistryConfig) -> Result<()> {
     if name == "all" {
-        println!("🔄 Updating all extension stores...");
-        let stores = store_manager.list_extension_stores();
+        println!("🔄 Refreshing all extension stores...");
 
-        if stores.is_empty() {
+        if config.extension_sources.is_empty() {
             println!("📦 No stores configured");
             return Ok(());
         }
@@ -163,53 +137,67 @@ async fn handle_update_store(name: String, store_manager: &mut StoreManager) -> 
         let mut updated_count = 0;
         let mut failed_count = 0;
 
-        for store in stores {
-            let store_name = store.config().store_name.clone();
-            print!("🔄 Updating {}...", store_name);
+        for source in &config.extension_sources {
+            if !source.enabled {
+                continue;
+            }
+
+            print!("🔄 Refreshing {}...", source.name);
             io::stdout().flush()?;
 
-            // Note: refresh method not available on ReadableStore trait
-            match store.store().health_check().await {
-                Ok(health) => {
-                    if health.healthy {
-                        println!(" ✅");
-                    } else {
-                        println!(" ❌");
+            match source.as_cacheable() {
+                Ok(Some(cacheable_store)) => match cacheable_store.refresh_cache().await {
+                    Ok(_) => {
+                        println!(" ✅ Refreshed");
+                        updated_count += 1;
                     }
+                    Err(e) => {
+                        println!(" ❌ Failed: {}", e);
+                        failed_count += 1;
+                    }
+                },
+                Ok(None) => {
+                    println!(" ℹ️ Store does not support caching");
                     updated_count += 1;
                 }
                 Err(e) => {
-                    println!(" ❌ Failed: {}", e);
+                    println!(" ❌ Failed to create store: {}", e);
                     failed_count += 1;
                 }
             }
         }
 
         println!(
-            "📊 Update complete: {} updated, {} failed",
+            "📊 Refresh complete: {} processed, {} failed",
             updated_count, failed_count
         );
     } else {
-        println!("🔄 Updating store '{}'...", name);
+        println!("🔄 Refreshing store '{}'...", name);
 
-        let stores = store_manager.list_extension_stores();
-        let store = stores.into_iter().find(|s| s.config().store_name == name);
+        let source = config
+            .extension_sources
+            .iter()
+            .find(|s| s.name == name && s.enabled);
 
-        match store {
-            Some(store) => match store.store().health_check().await {
-                Ok(health) => {
-                    if health.healthy {
-                        println!("✅ Store '{}' is healthy", name);
-                    } else {
-                        println!("❌ Store '{}' is unhealthy", name);
+        match source {
+            Some(source) => match source.as_cacheable() {
+                Ok(Some(cacheable_store)) => match cacheable_store.refresh_cache().await {
+                    Ok(_) => {
+                        println!("✅ Store '{}' refreshed successfully", name);
                     }
+                    Err(e) => {
+                        println!("❌ Failed to refresh store '{}': {}", name, e);
+                    }
+                },
+                Ok(None) => {
+                    println!("ℹ️ Store '{}' does not support caching", name);
                 }
                 Err(e) => {
-                    println!("❌ Failed to check store '{}': {}", name, e);
+                    println!("❌ Failed to create store '{}': {}", name, e);
                 }
             },
             None => {
-                println!("❌ Store '{}' not found", name);
+                println!("❌ Store '{}' not found or disabled", name);
                 println!("💡 Use 'quelle store list' to see available stores");
             }
         }
@@ -220,7 +208,7 @@ async fn handle_update_store(name: String, store_manager: &mut StoreManager) -> 
 async fn handle_store_info(
     name: String,
     config: &RegistryConfig,
-    store_manager: &mut StoreManager,
+    _store_manager: &mut StoreManager,
 ) -> Result<()> {
     // Find the store in configuration
     let source = config.extension_sources.iter().find(|s| s.name == name);
@@ -230,6 +218,8 @@ async fn handle_store_info(
             println!("📍 Store: {}", source.name);
             println!("Type: {:?}", source.store_type);
             println!("Priority: {}", source.priority);
+            println!("Enabled: {}", source.enabled);
+            println!("Trusted: {}", source.trusted);
 
             match &source.store_type {
                 StoreType::Local { path } => {
@@ -238,55 +228,64 @@ async fn handle_store_info(
                 }
             }
 
-            // Get runtime information from store manager
-            let stores = store_manager.list_extension_stores();
-            if let Some(store) = stores.into_iter().find(|s| s.config().store_name == name) {
-                println!("\nRuntime Information:");
+            // Get runtime information by creating a store from the source
+            if source.enabled {
+                match source.as_readable() {
+                    Ok(store) => {
+                        println!("\nRuntime Information:");
 
-                // Check health
-                match store.store().health_check().await {
-                    Ok(health) => {
-                        println!(
-                            "Status: {}",
-                            if health.healthy {
-                                "✅ Healthy"
-                            } else {
-                                "❌ Unhealthy"
+                        // Check health
+                        match store.health_check().await {
+                            Ok(health) => {
+                                println!(
+                                    "Status: {}",
+                                    if health.healthy {
+                                        "✅ Healthy"
+                                    } else {
+                                        "❌ Unhealthy"
+                                    }
+                                );
+                                if let Some(count) = health.extension_count {
+                                    println!("Extensions: {}", count);
+                                }
+                                if let Some(error) = &health.error {
+                                    println!("Error: {}", error);
+                                }
                             }
-                        );
-                        if let Some(count) = health.extension_count {
-                            println!("Extensions: {}", count);
+                            Err(e) => {
+                                println!("Status: ❌ Health check failed: {}", e);
+                            }
                         }
-                        if let Some(error) = &health.error {
-                            println!("Error: {}", error);
+
+                        // List a few extensions
+                        match store.list_extensions().await {
+                            Ok(extensions) => {
+                                if extensions.is_empty() {
+                                    println!("Extensions: None found");
+                                } else {
+                                    println!("Sample Extensions:");
+                                    for ext in extensions.iter().take(5) {
+                                        println!(
+                                            "  - {} v{} by {}",
+                                            ext.name, ext.version, ext.author
+                                        );
+                                    }
+                                    if extensions.len() > 5 {
+                                        println!("  ... and {} more", extensions.len() - 5);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                println!("Extensions: Failed to list: {}", e);
+                            }
                         }
                     }
                     Err(e) => {
-                        println!("Status: ❌ Health check failed: {}", e);
-                    }
-                }
-
-                // List a few extensions
-                match store.store().list_extensions().await {
-                    Ok(extensions) => {
-                        if extensions.is_empty() {
-                            println!("Extensions: None found");
-                        } else {
-                            println!("Sample Extensions:");
-                            for ext in extensions.iter().take(5) {
-                                println!("  - {} v{} by {}", ext.name, ext.version, ext.author);
-                            }
-                            if extensions.len() > 5 {
-                                println!("  ... and {} more", extensions.len() - 5);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        println!("Extensions: Failed to list: {}", e);
+                        println!("\nRuntime Information: Failed to create store: {}", e);
                     }
                 }
             } else {
-                println!("\nRuntime Information: Store not loaded");
+                println!("\nRuntime Information: Store is disabled");
             }
         }
         None => {

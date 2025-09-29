@@ -4,8 +4,6 @@
 //! to provide specific capabilities. This allows for a more modular and extensible
 //! store system that can support different backends (local, git, http, etc.).
 
-use std::any::Any;
-
 use async_trait::async_trait;
 
 use crate::error::Result;

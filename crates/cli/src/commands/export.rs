@@ -17,54 +17,25 @@ pub async fn handle_export_command(
     match cmd {
         ExportCommands::Epub {
             novel_id,
-            chapters,
             output,
-            template,
-            combine_volumes,
-            updated,
-        } => {
-            handle_export_epub(
-                novel_id,
-                chapters,
-                output,
-                template,
-                combine_volumes,
-                updated,
-                storage,
-                dry_run,
-            )
-            .await
-        }
-        ExportCommands::Pdf { novel_id, output } => {
-            handle_export_pdf(novel_id, output, dry_run).await
-        }
-        ExportCommands::Html { novel_id, output } => {
-            handle_export_html(novel_id, output, dry_run).await
-        }
-        ExportCommands::Txt { novel_id, output } => {
-            handle_export_txt(novel_id, output, dry_run).await
-        }
+            include_images,
+        } => handle_export_epub(novel_id, output, include_images, storage, dry_run).await,
     }
 }
 
 async fn handle_export_epub(
     novel_id: String,
-    chapters: Option<String>,
     output: Option<String>,
-    template: Option<String>,
-    combine_volumes: bool,
-    updated: bool,
+    include_images: bool,
     storage: &FilesystemStorage,
     dry_run: bool,
 ) -> Result<()> {
     if dry_run {
         println!("Would export to EPUB: {}", novel_id);
-        if let Some(ref chapters_filter) = chapters {
-            println!("  Chapters: {}", chapters_filter);
-        }
         if let Some(ref output_dir) = output {
             println!("  Output dir: {}", output_dir);
         }
+        println!("  Include images: {}", include_images);
         return Ok(());
     }
 
@@ -109,24 +80,11 @@ async fn handle_export_epub(
                 println!("  Output: {}", output_path.display());
 
                 // Create export options
-                let export_options = ExportOptions::new();
-
-                if let Some(_template_path) = template {
-                    println!("  📋 Custom template support not yet implemented");
-                }
-
-                if combine_volumes {
-                    println!("  📋 Volume combining not yet implemented");
-                }
-
-                if updated {
-                    println!("  📋 Updated-only export not yet implemented");
-                }
-
-                // TODO: Parse chapters filter like "1-10", "5", "1,3,5-10"
-                if let Some(_chapters_filter) = chapters {
-                    println!("  📋 Chapter filtering not yet implemented, exporting all chapters");
-                }
+                let export_options = if include_images {
+                    ExportOptions::new()
+                } else {
+                    ExportOptions::new().without_images()
+                };
 
                 // Export the novel
                 println!("📖 Starting EPUB export...");
@@ -194,15 +152,11 @@ async fn handle_export_epub(
                 novel.title, available_chapters
             );
 
-            let export_options = ExportOptions::new();
-
-            if combine_volumes {
-                println!("    📋 Volume combining not yet implemented");
-            }
-
-            if updated {
-                println!("    📋 Updated-only export not yet implemented");
-            }
+            let export_options = if include_images {
+                ExportOptions::new()
+            } else {
+                ExportOptions::new().without_images()
+            };
 
             // Create the output file
             let file = match tokio::fs::File::create(&novel_output_path).await {
@@ -240,40 +194,6 @@ async fn handle_export_epub(
         if failed_count > 0 {
             println!("  ❌ Failed: {}", failed_count);
         }
-    }
-    Ok(())
-}
-
-async fn handle_export_pdf(novel_id: String, _output: Option<String>, dry_run: bool) -> Result<()> {
-    if dry_run {
-        println!("Would export to PDF: {}", novel_id);
-    } else {
-        println!("🚧 PDF export is not yet implemented");
-        println!("📄 Novel ID: {}", novel_id);
-    }
-    Ok(())
-}
-
-async fn handle_export_html(
-    novel_id: String,
-    _output: Option<String>,
-    dry_run: bool,
-) -> Result<()> {
-    if dry_run {
-        println!("Would export to HTML: {}", novel_id);
-    } else {
-        println!("🚧 HTML export is not yet implemented");
-        println!("🌐 Novel ID: {}", novel_id);
-    }
-    Ok(())
-}
-
-async fn handle_export_txt(novel_id: String, _output: Option<String>, dry_run: bool) -> Result<()> {
-    if dry_run {
-        println!("Would export to TXT: {}", novel_id);
-    } else {
-        println!("🚧 TXT export is not yet implemented");
-        println!("📝 Novel ID: {}", novel_id);
     }
     Ok(())
 }

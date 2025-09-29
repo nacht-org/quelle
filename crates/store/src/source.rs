@@ -12,8 +12,8 @@ use tokio::fs;
 
 use crate::{
     error::{Result, StoreError},
-    stores::local::LocalStore,
-    BaseStore, ReadableStore, WritableStore,
+    stores::{local::LocalStore, traits::CacheableStore},
+    ReadableStore, WritableStore,
 };
 
 /// Type of extension store with associated data
@@ -211,6 +211,19 @@ impl ExtensionSource {
     }
 
     pub fn as_writable(&self) -> Result<Option<Box<dyn WritableStore>>> {
+        match &self.store_type {
+            StoreType::Local { path } => {
+                let local_store =
+                    LocalStore::new(path).map_err(|e| StoreError::StoreCreationError {
+                        store_type: "local".to_string(),
+                        source: Box::new(e),
+                    })?;
+                Ok(Some(Box::new(local_store)))
+            }
+        }
+    }
+
+    pub fn as_cacheable(&self) -> Result<Option<Box<dyn CacheableStore>>> {
         match &self.store_type {
             StoreType::Local { path } => {
                 let local_store =

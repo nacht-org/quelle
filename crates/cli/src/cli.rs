@@ -157,11 +157,8 @@ pub enum StoreCommands {
     Add {
         /// Store name
         name: String,
-        /// Store URL or path
-        location: String,
-        /// Store type (local, http, git)
-        #[arg(long)]
-        store_type: Option<String>,
+        /// Store path
+        path: String,
         /// Priority (lower = higher priority)
         #[arg(long, default_value = "100")]
         priority: u32,
@@ -250,45 +247,12 @@ pub enum ExportCommands {
     Epub {
         /// Novel ID (or 'all' for all novels)
         novel_id: String,
-        /// Chapter range (e.g., "1-10", "5", "1,3,5-10")
-        #[arg(long)]
-        chapters: Option<String>,
         /// Output directory
         #[arg(long)]
         output: Option<String>,
-        /// Custom template
+        /// Include images in export
         #[arg(long)]
-        template: Option<String>,
-        /// Combine volumes into single file
-        #[arg(long)]
-        combine_volumes: bool,
-        /// Export only novels updated since last export
-        #[arg(long)]
-        updated: bool,
-    },
-    /// Export to PDF format
-    Pdf {
-        /// Novel ID
-        novel_id: String,
-        /// Output directory
-        #[arg(long)]
-        output: Option<String>,
-    },
-    /// Export to HTML format
-    Html {
-        /// Novel ID
-        novel_id: String,
-        /// Output directory
-        #[arg(long)]
-        output: Option<String>,
-    },
-    /// Export to plain text
-    Txt {
-        /// Novel ID
-        novel_id: String,
-        /// Output directory
-        #[arg(long)]
-        output: Option<String>,
+        include_images: bool,
     },
 }
 
