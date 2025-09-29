@@ -19,23 +19,11 @@ pub async fn handle_library_command(
 ) -> Result<()> {
     match cmd {
         LibraryCommands::List { source } => handle_list_novels(source, storage).await,
-        LibraryCommands::Show { novel_id } => handle_show_novel(novel_id, storage).await,
+        LibraryCommands::Show { novel } => handle_show_novel(novel, storage).await,
         LibraryCommands::Chapters {
-            novel_id,
+            novel,
             downloaded_only,
-        } => handle_list_chapters(novel_id, downloaded_only, storage).await,
-        LibraryCommands::Read { novel_id, chapter } => {
-            handle_read_chapter(novel_id, chapter, storage).await
-        }
-        LibraryCommands::Sync { novel_id } => {
-            handle_sync_novels(novel_id, storage, store_manager, dry_run).await
-        }
-        LibraryCommands::Update { novel_id } => {
-            handle_update_novels(novel_id, storage, dry_run).await
-        }
-        LibraryCommands::Remove { novel_id, force } => {
-            handle_remove_novel(novel_id, force, storage, dry_run).await
-        }
+        } => handle_list_chapters(novel, downloaded_only, storage).await,
         LibraryCommands::Cleanup => handle_cleanup_library(storage, dry_run).await,
         LibraryCommands::Stats => handle_library_stats(storage).await,
     }
@@ -101,7 +89,7 @@ async fn handle_show_novel(novel_input: String, storage: &FilesystemStorage) -> 
     Ok(())
 }
 
-async fn handle_list_chapters(
+pub async fn handle_list_chapters(
     novel_input: String,
     downloaded_only: bool,
     storage: &FilesystemStorage,
@@ -133,7 +121,7 @@ async fn handle_list_chapters(
     Ok(())
 }
 
-async fn handle_read_chapter(
+pub async fn handle_read_chapter(
     novel_input: String,
     chapter: String,
     storage: &FilesystemStorage,
@@ -184,7 +172,7 @@ async fn handle_read_chapter(
     Ok(())
 }
 
-async fn handle_sync_novels(
+pub async fn handle_sync_novels(
     novel_input: String,
     storage: &dyn BookStorage,
     store_manager: &mut StoreManager,
@@ -274,7 +262,7 @@ async fn handle_sync_novels(
     Ok(())
 }
 
-async fn handle_update_novels(
+pub async fn handle_update_novels(
     novel_input: String,
     storage: &FilesystemStorage,
     dry_run: bool,
@@ -477,7 +465,7 @@ use crate::commands::fetch::{
     fetch_chapter_with_extension, fetch_novel_with_extension, find_and_install_extension_for_url,
 };
 
-async fn handle_remove_novel(
+pub async fn handle_remove_novel(
     novel_input: String,
     force: bool,
     storage: &FilesystemStorage,

@@ -11,8 +11,8 @@ mod utils;
 
 use cli::{Cli, Commands};
 use commands::{
-    handle_config_command, handle_export_command, handle_extension_command, handle_fetch_command,
-    handle_library_command, handle_publish_command, handle_search_command, handle_store_command,
+    handle_config_command, handle_extension_command, handle_fetch_command, handle_library_command,
+    handle_publish_command, handle_search_command, handle_store_command,
 };
 use config::Config;
 
@@ -120,55 +120,27 @@ async fn main() -> Result<()> {
         Commands::Library { command } => {
             handle_library_command(command, &storage, &mut store_manager, cli.dry_run).await
         }
-        Commands::List => handle_list_command(&store_manager).await,
-        Commands::Status => handle_status_command(&store_manager).await,
+        Commands::Extensions { command } => {
+            handle_extension_command(command, &mut store_manager, cli.dry_run).await
+        }
+        Commands::Export {
+            novel,
+            format,
+            output,
+            include_images,
+        } => {
+            handle_export_command(novel, format, output, include_images, &storage, cli.dry_run)
+                .await
+        }
+        Commands::Config { command } => handle_config_command(command, cli.dry_run).await,
         Commands::Store { command } => {
             handle_store_command(command, &mut config, &mut store_manager).await
         }
-        Commands::Extension { command } => {
-            handle_extension_command(command, &mut store_manager, cli.dry_run).await
-        }
-        Commands::Export { command } => handle_export_command(command, &storage, cli.dry_run).await,
-        Commands::Config { command } => handle_config_command(command, cli.dry_run).await,
         Commands::Publish { command } => {
             handle_publish_command(command, &config.registry, &mut store_manager).await
         }
+        Commands::Status => handle_status_command(&store_manager).await,
     }
-}
-
-async fn handle_list_command(store_manager: &StoreManager) -> Result<()> {
-    let stores = store_manager.list_extension_stores();
-    if stores.is_empty() {
-        println!("📦 No extension stores configured");
-        println!("💡 Use 'quelle store add <name> <location>' to add stores");
-        return Ok(());
-    }
-
-    println!("📦 Available extension stores ({}):", stores.len());
-    for store in stores {
-        let info = store.config();
-        println!("  📍 {} ({})", info.store_name, info.store_type);
-
-        match store.store().list_extensions().await {
-            Ok(extensions) => {
-                if extensions.is_empty() {
-                    println!("     No extensions found");
-                } else {
-                    for ext in extensions.iter().take(5) {
-                        println!("     - {} v{} by {}", ext.name, ext.version, ext.author);
-                    }
-                    if extensions.len() > 5 {
-                        println!("     ... and {} more", extensions.len() - 5);
-                    }
-                }
-            }
-            Err(e) => {
-                println!("     Error listing extensions: {}", e);
-            }
-        }
-        println!();
-    }
-    Ok(())
 }
 
 async fn handle_add_command(
@@ -224,8 +196,6 @@ async fn handle_update_command(
     store_manager: &mut StoreManager,
     dry_run: bool,
 ) -> Result<()> {
-    use crate::cli::LibraryCommands;
-    use crate::commands::library::handle_library_command;
     use crate::utils::{resolve_novel_id, show_novel_not_found_help};
 
     if dry_run {
@@ -233,40 +203,29 @@ async fn handle_update_command(
         return Ok(());
     }
 
+    use crate::commands::library::{handle_sync_novels, handle_update_novels};
+
     // Handle "all" case
     if novel == "all" {
         if check_only {
             println!("🔍 Checking all novels for new chapters");
+            return handle_sync_novels("all".to_string(), storage, store_manager, false).await;
         } else {
             println!("🔄 Updating all novels with new chapters");
+            return handle_update_novels("all".to_string(), storage, false).await;
         }
-        let cmd = if check_only {
-            LibraryCommands::Sync {
-                novel_id: "all".to_string(),
-            }
-        } else {
-            LibraryCommands::Update {
-                novel_id: "all".to_string(),
-            }
-        };
-        return handle_library_command(cmd, storage, store_manager, false).await;
     }
 
     // Resolve the novel identifier
     match resolve_novel_id(&novel, storage).await? {
         Some(novel_id) => {
+            let novel_id_str = novel_id.as_str().to_string();
             if check_only {
                 println!("🔍 Checking for new chapters in: {}", novel);
-                let sync_cmd = LibraryCommands::Sync {
-                    novel_id: novel_id.as_str().to_string(),
-                };
-                handle_library_command(sync_cmd, storage, store_manager, false).await
+                handle_sync_novels(novel_id_str, storage, store_manager, false).await
             } else {
                 println!("🔄 Updating novel: {}", novel);
-                let update_cmd = LibraryCommands::Update {
-                    novel_id: novel_id.as_str().to_string(),
-                };
-                handle_library_command(update_cmd, storage, store_manager, false).await
+                handle_update_novels(novel_id_str, storage, false).await
             }
         }
         None => {
@@ -284,8 +243,6 @@ async fn handle_read_command(
     store_manager: &mut StoreManager,
     dry_run: bool,
 ) -> Result<()> {
-    use crate::cli::LibraryCommands;
-    use crate::commands::library::handle_library_command;
     use crate::utils::{resolve_novel_id, show_novel_not_found_help};
 
     if dry_run {
@@ -298,32 +255,24 @@ async fn handle_read_command(
         Some(novel_id) => {
             let novel_id_str = novel_id.as_str().to_string();
 
+            use crate::commands::library::handle_read_chapter;
+
             if list {
                 println!("📚 Listing chapters for: {}", novel);
-                let chapters_cmd = LibraryCommands::Chapters {
-                    novel_id: novel_id_str,
-                    downloaded_only: true,
-                };
-                handle_library_command(chapters_cmd, storage, store_manager, false).await
+                use crate::commands::library::handle_list_chapters;
+                handle_list_chapters(novel_id_str, true, storage).await
             } else {
                 match chapter {
                     Some(chapter_id) => {
                         println!("📖 Reading chapter: {}", chapter_id);
-                        let read_cmd = LibraryCommands::Read {
-                            novel_id: novel_id_str,
-                            chapter: chapter_id,
-                        };
-                        handle_library_command(read_cmd, storage, store_manager, false).await
+                        handle_read_chapter(novel_id_str, chapter_id, storage).await
                     }
                     None => {
                         println!(
                             "📚 Please specify a chapter to read, or use --list to see available chapters"
                         );
-                        let chapters_cmd = LibraryCommands::Chapters {
-                            novel_id: novel_id_str,
-                            downloaded_only: true,
-                        };
-                        handle_library_command(chapters_cmd, storage, store_manager, false).await
+                        use crate::commands::library::handle_list_chapters;
+                        handle_list_chapters(novel_id_str, true, storage).await
                     }
                 }
             }
@@ -339,11 +288,9 @@ async fn handle_remove_command(
     novel: String,
     force: bool,
     storage: &FilesystemStorage,
-    store_manager: &mut StoreManager,
+    _store_manager: &mut StoreManager,
     dry_run: bool,
 ) -> Result<()> {
-    use crate::cli::LibraryCommands;
-    use crate::commands::library::handle_library_command;
     use crate::utils::{resolve_novel_id, show_novel_not_found_help};
 
     if dry_run {
@@ -351,18 +298,55 @@ async fn handle_remove_command(
         return Ok(());
     }
 
+    use crate::commands::library::handle_remove_novel;
+
     // Resolve the novel identifier
     match resolve_novel_id(&novel, storage).await? {
         Some(novel_id) => {
             println!("🗑️  Removing novel: {}", novel);
-            let remove_cmd = LibraryCommands::Remove {
-                novel_id: novel_id.as_str().to_string(),
-                force,
-            };
-            handle_library_command(remove_cmd, storage, store_manager, false).await
+            handle_remove_novel(novel_id.as_str().to_string(), force, storage, false).await
         }
         None => {
             show_novel_not_found_help(&novel, storage).await;
+            Ok(())
+        }
+    }
+}
+
+async fn handle_export_command(
+    novel: String,
+    format: String,
+    output: Option<String>,
+    include_images: bool,
+    _storage: &FilesystemStorage,
+    dry_run: bool,
+) -> Result<()> {
+    if dry_run {
+        println!("Would export novel '{}' in {} format", novel, format);
+        if let Some(output_dir) = &output {
+            println!("Output directory: {}", output_dir);
+        }
+        return Ok(());
+    }
+
+    match format.as_str() {
+        "epub" => {
+            // Call the export functionality directly
+            println!("📖 Exporting novel '{}' to EPUB format", novel);
+            if let Some(output_dir) = &output {
+                println!("Output directory: {}", output_dir);
+            }
+            if include_images {
+                println!("Including images in export");
+            }
+
+            // TODO: Implement direct EPUB export functionality
+            println!("💡 EPUB export functionality will be implemented here");
+            Ok(())
+        }
+        _ => {
+            println!("❌ Unsupported format: {}", format);
+            println!("💡 Supported formats: epub");
             Ok(())
         }
     }

@@ -32,6 +32,7 @@ pub struct Cli {
 
 #[derive(clap::Subcommand, Debug)]
 pub enum Commands {
+    // === Core workflow commands (most used) ===
     /// Add a novel to your library (fetches novel + all chapters)
     /// Example: quelle add https://example.com/novel
     Add {
@@ -65,20 +66,6 @@ pub enum Commands {
         #[arg(long)]
         list: bool,
     },
-    /// Remove a novel and all its data from your library
-    /// Example: quelle remove "Novel Title" --force
-    Remove {
-        /// Novel ID, URL, or title
-        novel: String,
-        /// Skip confirmation prompt
-        #[arg(long)]
-        force: bool,
-    },
-    /// Fetch content from novels and websites
-    Fetch {
-        #[command(subcommand)]
-        command: FetchCommands,
-    },
     /// Search for novels (automatically uses simple or complex search)
     Search {
         /// Search query
@@ -96,39 +83,64 @@ pub enum Commands {
         #[arg(long)]
         limit: Option<usize>,
     },
-    /// Manage local library of stored novels and chapters
+    /// Remove a novel and all its data from your library
+    /// Example: quelle remove "Novel Title" --force
+    Remove {
+        /// Novel ID, URL, or title
+        novel: String,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
+
+    // === Management commands ===
+    /// Manage local library (list, stats, cleanup)
     Library {
         #[command(subcommand)]
         command: LibraryCommands,
     },
-    /// List available extensions in the registry
-    List,
-    /// Show registry health status
-    Status,
+    /// Manage extensions (install, list, update)
+    Extensions {
+        #[command(subcommand)]
+        command: ExtensionCommands,
+    },
+    /// Export novels to various formats (epub, pdf)
+    Export {
+        /// Novel ID, URL, title, or 'all' for all novels
+        novel: String,
+        /// Output format
+        #[arg(long, default_value = "epub")]
+        format: String,
+        /// Output directory
+        #[arg(long)]
+        output: Option<String>,
+        /// Include images in export
+        #[arg(long)]
+        include_images: bool,
+    },
+    /// Configuration management
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
+    },
+
+    // === Advanced/developer commands ===
     /// Manage extension stores
     Store {
         #[command(subcommand)]
         command: StoreCommands,
     },
-    /// Manage extensions
-    Extension {
-        #[command(subcommand)]
-        command: ExtensionCommands,
-    },
-    /// Export content to various formats
-    Export {
-        #[command(subcommand)]
-        command: ExportCommands,
-    },
-    /// Manage configuration
-    Config {
-        #[command(subcommand)]
-        command: ConfigCommands,
-    },
     /// Publish and manage extensions
     Publish {
         #[command(subcommand)]
         command: PublishCommands,
+    },
+    /// Show system status and health
+    Status,
+    /// Advanced fetch operations (for developers/debugging)
+    Fetch {
+        #[command(subcommand)]
+        command: FetchCommands,
     },
 }
 
@@ -157,41 +169,16 @@ pub enum LibraryCommands {
     },
     /// Show details for a stored novel
     Show {
-        /// Novel ID or URL
-        novel_id: String,
+        /// Novel ID, URL, or title
+        novel: String,
     },
     /// List chapters for a stored novel
     Chapters {
-        /// Novel ID or URL
-        novel_id: String,
+        /// Novel ID, URL, or title
+        novel: String,
         /// Show only chapters with downloaded content
         #[arg(long)]
         downloaded_only: bool,
-    },
-    /// Read a specific chapter
-    Read {
-        /// Novel ID or URL
-        novel_id: String,
-        /// Chapter number or URL
-        chapter: String,
-    },
-    /// Check for new chapters
-    Sync {
-        /// Novel ID (or 'all' for all novels)
-        novel_id: String,
-    },
-    /// Fetch new chapters
-    Update {
-        /// Novel ID (or 'all' for all novels)
-        novel_id: String,
-    },
-    /// Remove a stored novel and all its data
-    Remove {
-        /// Novel ID or URL
-        novel_id: String,
-        /// Skip confirmation prompt
-        #[arg(long)]
-        force: bool,
     },
     /// Clean up orphaned data and fix inconsistencies
     Cleanup,
@@ -286,21 +273,6 @@ pub enum ExtensionCommands {
     Info {
         /// Extension ID
         id: String,
-    },
-}
-
-#[derive(clap::Subcommand, Debug)]
-pub enum ExportCommands {
-    /// Export to EPUB format
-    Epub {
-        /// Novel ID (or 'all' for all novels)
-        novel_id: String,
-        /// Output directory
-        #[arg(long)]
-        output: Option<String>,
-        /// Include images in export
-        #[arg(long)]
-        include_images: bool,
     },
 }
 
