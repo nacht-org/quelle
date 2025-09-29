@@ -156,115 +156,113 @@ async fn handle_fetch_chapter(
         return Ok(());
     }
 
-    // Find extension that can handle this URL
-    match find_extension_for_url(url.as_ref(), store_manager).await? {
-        Some((extension_id, _store_name)) => {
-            println!("📦 Found extension: {}", extension_id);
-
-            // Install extension if not already installed
-            if store_manager.get_installed(&extension_id).await?.is_none() {
-                println!("📥 Installing extension {}...", extension_id);
-                match store_manager.install(&extension_id, None, None).await {
-                    Ok(installed) => {
-                        println!(
-                            "✅ Installed {} ({}) v{}",
-                            installed.name, installed.id, installed.version
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Failed to install {}: {}", extension_id, e);
-                        return Err(e.into());
-                    }
-                }
+    let (extension_id, _store_name) =
+        match find_extension_for_url(url.as_ref(), store_manager).await? {
+            Some(ext) => ext,
+            None => {
+                eprintln!("❌ No extension found that can handle URL: {}", url);
+                eprintln!("💡 Try adding more extension stores with: quelle store add");
+                return Ok(());
             }
+        };
 
-            // Use the installed extension to fetch chapter
-            println!("📄 Fetching chapter from: {}", url);
+    println!("📦 Found extension: {}", extension_id);
 
-            if let Some(installed) = store_manager.get_installed(&extension_id).await? {
-                match fetch_chapter_with_extension(
-                    &installed,
-                    store_manager.registry_store(),
-                    url.as_ref(),
-                )
-                .await
-                {
-                    Ok(chapter) => {
-                        println!("✅ Successfully fetched chapter:");
-                        println!("  📄 Content length: {} characters", chapter.data.len());
-
-                        // Show first few lines of content
-                        let preview = if chapter.data.len() > 200 {
-                            format!("{}...", &chapter.data[..200])
-                        } else {
-                            chapter.data.clone()
-                        };
-                        println!("  📖 Preview: {}", preview.replace('\n', " ").trim());
-
-                        // Try to save chapter to storage if we can find the novel
-                        if let Ok(Some(novel)) = storage.find_novel_by_url(url.as_ref()).await {
-                            // Find the chapter in the novel structure
-                            let mut saved = false;
-                            for volume in novel.volumes.iter() {
-                                if let Some(_ch) =
-                                    volume.chapters.iter().find(|ch| ch.url == url.to_string())
-                                {
-                                    // Find the novel ID from the library listing
-                                    let filter =
-                                        quelle_storage::types::NovelFilter { source_ids: vec![] };
-                                    if let Ok(novels) = storage.list_novels(&filter).await
-                                        && let Some(novel_summary) =
-                                            novels.iter().find(|n| n.title == novel.title)
-                                    {
-                                        match storage
-                                            .store_chapter_content(
-                                                &novel_summary.id,
-                                                volume.index,
-                                                url.as_ref(),
-                                                &chapter,
-                                            )
-                                            .await
-                                        {
-                                            Ok(()) => {
-                                                println!(
-                                                    "💾 Saved chapter content to local library"
-                                                );
-                                                saved = true;
-                                            }
-                                            Err(e) => {
-                                                eprintln!("❌ Failed to save chapter: {}", e);
-                                            }
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                            if !saved {
-                                println!(
-                                    "ℹ️ Chapter not saved - could not locate in novel structure"
-                                );
-                            }
-                        } else {
-                            println!("ℹ️ Chapter not saved - novel not found in library");
-                            println!(
-                                "💡 Fetch the novel first with: quelle fetch novel <novel_url>"
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Failed to fetch chapter: {}", e);
-                        return Err(e);
-                    }
-                }
-            } else {
-                eprintln!("❌ Extension {} not found in registry", extension_id);
+    // Install extension if not already installed
+    if store_manager.get_installed(&extension_id).await?.is_none() {
+        println!("📥 Installing extension {}...", extension_id);
+        let installed = match store_manager.install(&extension_id, None, None).await {
+            Ok(installed) => installed,
+            Err(e) => {
+                eprintln!("❌ Failed to install {}: {}", extension_id, e);
+                return Err(e.into());
             }
-        }
+        };
+        println!(
+            "✅ Installed {} ({}) v{}",
+            installed.name, installed.id, installed.version
+        );
+    }
+
+    println!("📄 Fetching chapter from: {}", url);
+
+    let installed = match store_manager.get_installed(&extension_id).await? {
+        Some(installed) => installed,
         None => {
-            eprintln!("❌ No extension found that can handle URL: {}", url);
-            eprintln!("💡 Try adding more extension stores with: quelle store add");
+            eprintln!("❌ Extension {} not found in registry", extension_id);
+            return Ok(());
+        }
+    };
+
+    let chapter = match fetch_chapter_with_extension(
+        &installed,
+        store_manager.registry_store(),
+        url.as_ref(),
+    )
+    .await
+    {
+        Ok(chapter) => chapter,
+        Err(e) => {
+            eprintln!("❌ Failed to fetch chapter: {}", e);
+            return Err(e);
+        }
+    };
+
+    println!("✅ Successfully fetched chapter:");
+    println!("  📄 Content length: {} characters", chapter.data.len());
+
+    // Show first few lines of content
+    let preview = if chapter.data.len() > 200 {
+        format!("{}...", &chapter.data[..200])
+    } else {
+        chapter.data.clone()
+    };
+    println!("  📖 Preview: {}", preview.replace('\n', " ").trim());
+
+    // Try to save chapter to storage if we can find the novel
+    let novel = match storage.find_novel_by_url(url.as_ref()).await {
+        Ok(Some(novel)) => novel,
+        _ => {
+            println!("ℹ️ Chapter not saved - novel not found in library");
+            println!("💡 Fetch the novel first with: quelle fetch novel <novel_url>");
+            return Ok(());
+        }
+    };
+
+    // Find the chapter in the novel structure
+    let mut saved = false;
+    for volume in &novel.volumes {
+        if volume.chapters.iter().any(|ch| ch.url == url.to_string()) {
+            // Find the novel ID from the library listing
+            let filter = quelle_storage::types::NovelFilter { source_ids: vec![] };
+            let novels = match storage.list_novels(&filter).await {
+                Ok(novels) => novels,
+                Err(e) => {
+                    eprintln!("❌ Failed to list novels: {}", e);
+                    break;
+                }
+            };
+            if let Some(novel_summary) = novels.iter().find(|n| n.title == novel.title) {
+                match storage
+                    .store_chapter_content(&novel_summary.id, volume.index, url.as_ref(), &chapter)
+                    .await
+                {
+                    Ok(()) => {
+                        println!("💾 Saved chapter content to local library");
+                        saved = true;
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to save chapter: {}", e);
+                    }
+                }
+            }
+            break;
         }
     }
+    if !saved {
+        println!("ℹ️ Chapter not saved - could not locate in novel structure");
+    }
+
     Ok(())
 }
 
@@ -283,36 +281,41 @@ async fn handle_fetch_chapters(
 
     // Try to find novel by ID or URL
     let (novel, novel_storage_id) = if novel_id.starts_with("http") {
-        match storage.find_novel_by_url(&novel_id).await? {
-            Some(novel) => {
-                // Find the storage ID from the library listing
-                let filter = quelle_storage::types::NovelFilter { source_ids: vec![] };
-                let novels = storage.list_novels(&filter).await?;
-                let storage_id = novels
-                    .iter()
-                    .find(|n| n.title == novel.title)
-                    .map(|n| n.id.clone())
-                    .unwrap_or_else(|| NovelId::new(novel_id.clone()));
-                (Some(novel), storage_id)
-            }
+        let novel = match storage.find_novel_by_url(&novel_id).await? {
+            Some(novel) => novel,
             None => {
                 println!("❌ Novel not found with URL: {}", novel_id);
                 return Ok(());
             }
-        }
+        };
+        // Find the storage ID from the library listing
+        let filter = quelle_storage::types::NovelFilter { source_ids: vec![] };
+        let novels = storage.list_novels(&filter).await?;
+        let storage_id = novels
+            .iter()
+            .find(|n| n.title == novel.title)
+            .map(|n| n.id.clone())
+            .unwrap_or_else(|| NovelId::new(novel_id.clone()));
+        (novel, storage_id)
     } else {
         let id = NovelId::new(novel_id.clone());
-        match storage.get_novel(&id).await? {
-            Some(novel) => (Some(novel), id),
+        let novel = match storage.get_novel(&id).await? {
+            Some(novel) => novel,
             None => {
                 println!("❌ Novel not found with ID: {}", novel_id);
                 return Ok(());
             }
-        }
+        };
+        (novel, id)
     };
 
-    let novel = novel.unwrap();
-    let extension = find_and_install_extension_for_url(&novel.url, store_manager).await?;
+    let extension = match find_and_install_extension_for_url(&novel.url, store_manager).await {
+        Ok(ext) => ext,
+        Err(e) => {
+            error!("❌ Failed to find/install extension: {}", e);
+            return Err(e);
+        }
+    };
 
     let chapters = storage.list_chapters(&novel_storage_id).await?;
     let mut success_count = 0;
@@ -322,47 +325,50 @@ async fn handle_fetch_chapters(
     println!("📄 Found {} chapters to process", chapters.len());
 
     for chapter_info in chapters {
-        if !chapter_info.has_content() {
-            println!("📥 Fetching: {}", chapter_info.chapter_title);
-
-            match fetch_chapter_with_extension(
-                &extension,
-                store_manager.registry_store(),
-                &chapter_info.chapter_url,
-            )
-            .await
-            {
-                Ok(chapter_content) => {
-                    let content = ChapterContent {
-                        data: chapter_content.data,
-                    };
-                    match storage
-                        .store_chapter_content(
-                            &novel_storage_id,
-                            chapter_info.volume_index,
-                            &chapter_info.chapter_url,
-                            &content,
-                        )
-                        .await
-                    {
-                        Ok(_) => {
-                            println!("  ✅ {}", chapter_info.chapter_title);
-                            success_count += 1;
-                        }
-                        Err(e) => {
-                            error!("  ❌ Failed to store {}: {}", chapter_info.chapter_title, e);
-                            failed_count += 1;
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("  ❌ Failed to fetch {}: {}", chapter_info.chapter_title, e);
-                    failed_count += 1;
-                }
-            }
-        } else {
+        if chapter_info.has_content() {
             println!("  ⏭️ {} (already downloaded)", chapter_info.chapter_title);
             skipped_count += 1;
+            continue;
+        }
+
+        println!("📥 Fetching: {}", chapter_info.chapter_title);
+
+        let chapter_content = match fetch_chapter_with_extension(
+            &extension,
+            store_manager.registry_store(),
+            &chapter_info.chapter_url,
+        )
+        .await
+        {
+            Ok(content) => content,
+            Err(e) => {
+                error!("  ❌ Failed to fetch {}: {}", chapter_info.chapter_title, e);
+                failed_count += 1;
+                continue;
+            }
+        };
+
+        let content = ChapterContent {
+            data: chapter_content.data,
+        };
+
+        match storage
+            .store_chapter_content(
+                &novel_storage_id,
+                chapter_info.volume_index,
+                &chapter_info.chapter_url,
+                &content,
+            )
+            .await
+        {
+            Ok(_) => {
+                println!("  ✅ {}", chapter_info.chapter_title);
+                success_count += 1;
+            }
+            Err(e) => {
+                error!("  ❌ Failed to store {}: {}", chapter_info.chapter_title, e);
+                failed_count += 1;
+            }
         }
     }
 
