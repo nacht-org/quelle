@@ -1,8 +1,10 @@
 use directories::ProjectDirs;
 use eyre::Result;
 use quelle_engine::ExtensionEngine;
-use quelle_store::{StoreManager, registry::LocalRegistryStore};
+use quelle_store::{ConfigStore, LocalConfigStore, StoreManager, registry::LocalRegistryStore};
 use std::path::PathBuf;
+
+use crate::config::Config;
 
 /// Create a store manager with the default storage location
 pub async fn create_store_manager() -> Result<StoreManager> {
@@ -22,6 +24,12 @@ pub async fn create_store_manager_with_path(storage_path: PathBuf) -> Result<Sto
 /// Create an extension engine with Chrome executor (fallback to Reqwest if Chrome fails)
 pub fn create_extension_engine() -> Result<ExtensionEngine> {
     create_extension_engine_with_executor_choice(true)
+}
+
+/// Create a config store for registry configuration persistence
+pub async fn create_config_store() -> Result<Box<dyn ConfigStore>> {
+    let config_file = Config::get_config_path();
+    Ok(Box::new(LocalConfigStore::new(config_file).await?))
 }
 
 /// Create an extension engine with Reqwest executor
@@ -69,19 +77,14 @@ fn create_reqwest_engine() -> Result<ExtensionEngine> {
 
 /// Get the default storage path for Quelle data
 pub fn get_default_storage_path() -> PathBuf {
-    if let Some(proj_dirs) = ProjectDirs::from("org", "quelle", "quelle") {
-        proj_dirs.data_dir().to_path_buf()
-    } else {
-        // Fallback to current directory if we can't determine project dirs
-        PathBuf::from(".quelle")
-    }
+    Config::get_data_dir().join("library")
 }
 
-/// Get storage path from CLI arguments or use default
-pub fn get_storage_path_from_args(storage_path_arg: Option<&String>) -> PathBuf {
+/// Get storage path from CLI arguments, config, or use default
+pub fn get_storage_path_from_args(storage_path_arg: Option<&String>, config: &Config) -> PathBuf {
     match storage_path_arg {
         Some(path) => PathBuf::from(path),
-        None => get_default_storage_path(),
+        None => PathBuf::from(&config.storage.path),
     }
 }
 
@@ -105,20 +108,26 @@ mod tests {
         assert!(engine.is_ok());
     }
 
+    #[tokio::test]
+    async fn test_config_store_creation() {
+        let config_store = create_config_store().await;
+        assert!(config_store.is_ok());
+    }
+
     #[test]
     fn test_storage_path_helpers() {
-        let default_path = get_default_storage_path();
-        // With directories crate, the path should contain the project structure
-        // On systems where ProjectDirs is available, it won't end with .quelle
-        // On fallback systems, it will be .quelle
-        let path_str = default_path.to_string_lossy();
-        assert!(path_str.contains("quelle") || path_str.ends_with(".quelle"));
+        use crate::config::Config;
 
+        let default_path = get_default_storage_path();
+        let path_str = default_path.to_string_lossy();
+        assert!(path_str.contains("quelle"));
+
+        let config = Config::default();
         let custom_path = "/custom/path";
-        let resolved_path = get_storage_path_from_args(Some(&custom_path.to_string()));
+        let resolved_path = get_storage_path_from_args(Some(&custom_path.to_string()), &config);
         assert_eq!(resolved_path, PathBuf::from(custom_path));
 
-        let default_resolved = get_storage_path_from_args(None);
-        assert_eq!(default_resolved, default_path);
+        let default_resolved = get_storage_path_from_args(None, &config);
+        assert_eq!(default_resolved, PathBuf::from(&config.storage.path));
     }
 }

@@ -36,37 +36,46 @@ pub enum Commands {
         #[command(subcommand)]
         command: FetchCommands,
     },
-    /// Manage local library of stored novels and chapters
-    Library {
-        #[command(subcommand)]
-        command: LibraryCommands,
-    },
-    /// Export content to various formats
-    Export {
-        #[command(subcommand)]
-        command: ExportCommands,
-    },
-    /// Search for novels across extensions
+    /// Search for novels (automatically uses simple or complex search)
     Search {
         /// Search query
         query: String,
         /// Filter by author
         #[arg(long)]
         author: Option<String>,
-        /// Filter by tags (comma-separated)
-        #[arg(long)]
-        tags: Option<String>,
-        /// Filter by source
-        #[arg(long)]
-        source: Option<String>,
+        /// Filter by tags (switches to complex search)
+        #[arg(long, value_delimiter = ',')]
+        tags: Vec<String>,
+        /// Filter by categories (switches to complex search)
+        #[arg(long, value_delimiter = ',')]
+        categories: Vec<String>,
         /// Maximum number of results
-        #[arg(long, default_value = "20")]
-        limit: usize,
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    /// Manage local library of stored novels and chapters
+    Library {
+        #[command(subcommand)]
+        command: LibraryCommands,
+    },
+    /// List available extensions in the registry
+    List,
+    /// Show registry health status
+    Status,
+    /// Manage extension stores
+    Store {
+        #[command(subcommand)]
+        command: StoreCommands,
     },
     /// Manage extensions
     Extension {
         #[command(subcommand)]
         command: ExtensionCommands,
+    },
+    /// Export content to various formats
+    Export {
+        #[command(subcommand)]
+        command: ExportCommands,
     },
     /// Manage configuration
     Config {
@@ -83,7 +92,7 @@ pub enum FetchCommands {
     Chapter { url: Url },
     /// Fetch all chapters for a novel
     Chapters {
-        /// Novel ID
+        /// Novel ID or URL
         novel_id: String,
     },
     /// Fetch everything (novel + all chapters + assets)
@@ -94,18 +103,18 @@ pub enum FetchCommands {
 pub enum LibraryCommands {
     /// List all stored novels
     List {
-        /// Filter by source
+        /// Filter by source (e.g., "webnovel", "royalroad")
         #[arg(long)]
         source: Option<String>,
     },
     /// Show details for a stored novel
     Show {
-        /// Novel ID
+        /// Novel ID or URL
         novel_id: String,
     },
     /// List chapters for a stored novel
     Chapters {
-        /// Novel ID
+        /// Novel ID or URL
         novel_id: String,
         /// Show only chapters with downloaded content
         #[arg(long)]
@@ -113,7 +122,7 @@ pub enum LibraryCommands {
     },
     /// Read a specific chapter
     Read {
-        /// Novel ID
+        /// Novel ID or URL
         novel_id: String,
         /// Chapter number or URL
         chapter: String,
@@ -130,7 +139,7 @@ pub enum LibraryCommands {
     },
     /// Remove a stored novel and all its data
     Remove {
-        /// Novel ID
+        /// Novel ID or URL
         novel_id: String,
         /// Skip confirmation prompt
         #[arg(long)]
@@ -143,50 +152,39 @@ pub enum LibraryCommands {
 }
 
 #[derive(clap::Subcommand, Debug)]
-pub enum ExportCommands {
-    /// Export to EPUB format
-    Epub {
-        /// Novel ID (or 'all' for all novels)
-        novel_id: String,
-        /// Chapter range (e.g., "1-10", "5", "1,3,5-10")
+pub enum StoreCommands {
+    /// Add a new extension store
+    Add {
+        /// Store name
+        name: String,
+        /// Store URL or path
+        location: String,
+        /// Store type (local, http, git)
         #[arg(long)]
-        chapters: Option<String>,
-        /// Output directory
-        #[arg(long)]
-        output: Option<String>,
-        /// Custom template
-        #[arg(long)]
-        template: Option<String>,
-        /// Combine volumes into single file
-        #[arg(long)]
-        combine_volumes: bool,
-        /// Export only novels updated since last export
-        #[arg(long)]
-        updated: bool,
+        store_type: Option<String>,
+        /// Priority (lower = higher priority)
+        #[arg(long, default_value = "100")]
+        priority: u32,
     },
-    /// Export to PDF format (future)
-    Pdf {
-        /// Novel ID
-        novel_id: String,
-        /// Output directory
+    /// Remove an extension store
+    Remove {
+        /// Store name
+        name: String,
+        /// Skip confirmation prompt
         #[arg(long)]
-        output: Option<String>,
+        force: bool,
     },
-    /// Export to HTML format (future)
-    Html {
-        /// Novel ID
-        novel_id: String,
-        /// Output directory
-        #[arg(long)]
-        output: Option<String>,
+    /// List configured extension stores
+    List,
+    /// Update extension store data
+    Update {
+        /// Store name (or 'all' for all stores)
+        name: String,
     },
-    /// Export to plain text (future)
-    Txt {
-        /// Novel ID
-        novel_id: String,
-        /// Output directory
-        #[arg(long)]
-        output: Option<String>,
+    /// Show store information
+    Info {
+        /// Store name
+        name: String,
     },
 }
 
@@ -247,10 +245,58 @@ pub enum ExtensionCommands {
 }
 
 #[derive(clap::Subcommand, Debug)]
+pub enum ExportCommands {
+    /// Export to EPUB format
+    Epub {
+        /// Novel ID (or 'all' for all novels)
+        novel_id: String,
+        /// Chapter range (e.g., "1-10", "5", "1,3,5-10")
+        #[arg(long)]
+        chapters: Option<String>,
+        /// Output directory
+        #[arg(long)]
+        output: Option<String>,
+        /// Custom template
+        #[arg(long)]
+        template: Option<String>,
+        /// Combine volumes into single file
+        #[arg(long)]
+        combine_volumes: bool,
+        /// Export only novels updated since last export
+        #[arg(long)]
+        updated: bool,
+    },
+    /// Export to PDF format
+    Pdf {
+        /// Novel ID
+        novel_id: String,
+        /// Output directory
+        #[arg(long)]
+        output: Option<String>,
+    },
+    /// Export to HTML format
+    Html {
+        /// Novel ID
+        novel_id: String,
+        /// Output directory
+        #[arg(long)]
+        output: Option<String>,
+    },
+    /// Export to plain text
+    Txt {
+        /// Novel ID
+        novel_id: String,
+        /// Output directory
+        #[arg(long)]
+        output: Option<String>,
+    },
+}
+
+#[derive(clap::Subcommand, Debug)]
 pub enum ConfigCommands {
     /// Set a configuration value
     Set {
-        /// Configuration key (e.g., "storage.path")
+        /// Configuration key (e.g., "storage.path", "registry.add_source")
         key: String,
         /// Configuration value
         value: String,

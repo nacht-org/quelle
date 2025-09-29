@@ -1,5 +1,6 @@
 use directories::ProjectDirs;
 use eyre::Result;
+use quelle_store::{RegistryConfig, StoreManager};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs;
@@ -9,6 +10,7 @@ pub struct Config {
     pub storage: StorageConfig,
     pub export: ExportConfig,
     pub fetch: FetchConfig,
+    pub registry: RegistryConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -33,13 +35,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             storage: StorageConfig {
-                path: if let Some(proj_dirs) = ProjectDirs::from("org", "quelle", "quelle") {
-                    proj_dirs.data_dir().to_path_buf()
-                } else {
-                    PathBuf::from(".quelle")
-                }
-                .to_string_lossy()
-                .to_string(),
+                path: get_default_data_dir()
+                    .join("library")
+                    .to_string_lossy()
+                    .to_string(),
             },
             export: ExportConfig {
                 format: "epub".to_string(),
@@ -50,17 +49,22 @@ impl Default for Config {
                 auto_fetch_covers: true,
                 auto_fetch_assets: true,
             },
+            registry: RegistryConfig::default(),
         }
     }
 }
 
 impl Config {
     pub fn get_config_path() -> PathBuf {
-        if let Some(proj_dirs) = ProjectDirs::from("org", "quelle", "quelle") {
-            proj_dirs.config_dir().join("config.json")
-        } else {
-            PathBuf::from(".quelle").join("config.json")
-        }
+        get_default_config_dir().join("config.json")
+    }
+
+    pub fn get_data_dir() -> PathBuf {
+        get_default_data_dir()
+    }
+
+    pub fn get_registry_dir() -> PathBuf {
+        get_default_data_dir().join("registry")
     }
 
     pub async fn load() -> Result<Self> {
@@ -88,6 +92,14 @@ impl Config {
         let content = serde_json::to_string_pretty(self)?;
         fs::write(&config_path, content).await?;
         Ok(())
+    }
+
+    /// Apply registry configuration to the store manager
+    pub async fn apply(&self, store_manager: &mut StoreManager) -> Result<()> {
+        self.registry
+            .apply(store_manager)
+            .await
+            .map_err(|e| eyre::eyre!("Failed to apply registry config: {}", e))
     }
 
     pub fn set_value(&mut self, key: &str, value: &str) -> Result<()> {
@@ -153,6 +165,17 @@ impl Config {
     }
 
     pub fn show_all(&self) -> String {
+        let registry_sources = if self.registry.extension_sources.is_empty() {
+            "(none configured)".to_string()
+        } else {
+            self.registry
+                .extension_sources
+                .iter()
+                .map(|s| format!("{} (priority: {})", s.name, s.priority))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
         format!(
             "Configuration:\n\
              Storage:\n\
@@ -163,7 +186,9 @@ impl Config {
              └─ output_dir: {}\n\
              Fetch:\n\
              ├─ auto_fetch_covers: {}\n\
-             └─ auto_fetch_assets: {}",
+             └─ auto_fetch_assets: {}\n\
+             Registry:\n\
+             └─ extension_sources: {}",
             self.storage.path,
             self.export.format,
             self.export.include_covers,
@@ -172,7 +197,8 @@ impl Config {
                 .as_ref()
                 .unwrap_or(&"(not set)".to_string()),
             self.fetch.auto_fetch_covers,
-            self.fetch.auto_fetch_assets
+            self.fetch.auto_fetch_assets,
+            registry_sources
         )
     }
 
@@ -180,5 +206,25 @@ impl Config {
         let config = Self::default();
         config.save().await?;
         Ok(config)
+    }
+}
+
+/// Get the default configuration directory
+fn get_default_config_dir() -> PathBuf {
+    if let Some(proj_dirs) = ProjectDirs::from("org", "quelle", "quelle") {
+        proj_dirs.config_dir().to_path_buf()
+    } else {
+        // Fallback to current directory if we can't determine project dirs
+        PathBuf::from(".quelle").join("config")
+    }
+}
+
+/// Get the default data directory
+fn get_default_data_dir() -> PathBuf {
+    if let Some(proj_dirs) = ProjectDirs::from("org", "quelle", "quelle") {
+        proj_dirs.data_dir().to_path_buf()
+    } else {
+        // Fallback to current directory if we can't determine project dirs
+        PathBuf::from(".quelle").join("data")
     }
 }

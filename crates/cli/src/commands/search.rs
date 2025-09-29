@@ -1,221 +1,101 @@
 use eyre::Result;
+use quelle_store::{SearchQuery, StoreManager};
 use tracing::{info, warn};
 
 pub async fn handle_search_command(
+    store_manager: &StoreManager,
     query: String,
     author: Option<String>,
-    tags: Option<String>,
-    source: Option<String>,
-    limit: usize,
+    tags: Vec<String>,
+    categories: Vec<String>,
+    limit: Option<usize>,
     dry_run: bool,
 ) -> Result<()> {
     if dry_run {
         println!(
-            "Would search for: {} (author: {:?}, tags: {:?}, source: {:?}, limit: {})",
-            query, author, tags, source, limit
+            "Would search for: {} (author: {:?}, tags: {:?}, categories: {:?}, limit: {:?})",
+            query, author, tags, categories, limit
         );
         return Ok(());
     }
 
-    // Initialize extension infrastructure
-    let store_manager = crate::utils::create_store_manager().await?;
-    let engine = crate::utils::create_extension_engine()?;
+    // Determine if we should use simple or complex search
+    let is_complex = !tags.is_empty() || !categories.is_empty() || author.is_some();
 
-    println!("🔍 Searching for novels: {}", query);
-
-    // Get all installed extensions
-    let installed_extensions = store_manager.list_installed().await?;
-
-    if installed_extensions.is_empty() {
-        println!("❌ No extensions installed");
-        println!("💡 Install extensions first with: quelle extension install <id>");
-        return Ok(());
+    if is_complex {
+        println!("🔍 Using complex search for: {}", query);
+    } else {
+        println!("🔍 Using simple search for: {}", query);
     }
 
-    println!(
-        "📦 Searching across {} installed extensions...",
-        installed_extensions.len()
-    );
+    // Build search query
+    let mut search_query = SearchQuery::new().with_text(query.clone());
 
-    let mut total_results = 0;
-    let mut searched_extensions = 0;
-    let mut failed_extensions = 0;
+    if let Some(author) = author {
+        search_query = search_query.with_author(author);
+    }
 
-    // Search each extension
-    for extension in &installed_extensions {
-        // Filter by source if specified
-        if let Some(ref source_filter) = source {
-            if !extension
-                .name
-                .to_lowercase()
-                .contains(&source_filter.to_lowercase())
-                && !extension
-                    .id
-                    .to_lowercase()
-                    .contains(&source_filter.to_lowercase())
-            {
-                continue;
-            }
-        }
+    if !tags.is_empty() {
+        search_query = search_query.with_tags(tags);
+    }
 
-        info!("🔍 Searching extension: {}", extension.name);
+    if let Some(limit) = limit {
+        search_query = search_query.limit(limit);
+    } else {
+        search_query = search_query.limit(20); // Default limit
+    }
 
-        match search_extension_for_novels(
-            &extension,
-            &query,
-            author.as_ref(),
-            tags.as_ref(),
-            limit,
-            &engine,
-        )
-        .await
-        {
-            Ok(results) => {
-                if !results.is_empty() {
-                    println!("\n📚 Results from {} ({}):", extension.name, extension.id);
-                    for (_i, novel) in results.iter().enumerate() {
-                        if total_results >= limit {
-                            break;
-                        }
-                        println!("  {}. 📖 {}", total_results + 1, novel.title);
-                        println!("     🔗 {}", novel.url);
-                        if let Some(ref cover) = novel.cover {
-                            println!("     🎨 Cover: {}", cover);
-                        }
-                        total_results += 1;
+    // Search across all stores
+    match store_manager.search_all_stores(&search_query).await {
+        Ok(results) => {
+            if results.is_empty() {
+                println!("❌ No results found for: {}", query);
+                println!("💡 Try:");
+                println!("  • Different search terms");
+                println!("  • Adding more extension stores with 'quelle store add'");
+                println!("  • Checking if your stores have extensions installed");
+            } else {
+                let display_limit = limit.unwrap_or(10);
+                println!("📚 Found {} results:", results.len());
+
+                for (i, result) in results.iter().enumerate().take(display_limit) {
+                    println!("{}. 📖 {} by {}", i + 1, result.name, result.author);
+
+                    if let Some(desc) = &result.description {
+                        let short_desc = if desc.len() > 150 {
+                            format!("{}...", &desc[..147])
+                        } else {
+                            desc.clone()
+                        };
+                        println!("   {}", short_desc);
                     }
+
+                    println!("   📦 Store: {}", result.store_source);
+
+                    if let Some(homepage) = &result.homepage {
+                        println!("   🔗 Homepage: {}", homepage);
+                    }
+                    println!();
                 }
-                searched_extensions += 1;
-            }
-            Err(e) => {
-                warn!("❌ Failed to search {}: {}", extension.name, e);
-                failed_extensions += 1;
+
+                if results.len() > display_limit {
+                    println!("... and {} more results", results.len() - display_limit);
+                    println!("💡 Use --limit {} to see more results", results.len());
+                }
+
+                println!("💡 To fetch a novel, use:");
+                println!("  quelle fetch novel <url>");
             }
         }
-
-        if total_results >= limit {
-            break;
+        Err(e) => {
+            warn!("Search failed: {}", e);
+            println!("❌ Search failed: {}", e);
+            println!("💡 Try:");
+            println!("  • Checking store status with 'quelle status'");
+            println!("  • Updating stores with 'quelle store update all'");
+            println!("  • Adding extension stores if none are configured");
         }
-    }
-
-    // Summary
-    println!("\n📊 Search Summary:");
-    println!("  🔍 Query: {}", query);
-    if let Some(ref author_filter) = author {
-        println!("  👤 Author filter: {}", author_filter);
-    }
-    if let Some(ref tags_filter) = tags {
-        println!("  🏷️  Tags filter: {}", tags_filter);
-    }
-    if let Some(ref source_filter) = source {
-        println!("  📦 Source filter: {}", source_filter);
-    }
-    println!("  📚 Total results: {}", total_results);
-    println!("  📦 Extensions searched: {}", searched_extensions);
-    if failed_extensions > 0 {
-        println!("  ❌ Extensions failed: {}", failed_extensions);
-    }
-
-    if total_results == 0 && searched_extensions > 0 {
-        println!("\n💡 No results found. Try:");
-        println!("  • Different search terms");
-        println!("  • Checking if extensions support your query");
-        println!("  • Installing more extensions");
-    }
-
-    if total_results > 0 {
-        println!("\n💡 To fetch a novel, use:");
-        println!("  quelle fetch novel <url>");
     }
 
     Ok(())
-}
-
-async fn search_extension_for_novels(
-    extension: &quelle_store::models::InstalledExtension,
-    query: &str,
-    author: Option<&String>,
-    tags: Option<&String>,
-    limit: usize,
-    engine: &quelle_engine::ExtensionEngine,
-) -> Result<Vec<quelle_engine::bindings::quelle::extension::novel::BasicNovel>> {
-    use quelle_engine::bindings::{ComplexSearchQuery, SimpleSearchQuery};
-
-    // Get WASM component bytes
-    let wasm_bytes = extension.get_wasm_bytes();
-
-    // Create runner
-    let runner = engine.new_runner_from_bytes(wasm_bytes).await?;
-
-    // Try simple search first
-    let simple_query = SimpleSearchQuery {
-        query: query.to_string(),
-        page: Some(1),
-        limit: Some(limit as u32),
-    };
-
-    let (runner, result) = runner.simple_search(&simple_query).await?;
-
-    match result {
-        Ok(search_result) => {
-            // Filter results by author if specified
-            let mut novels = search_result.novels;
-
-            if let Some(author_filter) = author {
-                novels.retain(|novel| {
-                    // Check if any of the novel's metadata contains the author
-                    // For BasicNovel, we only have title, cover, and url
-                    // So we'll do a simple check against the URL or title
-                    novel
-                        .title
-                        .to_lowercase()
-                        .contains(&author_filter.to_lowercase())
-                        || novel
-                            .url
-                            .to_lowercase()
-                            .contains(&author_filter.to_lowercase())
-                });
-            }
-
-            // Filter by tags if specified (limited without full novel info)
-            if let Some(tags_filter) = tags {
-                let tag_list: Vec<String> = tags_filter
-                    .split(',')
-                    .map(|s| s.trim().to_lowercase())
-                    .collect();
-                novels.retain(|novel| {
-                    // Simple tag matching against title and URL
-                    tag_list.iter().any(|tag| {
-                        novel.title.to_lowercase().contains(tag)
-                            || novel.url.to_lowercase().contains(tag)
-                    })
-                });
-            }
-
-            Ok(novels)
-        }
-        Err(wit_error) => {
-            // If simple search fails, try complex search if we have filters
-            if author.is_some() || tags.is_some() {
-                let complex_query = ComplexSearchQuery {
-                    filters: vec![], // TODO: Implement proper filter construction
-                    page: Some(1),
-                    limit: Some(limit as u32),
-                    sort_by: None,
-                    sort_order: None,
-                };
-
-                let (_, result) = runner.complex_search(&complex_query).await?;
-                match result {
-                    Ok(search_result) => Ok(search_result.novels),
-                    Err(_) => Err(eyre::eyre!(
-                        "Both simple and complex search failed: {:?}",
-                        wit_error
-                    )),
-                }
-            } else {
-                Err(eyre::eyre!("Search failed: {:?}", wit_error))
-            }
-        }
-    }
 }
