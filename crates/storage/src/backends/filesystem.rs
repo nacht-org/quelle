@@ -144,7 +144,7 @@ impl FilesystemStorage {
         if volume_index == -1 {
             "default".to_string()
         } else {
-            volume_index.to_string()
+            format!("v{}", volume_index)
         }
     }
 
