@@ -19,8 +19,8 @@ use crate::models::{
     SearchQuery, StoreHealth, UpdateInfo,
 };
 use crate::publish::{
-    ExtensionVisibility, PublishOptions, PublishRequirements, PublishResult, PublishUpdateOptions, UnpublishOptions,
-    UnpublishResult,
+    ExtensionVisibility, PublishOptions, PublishRequirements, PublishResult, PublishUpdateOptions,
+    UnpublishOptions, UnpublishResult,
 };
 use crate::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
 use crate::stores::traits::{BaseStore, CacheStats, CacheableStore, ReadableStore, WritableStore};
@@ -1266,8 +1266,8 @@ impl LocalStore {
                 .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?,
         };
 
-        self.verify_extension_integrity(name, &version)
-            .await}
+        self.verify_extension_integrity(name, &version).await
+    }
 }
 
 #[async_trait]
@@ -1303,13 +1303,15 @@ impl WritableStore for LocalStore {
             ));
         }
 
-        // Validate package first
-        let validation = self.validate_package(&package, &options).await?;
-        if !validation.passed {
-            return Err(StoreError::ValidationFailed(format!(
-                "Package validation failed: {}",
-                validation.issues.len()
-            )));
+        // Validate package first (unless validation is skipped)
+        if !options.skip_validation {
+            let validation = self.validate_package(&package, &options).await?;
+            if !validation.passed {
+                return Err(StoreError::ValidationFailed(format!(
+                    "Package validation failed: {}",
+                    validation.issues.len()
+                )));
+            }
         }
 
         // Save the package to the store
@@ -1341,6 +1343,9 @@ impl WritableStore for LocalStore {
             *self.cache.write().unwrap() = HashMap::new();
             *self.cache_timestamp.write().unwrap() = None;
         }
+
+        // Update the store manifest to include the new extension
+        self.save_store_manifest().await?;
 
         Ok(PublishResult {
             extension_id: package.manifest.id.clone(),
@@ -1396,7 +1401,7 @@ impl WritableStore for LocalStore {
 
         let extension_dir = self.extension_path(extension_id)?;
 
-        if let Some(version) = &options.version {
+        let result = if let Some(version) = &options.version {
             // Remove specific version
             let version_dir = extension_dir.join(version);
             if version_dir.exists() {
@@ -1428,7 +1433,14 @@ impl WritableStore for LocalStore {
             } else {
                 Err(StoreError::ExtensionNotFound(extension_id.to_string()))
             }
+        };
+
+        // Update the store manifest if the unpublish was successful
+        if result.is_ok() {
+            self.save_store_manifest().await?;
         }
+
+        result
     }
 
     async fn validate_package(
@@ -1653,6 +1665,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let store = LocalStore::new(temp_dir.path()).unwrap();
 
+        // Initialize the store first
+        store
+            .initialize_store("test-store".to_string(), None)
+            .await
+            .unwrap();
+
         // Valid WASM magic number + version + minimal content
         let valid_wasm = [
             0x00, 0x61, 0x73, 0x6d, // WASM magic number
@@ -1700,6 +1718,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let store = LocalStore::new(temp_dir.path()).unwrap();
 
+        // Initialize the store first
+        store
+            .initialize_store("test-store".to_string(), None)
+            .await
+            .unwrap();
+
         // Create an invalid package (empty name)
         let manifest = ExtensionManifest {
             id: "".to_string(),   // Invalid empty id
@@ -1735,6 +1759,12 @@ mod tests {
     async fn test_unpublish_extension() {
         let temp_dir = TempDir::new().unwrap();
         let store = LocalStore::new(temp_dir.path()).unwrap();
+
+        // Initialize the store first
+        store
+            .initialize_store("test-store".to_string(), None)
+            .await
+            .unwrap();
 
         // Valid WASM magic number + version + minimal content
         let valid_wasm = [
@@ -1797,6 +1827,12 @@ mod tests {
     async fn test_validation_integration() {
         let temp_dir = TempDir::new().unwrap();
         let store = LocalStore::new(temp_dir.path()).unwrap();
+
+        // Initialize the store first
+        store
+            .initialize_store("test-store".to_string(), None)
+            .await
+            .unwrap();
 
         // Test 1: Valid extension should pass validation and publish
         let valid_wasm = [
@@ -1861,9 +1897,7 @@ mod tests {
 
         // Verify the error is a validation error
         match result.unwrap_err() {
-            crate::error::StoreError::PublishError(
-                crate::publish::PublishError::ValidationFailed(_),
-            ) => {
+            crate::error::StoreError::ValidationFailed(_) => {
                 // Expected error type
             }
             other => panic!("Expected ValidationFailed error, got: {:?}", other),
@@ -1932,5 +1966,138 @@ mod tests {
             result.is_ok(),
             "Extension should publish when validation is skipped"
         );
+    }
+
+    #[tokio::test]
+    async fn test_publish_updates_store_manifest() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::new(temp_dir.path()).unwrap();
+
+        // Initialize the store first
+        store
+            .initialize_store("test-store".to_string(), None)
+            .await
+            .unwrap();
+
+        // Valid WASM magic number + version + minimal content
+        let valid_wasm = [
+            0x00, 0x61, 0x73, 0x6d, // WASM magic number
+            0x01, 0x00, 0x00, 0x00, // WASM version 1
+            0x00, // Minimal content
+        ];
+
+        // Create a test extension package
+        let manifest = ExtensionManifest {
+            id: "test-extension".to_string(),
+            name: "test-extension".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
+            signature: None,
+        };
+
+        let package =
+            ExtensionPackage::new(manifest, valid_wasm.to_vec(), "test-store".to_string());
+
+        // Check that store.json initially has no extensions
+        let initial_manifest = store.get_local_store_manifest().await.unwrap();
+        assert_eq!(initial_manifest.extensions.len(), 0);
+
+        // Publish the extension
+        let options = PublishOptions::default();
+        store.publish(package.clone(), options).await.unwrap();
+
+        // Check that store.json now includes the published extension
+        let updated_manifest = store.get_local_store_manifest().await.unwrap();
+        assert_eq!(updated_manifest.extensions.len(), 1);
+
+        let extension_summary = &updated_manifest.extensions[0];
+        assert_eq!(extension_summary.id, "test-extension");
+        assert_eq!(extension_summary.name, "test-extension");
+        assert_eq!(extension_summary.version, "1.0.0");
+        assert_eq!(
+            extension_summary.base_urls,
+            vec!["https://example.com".to_string()]
+        );
+        assert_eq!(extension_summary.langs, vec!["en".to_string()]);
+
+        // Verify the store.json file was actually written to disk
+        let store_json_path = temp_dir.path().join("store.json");
+        assert!(store_json_path.exists());
+
+        let store_json_content = std::fs::read_to_string(&store_json_path).unwrap();
+        assert!(store_json_content.contains("test-extension"));
+        assert!(store_json_content.contains("1.0.0"));
+    }
+
+    #[tokio::test]
+    async fn test_unpublish_updates_store_manifest() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::new(temp_dir.path()).unwrap();
+
+        // Initialize the store first
+        store
+            .initialize_store("test-store".to_string(), None)
+            .await
+            .unwrap();
+
+        // Valid WASM magic number + version + minimal content
+        let valid_wasm = [
+            0x00, 0x61, 0x73, 0x6d, // WASM magic number
+            0x01, 0x00, 0x00, 0x00, // WASM version 1
+            0x00, // Minimal content
+        ];
+
+        // Create and publish a test extension
+        let manifest = ExtensionManifest {
+            id: "test-extension".to_string(),
+            name: "test-extension".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
+            signature: None,
+        };
+
+        let package =
+            ExtensionPackage::new(manifest, valid_wasm.to_vec(), "test-store".to_string());
+
+        // Publish the extension
+        let options = PublishOptions::default();
+        store.publish(package.clone(), options).await.unwrap();
+
+        // Verify it's in the manifest
+        let manifest_after_publish = store.get_local_store_manifest().await.unwrap();
+        assert_eq!(manifest_after_publish.extensions.len(), 1);
+
+        // Unpublish the extension
+        let unpublish_options = UnpublishOptions {
+            access_token: None,
+            version: Some("1.0.0".to_string()),
+            reason: Some("Test unpublish".to_string()),
+            keep_record: false,
+            notify_users: false,
+        };
+
+        store
+            .unpublish("test-extension", unpublish_options)
+            .await
+            .unwrap();
+
+        // Check that store.json no longer includes the unpublished extension
+        let manifest_after_unpublish = store.get_local_store_manifest().await.unwrap();
+        assert_eq!(manifest_after_unpublish.extensions.len(), 0);
+
+        // Verify the store.json file was actually updated on disk
+        let store_json_path = temp_dir.path().join("store.json");
+        let store_json_content = std::fs::read_to_string(&store_json_path).unwrap();
+        assert!(!store_json_content.contains("test-extension"));
     }
 }
