@@ -1,28 +1,29 @@
 use eyre::Result;
-use quelle_store::{ConfigStore, ExtensionSource, RegistryConfig, StoreManager, StoreType};
+use quelle_store::{RegistryConfig, StoreManager, StoreType};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::cli::StoreCommands;
+use crate::{cli::StoreCommands, config::Config};
 
 pub async fn handle_store_command(
     cmd: StoreCommands,
-    config: &RegistryConfig,
+    config: &mut Config,
     store_manager: &mut StoreManager,
-    config_store: &dyn ConfigStore,
 ) -> Result<()> {
     match cmd {
         StoreCommands::Add {
             name,
             path,
             priority,
-        } => handle_add_store(name, path, priority, config_store).await,
+        } => handle_add_store(name, path, priority, config, store_manager).await,
         StoreCommands::Remove { name, force } => {
-            handle_remove_store(name, force, config_store).await
+            handle_remove_store(name, force, config, store_manager).await
         }
-        StoreCommands::List => handle_list_stores(config).await,
-        StoreCommands::Update { name } => handle_update_store(name, config).await,
-        StoreCommands::Info { name } => handle_store_info(name, config, store_manager).await,
+        StoreCommands::List => handle_list_stores(&config.registry).await,
+        StoreCommands::Update { name } => handle_update_store(name, &config.registry).await,
+        StoreCommands::Info { name } => {
+            handle_store_info(name, &config.registry, store_manager).await
+        }
     }
 }
 
@@ -30,13 +31,11 @@ async fn handle_add_store(
     name: String,
     path: String,
     priority: u32,
-    config_store: &dyn ConfigStore,
+    config: &mut Config,
+    store_manager: &mut StoreManager,
 ) -> Result<()> {
-    // Load current configuration
-    let mut config = config_store.load().await?;
-
     // Check if store already exists
-    if config.extension_sources.iter().any(|s| s.name == name) {
+    if config.registry.has_source(&name) {
         println!("❌ Store '{}' already exists", name);
         println!("💡 Use 'quelle store remove {}' to remove it first", name);
         return Ok(());
@@ -50,13 +49,19 @@ async fn handle_add_store(
     }
 
     // Create extension source
-    let source = ExtensionSource::local(name.clone(), store_path.clone()).with_priority(priority);
+    let source = quelle_store::ExtensionSource::local(name.clone(), store_path.clone())
+        .with_priority(priority);
 
-    // Add to configuration
-    config.add_source(source);
+    // Add to CLI configuration
+    config.registry.add_source(source);
 
-    // Save configuration
-    config_store.save(&config).await?;
+    // Save CLI configuration
+    config.save().await?;
+
+    // Apply the updated registry config to store manager
+    // We need to clear and re-apply all sources since we can't easily add just one
+    store_manager.clear_extension_stores().await?;
+    config.registry.apply(store_manager).await?;
 
     println!("✅ Added store '{}'", name);
     println!("  Type: Local");
@@ -69,13 +74,11 @@ async fn handle_add_store(
 async fn handle_remove_store(
     name: String,
     force: bool,
-    config_store: &dyn ConfigStore,
+    config: &mut Config,
+    store_manager: &mut StoreManager,
 ) -> Result<()> {
-    // Load current configuration
-    let mut config = config_store.load().await?;
-
     // Check if store exists
-    if !config.extension_sources.iter().any(|s| s.name == name) {
+    if !config.registry.has_source(&name) {
         println!("❌ Store '{}' not found", name);
         return Ok(());
     }
@@ -91,18 +94,27 @@ async fn handle_remove_store(
         }
     }
 
-    // Remove the store
-    config.extension_sources.retain(|s| s.name != name);
+    // Remove the store from CLI configuration
+    let removed = config.registry.remove_source(&name);
+    if !removed {
+        println!("❌ Failed to remove store '{}'", name);
+        return Ok(());
+    }
 
-    // Save configuration
-    config_store.save(&config).await?;
+    // Save CLI configuration
+    config.save().await?;
+
+    // Apply the updated registry config to store manager
+    // We need to clear and re-apply all sources since we can't easily remove just one
+    store_manager.clear_extension_stores().await?;
+    config.registry.apply(store_manager).await?;
 
     println!("✅ Removed store '{}'", name);
     Ok(())
 }
 
-async fn handle_list_stores(config: &RegistryConfig) -> Result<()> {
-    if config.extension_sources.is_empty() {
+async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
+    if registry_config.extension_sources.is_empty() {
         println!("📦 No extension stores configured");
         println!("💡 Use 'quelle store add <name> <location>' to add stores");
         return Ok(());
@@ -110,14 +122,25 @@ async fn handle_list_stores(config: &RegistryConfig) -> Result<()> {
 
     println!(
         "📦 Configured extension stores ({}):",
-        config.extension_sources.len()
+        registry_config.extension_sources.len()
     );
-    for source in &config.extension_sources {
+    for source in &registry_config.extension_sources {
         println!("  📍 {} (priority: {})", source.name, source.priority);
         println!("     Type: {:?}", source.store_type);
         match &source.store_type {
             StoreType::Local { path } => {
                 println!("     Path: {}", path.display());
+                println!(
+                    "     Status: {}",
+                    if source.enabled {
+                        "✅ Enabled"
+                    } else {
+                        "❌ Disabled"
+                    }
+                );
+                if source.trusted {
+                    println!("     Trusted: ✅ Yes");
+                }
             }
         }
         println!();
@@ -125,11 +148,11 @@ async fn handle_list_stores(config: &RegistryConfig) -> Result<()> {
     Ok(())
 }
 
-async fn handle_update_store(name: String, config: &RegistryConfig) -> Result<()> {
+async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> Result<()> {
     if name == "all" {
         println!("🔄 Refreshing all extension stores...");
 
-        if config.extension_sources.is_empty() {
+        if registry_config.extension_sources.is_empty() {
             println!("📦 No stores configured");
             return Ok(());
         }
@@ -137,7 +160,7 @@ async fn handle_update_store(name: String, config: &RegistryConfig) -> Result<()
         let mut updated_count = 0;
         let mut failed_count = 0;
 
-        for source in &config.extension_sources {
+        for source in &registry_config.extension_sources {
             if !source.enabled {
                 continue;
             }
@@ -174,7 +197,7 @@ async fn handle_update_store(name: String, config: &RegistryConfig) -> Result<()
     } else {
         println!("🔄 Refreshing store '{}'...", name);
 
-        let source = config
+        let source = registry_config
             .extension_sources
             .iter()
             .find(|s| s.name == name && s.enabled);
@@ -207,11 +230,14 @@ async fn handle_update_store(name: String, config: &RegistryConfig) -> Result<()
 
 async fn handle_store_info(
     name: String,
-    config: &RegistryConfig,
+    registry_config: &RegistryConfig,
     _store_manager: &mut StoreManager,
 ) -> Result<()> {
     // Find the store in configuration
-    let source = config.extension_sources.iter().find(|s| s.name == name);
+    let source = registry_config
+        .extension_sources
+        .iter()
+        .find(|s| s.name == name);
 
     match source {
         Some(source) => {
@@ -220,6 +246,7 @@ async fn handle_store_info(
             println!("Priority: {}", source.priority);
             println!("Enabled: {}", source.enabled);
             println!("Trusted: {}", source.trusted);
+            println!("Added: {}", source.added_at.format("%Y-%m-%d %H:%M:%S UTC"));
 
             match &source.store_type {
                 StoreType::Local { path } => {
@@ -251,6 +278,10 @@ async fn handle_store_info(
                                 if let Some(error) = &health.error {
                                     println!("Error: {}", error);
                                 }
+                                println!(
+                                    "Last checked: {}",
+                                    health.last_check.format("%Y-%m-%d %H:%M:%S UTC")
+                                );
                             }
                             Err(e) => {
                                 println!("Status: ❌ Health check failed: {}", e);

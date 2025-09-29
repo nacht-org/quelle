@@ -122,6 +122,12 @@ impl StoreManager {
         initial_len != self.extension_stores.len()
     }
 
+    /// Clear all extension stores
+    pub async fn clear_extension_stores(&mut self) -> Result<()> {
+        self.extension_stores.clear();
+        Ok(())
+    }
+
     /// Get information about all registered extension stores
     /// Get list of store names
     pub fn list_extension_stores(&self) -> &[ManagedStore] {

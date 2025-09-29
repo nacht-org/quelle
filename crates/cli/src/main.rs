@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     tracing::subscriber::set_global_default(subscriber)?;
 
     // Load configuration
-    let config = Config::load().await?;
+    let mut config = Config::load().await?;
 
     // Initialize storage for local library
     let storage_path = utils::get_storage_path_from_args(cli.storage_path.as_ref(), &config);
@@ -76,15 +76,7 @@ async fn main() -> Result<()> {
         Commands::List => handle_list_command(&store_manager).await,
         Commands::Status => handle_status_command(&store_manager).await,
         Commands::Store { command } => {
-            // Create config store for persistence
-            let config_store = utils::create_config_store().await?;
-            handle_store_command(
-                command,
-                &config.registry,
-                &mut store_manager,
-                &*config_store,
-            )
-            .await
+            handle_store_command(command, &mut config, &mut store_manager).await
         }
         Commands::Extension { command } => {
             handle_extension_command(command, &mut store_manager, cli.dry_run).await

@@ -90,10 +90,7 @@ pub use registry::{
     ValidationIssue,
 };
 pub use registry_config::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts};
-pub use source::{
-    create_readable_store_from_source, ConfigStore, ExtensionSource, LocalConfigStore,
-    RegistryConfig, StoreType,
-};
+pub use source::{create_readable_store_from_source, ExtensionSource, RegistryConfig, StoreType};
 pub use store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
 pub use stores::traits::{BaseStore, ReadableStore, WritableStore};
 pub use validation::{

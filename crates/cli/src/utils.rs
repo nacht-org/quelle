@@ -1,7 +1,6 @@
-use directories::ProjectDirs;
 use eyre::Result;
 use quelle_engine::ExtensionEngine;
-use quelle_store::{ConfigStore, LocalConfigStore, StoreManager, registry::LocalRegistryStore};
+use quelle_store::{StoreManager, registry::LocalRegistryStore};
 use std::path::PathBuf;
 
 use crate::config::Config;
@@ -24,12 +23,6 @@ pub async fn create_store_manager_with_path(storage_path: PathBuf) -> Result<Sto
 /// Create an extension engine with Chrome executor (fallback to Reqwest if Chrome fails)
 pub fn create_extension_engine() -> Result<ExtensionEngine> {
     create_extension_engine_with_executor_choice(true)
-}
-
-/// Create a config store for registry configuration persistence
-pub async fn create_config_store() -> Result<Box<dyn ConfigStore>> {
-    let config_file = Config::get_config_path();
-    Ok(Box::new(LocalConfigStore::new(config_file).await?))
 }
 
 /// Create an extension engine with Reqwest executor
@@ -106,12 +99,6 @@ mod tests {
     fn test_engine_creation() {
         let engine = create_extension_engine();
         assert!(engine.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_config_store_creation() {
-        let config_store = create_config_store().await;
-        assert!(config_store.is_ok());
     }
 
     #[test]

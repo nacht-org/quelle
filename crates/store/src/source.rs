@@ -1,14 +1,13 @@
-//! Config Store - Persistence for registry configuration
+//! Registry Configuration - Extension source management
 //!
-//! This module provides traits and implementations for persisting registry configuration,
-//! including extension store preferences. When stores are added via CLI, their
-//! configuration is saved so they can be restored on the next startup.
+//! This module provides configuration structures for managing extension sources,
+//! including their types, priorities, and capabilities. Extension sources are
+//! configured through the CLI and applied to the StoreManager at runtime.
 
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::fs;
 
 use crate::{
     error::{Result, StoreError},
@@ -49,11 +48,8 @@ impl std::fmt::Display for StoreType {
 /// Registry configuration containing extension sources and other settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryConfig {
+    #[serde(default)]
     pub extension_sources: Vec<ExtensionSource>,
-    // Future: add other registry settings here
-    // pub default_timeout: Duration,
-    // pub parallel_downloads: usize,
-    // pub auto_update: bool,
 }
 
 impl Default for RegistryConfig {
@@ -132,16 +128,6 @@ impl RegistryConfig {
 
         Ok(())
     }
-}
-
-/// Trait for persisting registry configuration
-#[async_trait::async_trait]
-pub trait ConfigStore: Send + Sync {
-    /// Load registry configuration
-    async fn load(&self) -> Result<RegistryConfig>;
-
-    /// Save registry configuration
-    async fn save(&self, config: &RegistryConfig) -> Result<()>;
 }
 
 /// Configuration for an extension source
@@ -237,102 +223,6 @@ impl ExtensionSource {
     }
 }
 
-/// Local file-based implementation of ConfigStore
-pub struct LocalConfigStore {
-    config_file: PathBuf,
-}
-
-impl LocalConfigStore {
-    /// Create a new LocalConfigStore with a custom config file path
-    pub async fn new<P: Into<PathBuf>>(config_file: P) -> Result<Self> {
-        let config_file = config_file.into();
-
-        // Ensure the parent directory exists
-        if let Some(parent) = config_file.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .map_err(|e| StoreError::IoOperation {
-                    operation: "create config directory".to_string(),
-                    path: parent.to_path_buf(),
-                    source: e,
-                })?;
-        }
-
-        Ok(Self { config_file })
-    }
-
-    /// Create a new LocalConfigStore using OS-specific default directories
-    pub async fn new_with_defaults() -> Result<Self> {
-        let config_dir = get_default_config_dir()?;
-        let config_file = config_dir.join("config.json");
-        Self::new(config_file).await
-    }
-
-    /// Get the path to the config file
-    pub fn config_file_path(&self) -> &PathBuf {
-        &self.config_file
-    }
-}
-
-#[async_trait::async_trait]
-impl ConfigStore for LocalConfigStore {
-    async fn load(&self) -> Result<RegistryConfig> {
-        if !self.config_file.exists() {
-            return Ok(RegistryConfig::default());
-        }
-
-        let contents =
-            fs::read_to_string(&self.config_file)
-                .await
-                .map_err(|e| StoreError::IoOperation {
-                    operation: "read registry config".to_string(),
-                    path: self.config_file.clone(),
-                    source: e,
-                })?;
-
-        let config: RegistryConfig = serde_json::from_str(&contents).map_err(|e| {
-            StoreError::SerializationErrorWithContext {
-                operation: "deserialize registry config".to_string(),
-                source: e,
-            }
-        })?;
-
-        Ok(config)
-    }
-
-    async fn save(&self, config: &RegistryConfig) -> Result<()> {
-        let contents = serde_json::to_string_pretty(config).map_err(|e| {
-            StoreError::SerializationErrorWithContext {
-                operation: "serialize registry config".to_string(),
-                source: e,
-            }
-        })?;
-
-        fs::write(&self.config_file, contents)
-            .await
-            .map_err(|e| StoreError::IoOperation {
-                operation: "write registry config".to_string(),
-                path: self.config_file.clone(),
-                source: e,
-            })?;
-
-        Ok(())
-    }
-}
-
-/// Get the default configuration directory for the current OS
-fn get_default_config_dir() -> Result<PathBuf> {
-    use directories::ProjectDirs;
-
-    if let Some(proj_dirs) = ProjectDirs::from("", "", "quelle") {
-        Ok(proj_dirs.config_dir().to_path_buf())
-    } else {
-        Err(StoreError::ConfigurationError {
-            message: "Could not determine configuration directory".to_string(),
-        })
-    }
-}
-
 /// Helper function to create a store from an ExtensionSource configuration
 pub async fn create_readable_store_from_source(
     source: &ExtensionSource,
@@ -353,55 +243,6 @@ pub async fn create_readable_store_from_source(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
-
-    #[tokio::test]
-    async fn test_local_config_store_basic_operations() {
-        let temp_dir = TempDir::new().unwrap();
-        let config_file = temp_dir.path().join("test_config.json");
-
-        let config_store = LocalConfigStore::new(config_file).await.unwrap();
-
-        // Initially empty config
-        let config = config_store.load().await.unwrap();
-        assert_eq!(config.extension_sources.len(), 0);
-
-        // Add a source
-        let mut config = config_store.load().await.unwrap();
-        let source = ExtensionSource::local("test-store".to_string(), PathBuf::from("/test/path"));
-        config.add_source(source);
-        config_store.save(&config).await.unwrap();
-
-        // Verify it was saved
-        let config = config_store.load().await.unwrap();
-        assert_eq!(config.extension_sources.len(), 1);
-        assert_eq!(config.extension_sources[0].name, "test-store");
-        assert_eq!(
-            config.extension_sources[0].store_type,
-            StoreType::Local {
-                path: PathBuf::from("/test/path")
-            }
-        );
-
-        // Check if source exists
-        assert!(config.has_source("test-store"));
-        assert!(!config.has_source("non-existent"));
-
-        // Remove the source
-        let mut config = config_store.load().await.unwrap();
-        let removed = config.remove_source("test-store");
-        assert!(removed);
-        config_store.save(&config).await.unwrap();
-
-        // Verify it was removed
-        let config = config_store.load().await.unwrap();
-        assert_eq!(config.extension_sources.len(), 0);
-
-        // Try removing non-existent source
-        let mut config = config_store.load().await.unwrap();
-        let removed = config.remove_source("non-existent");
-        assert!(!removed);
-    }
 
     #[tokio::test]
     async fn test_extension_source_creation() {
@@ -424,10 +265,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_source_priority_sorting() {
-        let temp_dir = TempDir::new().unwrap();
-        let config_file = temp_dir.path().join("test_config.json");
-        let config_store = LocalConfigStore::new(config_file).await.unwrap();
-
         let mut config = RegistryConfig::default();
 
         // Add sources with different priorities
@@ -442,14 +279,11 @@ mod tests {
         config.add_source(source2);
         config.add_source(source3);
 
-        config_store.save(&config).await.unwrap();
-        let loaded_config = config_store.load().await.unwrap();
-
-        assert_eq!(loaded_config.extension_sources.len(), 3);
+        assert_eq!(config.extension_sources.len(), 3);
 
         // Should be sorted by priority (lower = higher priority)
-        assert_eq!(loaded_config.extension_sources[0].name, "store2"); // priority 50
-        assert_eq!(loaded_config.extension_sources[1].name, "store3"); // priority 75
-        assert_eq!(loaded_config.extension_sources[2].name, "store1"); // priority 100
+        assert_eq!(config.extension_sources[0].name, "store2"); // priority 50
+        assert_eq!(config.extension_sources[1].name, "store3"); // priority 75
+        assert_eq!(config.extension_sources[2].name, "store1"); // priority 100
     }
 }
