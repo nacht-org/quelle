@@ -1,6 +1,20 @@
 [package]
 name = "quelle_export"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+# Core dependencies
+quelle_storage = { path = "../storage" }
+async-trait = "0.1"
+tokio = { version = "1.0", features = ["fs", "io-util"] }
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+eyre = "0.6"
+
+# EPUB format dependencies
+epub-builder = "0.7"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.0"
