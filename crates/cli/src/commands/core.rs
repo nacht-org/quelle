@@ -3,7 +3,10 @@ use quelle_storage::backends::filesystem::FilesystemStorage;
 use quelle_store::StoreManager;
 use url::Url;
 
-use crate::utils::{resolve_novel_id, show_novel_not_found_help};
+use crate::{
+    commands::export::handle_export_epub,
+    utils::{resolve_novel_id, show_novel_not_found_help},
+};
 
 /// Handle the add command - add a novel to library
 pub async fn handle_add_command(
@@ -173,40 +176,38 @@ pub async fn handle_remove_command(
 
 /// Handle the export command - export novels to various formats
 pub async fn handle_export_command(
-    novel: String,
+    novel_input: String,
     format: String,
     output: Option<String>,
     include_images: bool,
-    _storage: &FilesystemStorage,
+    storage: &FilesystemStorage,
     dry_run: bool,
 ) -> Result<()> {
-    if dry_run {
-        println!("Would export novel '{}' in {} format", novel, format);
-        if let Some(output_dir) = &output {
-            println!("Output directory: {}", output_dir);
+    // Validate format first
+    match format.as_str() {
+        "epub" => {
+            // Format is valid, proceed with export
         }
+        _ => {
+            eprintln!("❌ Unsupported export format: {}", format);
+            eprintln!("💡 Supported formats: epub");
+            return Ok(());
+        }
+    }
+
+    // Handle dry-run mode
+    if dry_run {
+        println!("Would export novel '{}' in {} format", novel_input, format);
+        if let Some(ref output_dir) = output {
+            println!("  Output dir: {}", output_dir);
+        }
+        println!("  Include images: {}", include_images);
         return Ok(());
     }
 
+    // Proceed with actual export based on format
     match format.as_str() {
-        "epub" => {
-            // Call the export functionality directly
-            println!("📖 Exporting novel '{}' to EPUB format", novel);
-            if let Some(output_dir) = &output {
-                println!("Output directory: {}", output_dir);
-            }
-            if include_images {
-                println!("Including images in export");
-            }
-
-            // TODO: Implement direct EPUB export functionality
-            println!("💡 EPUB export functionality will be implemented here");
-            Ok(())
-        }
-        _ => {
-            println!("❌ Unsupported format: {}", format);
-            println!("💡 Supported formats: epub");
-            Ok(())
-        }
+        "epub" => handle_export_epub(novel_input, output, include_images, storage, dry_run).await,
+        _ => unreachable!(), // This should never be reached due to validation above
     }
 }
