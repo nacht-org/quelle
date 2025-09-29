@@ -129,6 +129,9 @@ pub trait BookStorage: Send + Sync {
 
     // === Asset Operations ===
 
+    /// Create an Asset with properly generated ID and filename
+    fn create_asset(&self, novel_id: NovelId, original_url: String, mime_type: String) -> Asset;
+
     /// Store an asset with data from a reader.
     async fn store_asset(
         &self,

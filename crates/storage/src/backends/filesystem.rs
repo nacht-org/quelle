@@ -80,6 +80,7 @@ struct IndexedAsset {
     original_url: String,
     mime_type: String,
     size: u64,
+    filename: String,
     stored_at: DateTime<Utc>,
 }
 
@@ -160,24 +161,88 @@ impl FilesystemStorage {
     }
 
     fn get_asset_metadata_file(&self, novel_id: &NovelId, asset_id: &AssetId) -> PathBuf {
-        let asset_hash = self.hash_string(asset_id.as_str());
         self.get_novel_dir(novel_id)
             .join("assets")
             .join("metadata")
-            .join(format!("{}.json", asset_hash))
+            .join(format!("{}.json", asset_id.as_str()))
     }
 
-    fn get_asset_data_file(&self, novel_id: &NovelId, asset_id: &AssetId) -> PathBuf {
-        let asset_hash = self.hash_string(asset_id.as_str());
+    fn get_asset_data_file(&self, novel_id: &NovelId, filename: &str) -> PathBuf {
         self.get_novel_dir(novel_id)
             .join("assets")
             .join("data")
-            .join(format!("{}.bin", asset_hash))
+            .join(filename)
     }
 
     fn hash_string(&self, input: &str) -> String {
         // Simple hash for filesystem safety - in production you might want something more sophisticated
         format!("{:x}", md5::compute(input.as_bytes()))
+    }
+
+    /// Generate a filesystem-safe asset ID based on a UUID
+    fn generate_asset_id(&self) -> String {
+        // Generate a UUID and use only the first part for brevity
+        let uuid = uuid::Uuid::new_v4().to_string();
+        // Take first 8 characters for shorter filenames
+        uuid[..8].to_string()
+    }
+
+    /// Extract file extension from URL
+    fn extract_extension_from_url(&self, url: &str) -> Option<String> {
+        if let Ok(parsed_url) = url::Url::parse(url) {
+            if let Some(path_segments) = parsed_url.path_segments() {
+                if let Some(last_segment) = path_segments.last() {
+                    // Remove query parameters if present
+                    let filename = last_segment.split('?').next().unwrap_or(last_segment);
+                    if !filename.is_empty() && filename.contains('.') {
+                        if let Some(extension) = filename.split('.').last() {
+                            return Some(extension.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Determine file extension from MIME type as fallback
+    fn extension_from_mime_type(&self, mime_type: &str) -> &str {
+        match mime_type {
+            "image/jpeg" => "jpg",
+            "image/png" => "png",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            "image/svg+xml" => "svg",
+            "text/html" => "html",
+            "text/css" => "css",
+            "application/javascript" => "js",
+            "application/json" => "json",
+            "application/pdf" => "pdf",
+            _ => "bin",
+        }
+    }
+
+    /// Generate a filename with proper extension, ensuring it's filesystem safe
+    fn generate_safe_filename(&self, url: &str, mime_type: &str, asset_id: &str) -> String {
+        // Try to extract extension from URL first, then fallback to MIME type
+        let extension = self
+            .extract_extension_from_url(url)
+            .unwrap_or_else(|| self.extension_from_mime_type(mime_type).to_string());
+
+        // Always use asset_id as base filename
+        let filename = format!("{}.{}", asset_id, extension);
+
+        // Ensure filename is filesystem safe
+        filename
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect()
     }
 
     /// Normalize URL by removing trailing slashes and trimming whitespace
@@ -337,10 +402,7 @@ impl FilesystemStorage {
                 })?;
 
                 while let Ok(Some(chapter_entry)) = volume_entries.next_entry().await {
-                    if chapter_entry
-                        .file_type()
-                        .await
-                        .is_ok_and(|ft| ft.is_file())
+                    if chapter_entry.file_type().await.is_ok_and(|ft| ft.is_file())
                         && chapter_entry
                             .file_name()
                             .to_string_lossy()
@@ -376,6 +438,7 @@ impl FilesystemStorage {
             original_url: self.normalize_url(&asset.original_url),
             mime_type: asset.mime_type.clone(),
             size: data_size,
+            filename: asset.filename.clone(),
             stored_at: Utc::now(),
         };
 
@@ -974,13 +1037,28 @@ impl BookStorage for FilesystemStorage {
 
     // === Asset Operations ===
 
+    /// Create an Asset with properly generated ID and filename
+    fn create_asset(&self, novel_id: NovelId, original_url: String, mime_type: String) -> Asset {
+        let asset_id = self.generate_asset_id();
+        let filename = self.generate_safe_filename(&original_url, &mime_type, &asset_id);
+
+        Asset {
+            id: AssetId::from(asset_id),
+            novel_id,
+            original_url,
+            mime_type,
+            size: 0, // Will be updated by storage
+            filename,
+        }
+    }
+
     async fn store_asset(
         &self,
         asset: Asset,
         mut reader: Box<dyn tokio::io::AsyncRead + Send + Unpin>,
     ) -> Result<AssetId> {
         let metadata_file = self.get_asset_metadata_file(&asset.novel_id, &asset.id);
-        let data_file = self.get_asset_data_file(&asset.novel_id, &asset.id);
+        let data_file = self.get_asset_data_file(&asset.novel_id, &asset.filename);
 
         // Create directory structure for both metadata and data
         if let Some(parent) = metadata_file.parent() {
@@ -1078,7 +1156,8 @@ impl BookStorage for FilesystemStorage {
         let index = self.load_index().await?;
 
         if let Some(indexed_asset) = self.find_asset_in_index(&index, asset_id) {
-            let data_file = self.get_asset_data_file(&indexed_asset.novel_id, asset_id);
+            let data_file =
+                self.get_asset_data_file(&indexed_asset.novel_id, &indexed_asset.filename);
 
             if data_file.exists() {
                 let data =
@@ -1100,7 +1179,8 @@ impl BookStorage for FilesystemStorage {
 
         if let Some(indexed_asset) = self.find_asset_in_index(&index, asset_id) {
             let metadata_file = self.get_asset_metadata_file(&indexed_asset.novel_id, asset_id);
-            let data_file = self.get_asset_data_file(&indexed_asset.novel_id, asset_id);
+            let data_file =
+                self.get_asset_data_file(&indexed_asset.novel_id, &indexed_asset.filename);
 
             // Remove both metadata and data files
             if metadata_file.exists() {
@@ -1153,6 +1233,7 @@ impl BookStorage for FilesystemStorage {
                 original_url: indexed_asset.original_url.clone(),
                 mime_type: indexed_asset.mime_type.clone(),
                 size: indexed_asset.size,
+                filename: indexed_asset.filename.clone(),
             })
             .collect();
 
@@ -1588,7 +1669,7 @@ mod tests {
         novel2.url = "https://example.com/novel/".to_string();
 
         // Store first novel
-        let id1 = storage.store_novel(&novel1).await.unwrap();
+        let _id1 = storage.store_novel(&novel1).await.unwrap();
 
         // Try to store second novel with trailing slash - should fail as it's the same novel
         let result = storage.store_novel(&novel2).await;
@@ -1610,6 +1691,237 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_asset_id_filename_consistency() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        let novel_id = NovelId::from("test-novel");
+
+        // Test different URL patterns and their filename extraction
+        let test_cases = vec![
+            ("https://example.com/cover.jpg", "image/jpeg"),
+            ("https://cdn.site.com/assets/image.png?v=123", "image/png"),
+            ("https://example.com/files/document.pdf", "application/pdf"),
+            ("https://example.com/no-extension", "image/webp"),
+        ];
+
+        for (url, mime_type) in test_cases {
+            // Create asset using the new method
+            let asset =
+                storage.create_asset(novel_id.clone(), url.to_string(), mime_type.to_string());
+
+            // Verify asset ID is filesystem-safe and short
+            assert_eq!(asset.id.as_str().len(), 8);
+            assert!(asset
+                .id
+                .as_str()
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-'));
+
+            // Verify filename contains the asset ID and proper extension
+            assert!(asset.filename.starts_with(asset.id.as_str()));
+
+            // Check extension handling
+            if url.contains(".jpg") {
+                assert!(asset.filename.ends_with(".jpg"));
+            } else if url.contains(".png") {
+                assert!(asset.filename.ends_with(".png"));
+            } else if url.contains(".pdf") {
+                assert!(asset.filename.ends_with(".pdf"));
+            } else if mime_type == "image/webp" {
+                assert!(asset.filename.ends_with(".webp"));
+            }
+
+            // Verify the filename is filesystem-safe
+            assert!(asset
+                .filename
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_'));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_comprehensive_asset_storage() {
+        use std::io::Cursor;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        let novel_id = NovelId::from("test-novel");
+
+        // Test cases with realistic asset scenarios
+        let test_assets = vec![
+            ("https://cdn.example.com/covers/novel123.jpg", "image/jpeg"),
+            ("https://assets.site.com/images/banner.png?v=2", "image/png"),
+            ("https://example.com/files/document.pdf", "application/pdf"),
+            ("https://cdn.site.com/avatar", "image/webp"), // No extension in URL
+            ("https://example.com/image.GIF", "image/gif"), // Mixed case extension
+        ];
+
+        for (url, mime_type) in test_assets {
+            // Create asset with proper ID and filename
+            let asset =
+                storage.create_asset(novel_id.clone(), url.to_string(), mime_type.to_string());
+
+            // Test data
+            let test_data = format!("Test data for asset from {}", url).into_bytes();
+            let reader = Box::new(Cursor::new(test_data.clone()));
+
+            // Store the asset
+            let stored_id = storage.store_asset(asset.clone(), reader).await.unwrap();
+            assert_eq!(stored_id, asset.id);
+
+            // Verify the asset is indexed correctly
+            let index = storage.load_index().await.unwrap();
+            let indexed_asset = storage.find_asset_in_index(&index, &asset.id).unwrap();
+            assert_eq!(indexed_asset.filename, asset.filename);
+            assert_eq!(indexed_asset.original_url, url);
+            assert_eq!(indexed_asset.mime_type, mime_type);
+
+            // Verify files exist with correct names
+            let metadata_file = storage.get_asset_metadata_file(&novel_id, &asset.id);
+            let data_file = storage.get_asset_data_file(&novel_id, &asset.filename);
+
+            assert!(
+                metadata_file.exists(),
+                "Metadata file should exist: {:?}",
+                metadata_file
+            );
+            assert!(
+                data_file.exists(),
+                "Data file should exist: {:?}",
+                data_file
+            );
+
+            // Verify metadata file is named with asset ID
+            assert!(metadata_file
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(&asset.id.as_str()));
+
+            // Verify data file has the proper filename with extension
+            assert_eq!(
+                data_file.file_name().unwrap().to_string_lossy(),
+                asset.filename
+            );
+
+            // Verify we can retrieve the asset data
+            let retrieved_data = storage.get_asset_data(&asset.id).await.unwrap();
+            assert!(retrieved_data.is_some());
+            assert_eq!(retrieved_data.unwrap(), test_data);
+
+            println!(
+                "✅ Asset from {} stored as {} with ID {}",
+                url,
+                asset.filename,
+                asset.id.as_str()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_end_to_end_asset_workflow() {
+        use quelle_engine::bindings::quelle::extension::novel::{
+            Chapter, Novel, NovelStatus, Volume,
+        };
+        use std::io::Cursor;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        // Create a test novel first
+        let novel = Novel {
+            title: "Test Novel".to_string(),
+            authors: vec!["Test Author".to_string()],
+            url: "https://example.com/novel".to_string(),
+            cover: Some("https://cdn.example.com/cover.jpg".to_string()),
+            description: vec!["A test novel".to_string()],
+            status: NovelStatus::Ongoing,
+            langs: vec!["en".to_string()],
+            volumes: vec![Volume {
+                name: "Volume 1".to_string(),
+                index: 1,
+                chapters: vec![Chapter {
+                    title: "Chapter 1".to_string(),
+                    index: 1,
+                    url: "https://example.com/chapter-1".to_string(),
+                    updated_at: None,
+                }],
+            }],
+            metadata: vec![],
+        };
+
+        // Store the novel
+        let novel_id = storage.store_novel(&novel).await.unwrap();
+
+        // Test complete asset workflow: create -> store -> retrieve -> verify
+        let test_cases = vec![
+            (
+                "https://cdn.example.com/cover.jpg",
+                "image/jpeg",
+                b"fake_jpeg_data",
+            ),
+            (
+                "https://assets.site.com/image.png",
+                "image/png",
+                b"fake_png_data_",
+            ),
+        ];
+
+        for (url, mime_type, data) in test_cases {
+            // 1. Create asset using the storage method
+            let asset =
+                storage.create_asset(novel_id.clone(), url.to_string(), mime_type.to_string());
+
+            // 2. Verify asset structure is correct
+            assert!(asset.id.as_str().len() == 8);
+            assert!(asset.filename.starts_with(asset.id.as_str()));
+            assert_eq!(asset.novel_id, novel_id);
+            assert_eq!(asset.original_url, url);
+            assert_eq!(asset.mime_type, mime_type);
+
+            // 3. Store the asset
+            let reader = Box::new(Cursor::new(data.to_vec()));
+            let stored_id = storage.store_asset(asset.clone(), reader).await.unwrap();
+            assert_eq!(stored_id, asset.id);
+
+            // 4. Verify files exist with expected names
+            let metadata_file = storage.get_asset_metadata_file(&novel_id, &asset.id);
+            let data_file = storage.get_asset_data_file(&novel_id, &asset.filename);
+
+            assert!(metadata_file.exists());
+            assert!(data_file.exists());
+            assert_eq!(
+                metadata_file.file_name().unwrap().to_string_lossy(),
+                format!("{}.json", asset.id.as_str())
+            );
+            assert_eq!(
+                data_file.file_name().unwrap().to_string_lossy(),
+                asset.filename
+            );
+
+            // 5. Retrieve and verify asset metadata
+            let retrieved_asset = storage.get_asset(&asset.id).await.unwrap();
+            assert!(retrieved_asset.is_some());
+            let retrieved_asset = retrieved_asset.unwrap();
+            assert_eq!(retrieved_asset.filename, asset.filename);
+
+            // 6. Retrieve and verify asset data
+            let retrieved_data = storage.get_asset_data(&asset.id).await.unwrap();
+            assert!(retrieved_data.is_some());
+            assert_eq!(retrieved_data.unwrap(), data);
+
+            // 7. Verify asset appears in novel's asset list
+            let novel_assets = storage.get_novel_assets(&novel_id).await.unwrap();
+            assert!(novel_assets.iter().any(|a| a.id == asset.id));
+        }
+    }
+
+    #[tokio::test]
     async fn test_asset_storage_separation() {
         use crate::types::{Asset, AssetId};
         use std::io::Cursor;
@@ -1626,9 +1938,10 @@ mod tests {
         let asset = Asset {
             id: AssetId::from("test-asset".to_string()),
             novel_id: novel_id.clone(),
-            original_url: "https://example.com/cover.jpg".to_string(),
+            original_url: "https://example.com/image.jpg".to_string(),
             mime_type: "image/jpeg".to_string(),
-            size: 0, // Will be updated when stored
+            size: 0,
+            filename: "test-asset.jpg".to_string(),
         };
 
         // Test binary data
@@ -1641,7 +1954,7 @@ mod tests {
 
         // Verify metadata and data are stored separately
         let metadata_file = storage.get_asset_metadata_file(&novel_id, &asset.id);
-        let data_file = storage.get_asset_data_file(&novel_id, &asset.id);
+        let data_file = storage.get_asset_data_file(&novel_id, &asset.filename);
 
         // Both files should exist
         assert!(metadata_file.exists());

@@ -14,6 +14,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3.0"
 serde_json = "1.0"
 url = "2.5"
+uuid = { version = "1.0", features = ["v4"] }
 
 # Import WIT types from engine crate
 quelle_engine = { path = "../engine" }

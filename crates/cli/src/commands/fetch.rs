@@ -4,7 +4,7 @@ use quelle_storage::{
     ChapterContent,
     backends::filesystem::FilesystemStorage,
     traits::BookStorage,
-    types::{Asset, AssetId, NovelId},
+    types::{AssetId, NovelId},
 };
 use quelle_store::StoreManager;
 use std::io::Cursor;
@@ -203,27 +203,27 @@ async fn handle_fetch_chapter(
                                     if let Ok(novels) = storage.list_novels(&filter).await
                                         && let Some(novel_summary) =
                                             novels.iter().find(|n| n.title == novel.title)
+                                    {
+                                        match storage
+                                            .store_chapter_content(
+                                                &novel_summary.id,
+                                                volume.index,
+                                                url.as_ref(),
+                                                &chapter,
+                                            )
+                                            .await
                                         {
-                                            match storage
-                                                .store_chapter_content(
-                                                    &novel_summary.id,
-                                                    volume.index,
-                                                    url.as_ref(),
-                                                    &chapter,
-                                                )
-                                                .await
-                                            {
-                                                Ok(()) => {
-                                                    println!(
-                                                        "💾 Saved chapter content to local library"
-                                                    );
-                                                    saved = true;
-                                                }
-                                                Err(e) => {
-                                                    eprintln!("❌ Failed to save chapter: {}", e);
-                                                }
+                                            Ok(()) => {
+                                                println!(
+                                                    "💾 Saved chapter content to local library"
+                                                );
+                                                saved = true;
+                                            }
+                                            Err(e) => {
+                                                eprintln!("❌ Failed to save chapter: {}", e);
                                             }
                                         }
+                                    }
                                     break;
                                 }
                             }
@@ -493,14 +493,8 @@ async fn fetch_and_store_asset(
     // Get the asset data
     let data = response.bytes().await?;
 
-    // Create asset metadata
-    let asset = Asset {
-        id: AssetId::from(format!("asset_{}", uuid::Uuid::new_v4())),
-        novel_id: novel_id.clone(),
-        original_url: asset_url.to_string(),
-        mime_type: content_type,
-        size: 0, // Will be updated by storage
-    };
+    // Create asset metadata with proper ID and filename
+    let asset = storage.create_asset(novel_id.clone(), asset_url.to_string(), content_type);
 
     // Create reader from data
     let reader = Box::new(Cursor::new(data.to_vec()));

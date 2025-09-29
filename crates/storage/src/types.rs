@@ -277,6 +277,7 @@ pub struct Asset {
     pub original_url: String,
     pub mime_type: String,
     pub size: u64,
+    pub filename: String,
 }
 
 /// Summary information about an asset (without binary data)
@@ -287,4 +288,5 @@ pub struct AssetSummary {
     pub original_url: String,
     pub mime_type: String,
     pub size: u64,
+    pub filename: String,
 }
