@@ -48,8 +48,13 @@ async fn handle_add_store(
         return Ok(());
     }
 
+    // Convert to absolute path to ensure consistency
+    let absolute_path = store_path
+        .canonicalize()
+        .map_err(|e| eyre::eyre!("Failed to resolve absolute path for '{}': {}", path, e))?;
+
     // Create extension source
-    let source = quelle_store::ExtensionSource::local(name.clone(), store_path.clone())
+    let source = quelle_store::ExtensionSource::local(name.clone(), absolute_path.clone())
         .with_priority(priority);
 
     // Add to CLI configuration
@@ -58,15 +63,20 @@ async fn handle_add_store(
     // Save CLI configuration
     config.save().await?;
 
-    // Apply the updated registry config to store manager
-    // We need to clear and re-apply all sources since we can't easily add just one
-    store_manager.clear_extension_stores().await?;
-    config.registry.apply(store_manager).await?;
-
     println!("✅ Added store '{}'", name);
     println!("  Type: Local");
-    println!("  Path: {}", path);
+    println!("  Path: {}", absolute_path.display());
     println!("  Priority: {}", priority);
+
+    // Try to apply the updated registry config to store manager
+    // If it fails (e.g., store doesn't have proper manifest), warn but don't fail
+    store_manager.clear_extension_stores().await?;
+    if let Err(e) = config.registry.apply(store_manager).await {
+        println!("⚠️  Warning: Store added to configuration but could not be loaded:");
+        println!("   {}", e);
+        println!("💡 Make sure the store directory contains a valid manifest file");
+        println!("   The store will be retried on next CLI startup");
+    }
 
     Ok(())
 }
@@ -104,12 +114,18 @@ async fn handle_remove_store(
     // Save CLI configuration
     config.save().await?;
 
-    // Apply the updated registry config to store manager
-    // We need to clear and re-apply all sources since we can't easily remove just one
-    store_manager.clear_extension_stores().await?;
-    config.registry.apply(store_manager).await?;
-
     println!("✅ Removed store '{}'", name);
+
+    // Try to apply the updated registry config to store manager
+    // If it fails, warn but don't fail the removal operation
+    store_manager.clear_extension_stores().await?;
+    if let Err(e) = config.registry.apply(store_manager).await {
+        println!(
+            "⚠️  Warning: Store removed from configuration but error reloading remaining stores:"
+        );
+        println!("   {}", e);
+        println!("💡 Remaining stores will be retried on next CLI startup");
+    }
     Ok(())
 }
 

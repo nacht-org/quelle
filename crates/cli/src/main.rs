@@ -45,7 +45,13 @@ async fn main() -> Result<()> {
     let mut store_manager = StoreManager::new(registry_store).await?;
 
     // Apply registry configuration to store manager
-    config.apply(&mut store_manager).await?;
+    // Handle store loading errors gracefully - invalid stores shouldn't prevent CLI startup
+    if let Err(e) = config.apply(&mut store_manager).await {
+        eprintln!("⚠️  Warning: Some extension stores could not be loaded:");
+        eprintln!("   {}", e);
+        eprintln!("💡 Use 'quelle store list' to see configured stores");
+        eprintln!("   Invalid stores can be removed with 'quelle store remove <name>'");
+    }
 
     // Handle commands
     match cli.command {
