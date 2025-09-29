@@ -1,6 +1,4 @@
 use eyre::Result;
-use quelle_engine::ExtensionEngine;
-use quelle_store::StoreManager;
 use tracing::{info, warn};
 
 pub async fn handle_search_command(
@@ -19,18 +17,9 @@ pub async fn handle_search_command(
         return Ok(());
     }
 
-    // Initialize the extension engine and store manager
-    let storage_path = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".quelle");
-
-    let registry_dir = storage_path.join("extensions");
-    let registry_store =
-        Box::new(quelle_store::registry::LocalRegistryStore::new(&registry_dir).await?);
-    let store_manager = StoreManager::new(registry_store).await?;
-
-    let http_executor = std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new());
-    let engine = ExtensionEngine::new(http_executor)?;
+    // Initialize extension infrastructure
+    let store_manager = crate::utils::create_store_manager().await?;
+    let engine = crate::utils::create_extension_engine()?;
 
     println!("🔍 Searching for novels: {}", query);
 
@@ -148,7 +137,7 @@ async fn search_extension_for_novels(
     author: Option<&String>,
     tags: Option<&String>,
     limit: usize,
-    engine: &ExtensionEngine,
+    engine: &quelle_engine::ExtensionEngine,
 ) -> Result<Vec<quelle_engine::bindings::quelle::extension::novel::BasicNovel>> {
     use quelle_engine::bindings::{ComplexSearchQuery, SimpleSearchQuery};
 

@@ -1,12 +1,10 @@
 use eyre::Result;
-use quelle_engine::ExtensionEngine;
 use quelle_storage::{
     ChapterContent,
     backends::filesystem::FilesystemStorage,
     traits::BookStorage,
     types::{NovelFilter, NovelId},
 };
-use quelle_store::{StoreManager, registry::LocalRegistryStore};
 use tracing::{error, info, warn};
 
 use crate::cli::LibraryCommands;
@@ -180,14 +178,8 @@ async fn handle_sync_novels(
     }
 
     // Initialize extension infrastructure
-    let storage_path = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".quelle");
-    let registry_dir = storage_path.join("extensions");
-    let registry_store = Box::new(LocalRegistryStore::new(&registry_dir).await?);
-    let mut store_manager = StoreManager::new(registry_store).await?;
-    let http_executor = std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new());
-    let engine = ExtensionEngine::new(http_executor)?;
+    let mut store_manager = crate::utils::create_store_manager().await?;
+    let engine = crate::utils::create_extension_engine()?;
 
     if novel_id == "all" {
         println!("🔄 Syncing all novels for new chapters...");
@@ -273,14 +265,8 @@ async fn handle_update_novels(
     }
 
     // Initialize extension infrastructure
-    let storage_path = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".quelle");
-    let registry_dir = storage_path.join("extensions");
-    let registry_store = Box::new(LocalRegistryStore::new(&registry_dir).await?);
-    let mut store_manager = StoreManager::new(registry_store).await?;
-    let http_executor = std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new());
-    let engine = ExtensionEngine::new(http_executor)?;
+    let mut store_manager = crate::utils::create_store_manager().await?;
+    let engine = crate::utils::create_extension_engine()?;
 
     if novel_id == "all" {
         println!("📥 Updating all novels with new chapters...");
@@ -347,8 +333,8 @@ async fn handle_update_novels(
 async fn sync_single_novel(
     novel_id: &NovelId,
     storage: &FilesystemStorage,
-    store_manager: &mut StoreManager,
-    engine: &ExtensionEngine,
+    store_manager: &mut quelle_store::StoreManager,
+    engine: &quelle_engine::ExtensionEngine,
 ) -> Result<u32> {
     // Get the stored novel
     let stored_novel = storage
@@ -388,8 +374,8 @@ async fn sync_single_novel(
 async fn update_single_novel(
     novel_id: &NovelId,
     storage: &FilesystemStorage,
-    store_manager: &mut StoreManager,
-    engine: &ExtensionEngine,
+    store_manager: &mut quelle_store::StoreManager,
+    engine: &quelle_engine::ExtensionEngine,
 ) -> Result<u32> {
     // Get the stored novel
     let stored_novel = storage

@@ -19,9 +19,8 @@ pub async fn handle_fetch_command(
     storage: &FilesystemStorage,
     dry_run: bool,
 ) -> Result<()> {
-    // Initialize the extension engine with HTTP executor
-    let http_executor = std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new());
-    let engine = ExtensionEngine::new(http_executor)?;
+    // Create extension engine using Chrome executor
+    let engine = crate::utils::create_extension_engine()?;
 
     match cmd {
         FetchCommands::Novel { url } => {

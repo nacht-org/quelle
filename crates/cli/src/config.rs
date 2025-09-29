@@ -1,3 +1,4 @@
+use directories::ProjectDirs;
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -32,11 +33,13 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             storage: StorageConfig {
-                path: dirs::home_dir()
-                    .unwrap_or_else(|| PathBuf::from("."))
-                    .join(".quelle")
-                    .to_string_lossy()
-                    .to_string(),
+                path: if let Some(proj_dirs) = ProjectDirs::from("org", "quelle", "quelle") {
+                    proj_dirs.data_dir().to_path_buf()
+                } else {
+                    PathBuf::from(".quelle")
+                }
+                .to_string_lossy()
+                .to_string(),
             },
             export: ExportConfig {
                 format: "epub".to_string(),
@@ -53,10 +56,11 @@ impl Default for Config {
 
 impl Config {
     pub fn get_config_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
-            .join("quelle")
-            .join("config.json")
+        if let Some(proj_dirs) = ProjectDirs::from("org", "quelle", "quelle") {
+            proj_dirs.config_dir().join("config.json")
+        } else {
+            PathBuf::from(".quelle").join("config.json")
+        }
     }
 
     pub async fn load() -> Result<Self> {
@@ -97,7 +101,8 @@ impl Config {
                 self.export.format = value.to_string();
             }
             ["export", "include_covers"] => {
-                self.export.include_covers = value.parse::<bool>()
+                self.export.include_covers = value
+                    .parse::<bool>()
                     .map_err(|_| eyre::eyre!("Invalid boolean value: {}", value))?;
             }
             ["export", "output_dir"] => {
@@ -108,11 +113,13 @@ impl Config {
                 };
             }
             ["fetch", "auto_fetch_covers"] => {
-                self.fetch.auto_fetch_covers = value.parse::<bool>()
+                self.fetch.auto_fetch_covers = value
+                    .parse::<bool>()
                     .map_err(|_| eyre::eyre!("Invalid boolean value: {}", value))?;
             }
             ["fetch", "auto_fetch_assets"] => {
-                self.fetch.auto_fetch_assets = value.parse::<bool>()
+                self.fetch.auto_fetch_assets = value
+                    .parse::<bool>()
                     .map_err(|_| eyre::eyre!("Invalid boolean value: {}", value))?;
             }
             _ => {
@@ -130,9 +137,11 @@ impl Config {
             ["storage", "path"] => self.storage.path.clone(),
             ["export", "format"] => self.export.format.clone(),
             ["export", "include_covers"] => self.export.include_covers.to_string(),
-            ["export", "output_dir"] => {
-                self.export.output_dir.clone().unwrap_or_else(|| "".to_string())
-            }
+            ["export", "output_dir"] => self
+                .export
+                .output_dir
+                .clone()
+                .unwrap_or_else(|| "".to_string()),
             ["fetch", "auto_fetch_covers"] => self.fetch.auto_fetch_covers.to_string(),
             ["fetch", "auto_fetch_assets"] => self.fetch.auto_fetch_assets.to_string(),
             _ => {
@@ -158,7 +167,10 @@ impl Config {
             self.storage.path,
             self.export.format,
             self.export.include_covers,
-            self.export.output_dir.as_ref().unwrap_or(&"(not set)".to_string()),
+            self.export
+                .output_dir
+                .as_ref()
+                .unwrap_or(&"(not set)".to_string()),
             self.fetch.auto_fetch_covers,
             self.fetch.auto_fetch_assets
         )

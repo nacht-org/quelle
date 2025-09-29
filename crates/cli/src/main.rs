@@ -1,13 +1,11 @@
-use std::path::PathBuf;
-
 use clap::Parser;
 use eyre::{Context, Result};
 use quelle_storage::backends::filesystem::FilesystemStorage;
-use quelle_store::{StoreManager, registry::LocalRegistryStore};
 
 mod cli;
 mod commands;
 mod config;
+mod utils;
 
 use cli::{Cli, Commands};
 use commands::{
@@ -32,23 +30,13 @@ async fn main() -> Result<()> {
     tracing::subscriber::set_global_default(subscriber)?;
 
     // Initialize storage
-    let storage_path = cli
-        .storage_path
-        .as_ref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".quelle")
-        });
+    let storage_path = utils::get_storage_path_from_args(cli.storage_path.as_ref());
 
     let storage = FilesystemStorage::new(&storage_path);
     storage.initialize().await?;
 
     // Initialize store manager
-    let registry_dir = storage_path.join("extensions");
-    let registry_store = Box::new(LocalRegistryStore::new(&registry_dir).await?);
-    let mut store_manager = StoreManager::new(registry_store)
+    let mut store_manager = utils::create_store_manager_with_path(storage_path.clone())
         .await
         .context("Failed to initialize store manager")?;
 
