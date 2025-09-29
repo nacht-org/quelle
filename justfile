@@ -7,6 +7,7 @@ publish NAME:
 
 reset-store:
     rm -rf ./data
+    cargo run -p quelle_cli -- store remove local
     cargo run -p quelle_cli -- store add local ./data/stores/local
 
 run *ARGS:
