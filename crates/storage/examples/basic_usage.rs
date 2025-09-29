@@ -9,7 +9,7 @@
 use quelle_engine::bindings::quelle::extension::novel::{
     Chapter, ChapterContent, Novel, NovelStatus, Volume,
 };
-use storage::{BookStorage, ChapterContentStatus, FilesystemStorage, NovelFilter};
+use quelle_storage::{BookStorage, ChapterContentStatus, FilesystemStorage, NovelFilter};
 use tempfile::TempDir;
 
 #[tokio::main]

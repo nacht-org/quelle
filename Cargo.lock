@@ -2847,8 +2847,8 @@ dependencies = [
  "clap",
  "eyre",
  "quelle_engine",
+ "quelle_storage",
  "quelle_store",
- "storage",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2885,6 +2885,23 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wit-bindgen",
+]
+
+[[package]]
+name = "quelle_storage"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "eyre",
+ "md5",
+ "quelle_engine",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -3652,23 +3669,6 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
-
-[[package]]
-name = "storage"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "eyre",
- "md5",
- "quelle_engine",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "url",
-]
 
 [[package]]
 name = "string_cache"

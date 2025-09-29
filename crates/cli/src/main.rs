@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use quelle_engine::ExtensionEngine;
+use quelle_storage::{BookStorage, FilesystemStorage, NovelFilter};
 use quelle_store::{ConfigStore, LocalConfigStore, LocalRegistryStore, SearchQuery, StoreManager};
-use storage::{BookStorage, FilesystemStorage, NovelFilter};
 
 use crate::cli::{Commands, FetchCommands, LibraryCommands};
 use crate::store_commands::{handle_extension_command, handle_store_command};
@@ -199,7 +199,7 @@ async fn handle_fetch_command(
                                         {
                                             // Find the novel ID from the library listing
                                             let filter =
-                                                storage::NovelFilter { source_ids: vec![] };
+                                                quelle_storage::NovelFilter { source_ids: vec![] };
                                             if let Ok(novels) = storage.list_novels(&filter).await {
                                                 if let Some(novel_summary) =
                                                     novels.iter().find(|n| n.title == novel.title)
@@ -484,7 +484,7 @@ async fn handle_library_command(
             let novel = if novel_id.starts_with("http") {
                 storage.find_novel_by_url(&novel_id).await?
             } else {
-                let id = storage::NovelId::new(novel_id.clone());
+                let id = quelle_storage::NovelId::new(novel_id.clone());
                 storage.get_novel(&id).await?
             };
 
@@ -527,19 +527,19 @@ async fn handle_library_command(
                 match storage.find_novel_by_url(&novel_id).await? {
                     Some(novel) => {
                         // Find the storage ID from the library listing
-                        let filter = storage::NovelFilter { source_ids: vec![] };
+                        let filter = quelle_storage::NovelFilter { source_ids: vec![] };
                         let novels = storage.list_novels(&filter).await?;
                         let storage_id = novels
                             .iter()
                             .find(|n| n.title == novel.title)
                             .map(|n| n.id.clone())
-                            .unwrap_or_else(|| storage::NovelId::new(novel_id.clone()));
+                            .unwrap_or_else(|| quelle_storage::NovelId::new(novel_id.clone()));
                         (Some(novel), storage_id)
                     }
-                    None => (None, storage::NovelId::new(novel_id.clone())),
+                    None => (None, quelle_storage::NovelId::new(novel_id.clone())),
                 }
             } else {
-                let id = storage::NovelId::new(novel_id.clone());
+                let id = quelle_storage::NovelId::new(novel_id.clone());
                 (storage.get_novel(&id).await?, id)
             };
 
@@ -568,13 +568,13 @@ async fn handle_library_command(
                         );
                         for chapter in filtered_chapters {
                             match &chapter.content_status {
-                                storage::ChapterContentStatus::NotStored => {
+                                quelle_storage::ChapterContentStatus::NotStored => {
                                     println!(
                                         "  ❌ {}: {}",
                                         chapter.chapter_index, chapter.chapter_title
                                     );
                                 }
-                                storage::ChapterContentStatus::Stored {
+                                quelle_storage::ChapterContentStatus::Stored {
                                     content_size,
                                     stored_at,
                                     ..
@@ -602,19 +602,19 @@ async fn handle_library_command(
                 match storage.find_novel_by_url(&novel_id).await? {
                     Some(novel) => {
                         // Find the storage ID from the library listing
-                        let filter = storage::NovelFilter { source_ids: vec![] };
+                        let filter = quelle_storage::NovelFilter { source_ids: vec![] };
                         let novels = storage.list_novels(&filter).await?;
                         let storage_id = novels
                             .iter()
                             .find(|n| n.title == novel.title)
                             .map(|n| n.id.clone())
-                            .unwrap_or_else(|| storage::NovelId::new(novel_id.clone()));
+                            .unwrap_or_else(|| quelle_storage::NovelId::new(novel_id.clone()));
                         (Some(novel), storage_id)
                     }
-                    None => (None, storage::NovelId::new(novel_id.clone())),
+                    None => (None, quelle_storage::NovelId::new(novel_id.clone())),
                 }
             } else {
-                let id = storage::NovelId::new(novel_id.clone());
+                let id = quelle_storage::NovelId::new(novel_id.clone());
                 (storage.get_novel(&id).await?, id)
             };
 
@@ -689,19 +689,19 @@ async fn handle_library_command(
                 match storage.find_novel_by_url(&novel_id).await? {
                     Some(novel) => {
                         // Find the storage ID from the library listing
-                        let filter = storage::NovelFilter { source_ids: vec![] };
+                        let filter = quelle_storage::NovelFilter { source_ids: vec![] };
                         let novels = storage.list_novels(&filter).await?;
                         let storage_id = novels
                             .iter()
                             .find(|n| n.title == novel.title)
                             .map(|n| n.id.clone())
-                            .unwrap_or_else(|| storage::NovelId::new(novel_id.clone()));
+                            .unwrap_or_else(|| quelle_storage::NovelId::new(novel_id.clone()));
                         (Some(novel), storage_id)
                     }
-                    None => (None, storage::NovelId::new(novel_id.clone())),
+                    None => (None, quelle_storage::NovelId::new(novel_id.clone())),
                 }
             } else {
-                let id = storage::NovelId::new(novel_id.clone());
+                let id = quelle_storage::NovelId::new(novel_id.clone());
                 (storage.get_novel(&id).await?, id)
             };
 
