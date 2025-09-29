@@ -513,10 +513,7 @@ impl BookStorage for FilesystemStorage {
 
         // Check if novel already exists
         if novel_file.exists() {
-            return Err(BookStorageError::NovelAlreadyExists {
-                id: novel_id.as_str().to_string(),
-                source: None,
-            });
+            tracing::info!("Novel manifest file already exists: {}", novel_id.as_str());
         }
 
         // Convert novel to JSON string using conversion utilities
@@ -1682,9 +1679,9 @@ mod tests {
         // Store first novel
         let _id1 = storage.store_novel(&novel1).await.unwrap();
 
-        // Try to store second novel with trailing slash - should fail as it's the same novel
+        // Try to store second novel with trailing slash - should succeed and update the existing novel
         let result = storage.store_novel(&novel2).await;
-        assert!(result.is_err()); // Should fail because it's already stored
+        assert!(result.is_ok()); // Should succeed with upsert behavior
 
         // But we should be able to find it with either URL
         let found1 = storage
@@ -2023,5 +2020,46 @@ mod tests {
         // Verify we can retrieve data
         let retrieved_data = storage.get_asset_data(&asset.id).await.unwrap().unwrap();
         assert_eq!(retrieved_data, test_data);
+    }
+
+    #[tokio::test]
+    async fn test_store_novel_upsert_behavior() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        // Create initial novel
+        let mut novel = create_test_novel();
+        novel.title = "Original Title".to_string();
+        novel.authors = vec!["Original Author".to_string()];
+
+        // Store the novel for the first time
+        let novel_id = storage.store_novel(&novel).await.unwrap();
+
+        // Verify it was stored
+        let retrieved = storage.get_novel(&novel_id).await.unwrap().unwrap();
+        assert_eq!(retrieved.title, "Original Title");
+        assert_eq!(retrieved.authors, vec!["Original Author"]);
+
+        // Update the novel with new data
+        novel.title = "Updated Title".to_string();
+        novel.authors = vec!["Updated Author".to_string()];
+
+        // Store the same novel again (should update, not create new)
+        let updated_id = storage.store_novel(&novel).await.unwrap();
+
+        // Should return the same ID
+        assert_eq!(novel_id, updated_id);
+
+        // Verify the novel was updated
+        let retrieved_updated = storage.get_novel(&novel_id).await.unwrap().unwrap();
+        assert_eq!(retrieved_updated.title, "Updated Title");
+        assert_eq!(retrieved_updated.authors, vec!["Updated Author"]);
+
+        // Verify there's still only one novel in storage
+        let filter = crate::types::NovelFilter::default();
+        let novels = storage.list_novels(&filter).await.unwrap();
+        assert_eq!(novels.len(), 1);
+        assert_eq!(novels[0].title, "Updated Title");
     }
 }
