@@ -260,7 +260,7 @@ pub enum ExportCommands {
 pub enum ConfigCommands {
     /// Set a configuration value
     Set {
-        /// Configuration key (e.g., "storage.path", "registry.add_source")
+        /// Configuration key (e.g., "data_dir", "export.format")
         key: String,
         /// Configuration value
         value: String,

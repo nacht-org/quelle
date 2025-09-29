@@ -2,6 +2,7 @@ use clap::Parser;
 use eyre::Result;
 use quelle_storage::backends::filesystem::FilesystemStorage;
 use quelle_store::{StoreManager, registry::LocalRegistryStore};
+use std::path::PathBuf;
 
 mod cli;
 mod commands;
@@ -35,12 +36,15 @@ async fn main() -> Result<()> {
     let mut config = Config::load().await?;
 
     // Initialize storage for local library
-    let storage_path = utils::get_storage_path_from_args(cli.storage_path.as_ref(), &config);
+    let storage_path = match cli.storage_path.as_ref() {
+        Some(path) => PathBuf::from(path),
+        None => config.get_storage_path(),
+    };
     let storage = FilesystemStorage::new(&storage_path);
     storage.initialize().await?;
 
     // Initialize store manager
-    let registry_dir = Config::get_registry_dir();
+    let registry_dir = config.get_registry_dir();
     let registry_store = Box::new(LocalRegistryStore::new(&registry_dir).await?);
     let mut store_manager = StoreManager::new(registry_store).await?;
 

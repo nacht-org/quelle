@@ -3,24 +3,18 @@ use eyre::Result;
 use quelle_store::{RegistryConfig, StoreManager};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tokio::fs;
+use tokio::fs::{self, create_dir_all};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[derive(Default)]
 pub struct Config {
     #[serde(default)]
-    pub storage: StorageConfig,
+    pub data_dir: Option<PathBuf>,
     #[serde(default)]
     pub export: ExportConfig,
     #[serde(default)]
     pub fetch: FetchConfig,
     #[serde(default)]
     pub registry: RegistryConfig,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct StorageConfig {
-    pub path: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -34,17 +28,6 @@ pub struct ExportConfig {
 pub struct FetchConfig {
     pub auto_fetch_covers: bool,
     pub auto_fetch_assets: bool,
-}
-
-impl Default for StorageConfig {
-    fn default() -> Self {
-        Self {
-            path: get_default_data_dir()
-                .join("library")
-                .to_string_lossy()
-                .to_string(),
-        }
-    }
 }
 
 impl Default for ExportConfig {
@@ -66,18 +49,32 @@ impl Default for FetchConfig {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            data_dir: None,
+            export: ExportConfig::default(),
+            fetch: FetchConfig::default(),
+            registry: RegistryConfig::default(),
+        }
+    }
+}
 
 impl Config {
     pub fn get_config_path() -> PathBuf {
         get_default_config_dir().join("config.json")
     }
 
-    pub fn get_data_dir() -> PathBuf {
-        get_default_data_dir()
+    pub fn get_data_dir(&self) -> PathBuf {
+        self.data_dir.clone().unwrap_or_else(get_default_data_dir)
     }
 
-    pub fn get_registry_dir() -> PathBuf {
-        get_default_data_dir().join("registry")
+    pub fn get_registry_dir(&self) -> PathBuf {
+        self.get_data_dir().join("registry")
+    }
+
+    pub fn get_storage_path(&self) -> PathBuf {
+        self.get_data_dir().join("library")
     }
 
     pub async fn load() -> Result<Self> {
@@ -115,12 +112,25 @@ impl Config {
             .map_err(|e| eyre::eyre!("Failed to apply registry config: {}", e))
     }
 
-    pub fn set_value(&mut self, key: &str, value: &str) -> Result<()> {
+    pub async fn set_value(&mut self, key: &str, value: &str) -> Result<()> {
         let parts: Vec<&str> = key.split('.').collect();
 
         match parts.as_slice() {
-            ["storage", "path"] => {
-                self.storage.path = value.to_string();
+            ["data_dir"] => {
+                self.data_dir = if value.is_empty() {
+                    None
+                } else {
+                    // Ensure the directory exists
+                    let path = PathBuf::from(value);
+                    if !path.exists() {
+                        fs::create_dir_all(&path).await?;
+                    }
+
+                    // Convert to absolute path
+                    let canonical_path = fs::canonicalize(path).await?;
+
+                    Some(canonical_path)
+                };
             }
             ["export", "format"] => {
                 self.export.format = value.to_string();
@@ -159,14 +169,15 @@ impl Config {
         let parts: Vec<&str> = key.split('.').collect();
 
         let value = match parts.as_slice() {
-            ["storage", "path"] => self.storage.path.clone(),
+            ["data_dir"] => self
+                .data_dir
+                .clone()
+                .unwrap_or_else(|| "(default)".into())
+                .to_string_lossy()
+                .to_string(),
             ["export", "format"] => self.export.format.clone(),
             ["export", "include_covers"] => self.export.include_covers.to_string(),
-            ["export", "output_dir"] => self
-                .export
-                .output_dir
-                .clone()
-                .unwrap_or_default(),
+            ["export", "output_dir"] => self.export.output_dir.clone().unwrap_or_default(),
             ["fetch", "auto_fetch_covers"] => self.fetch.auto_fetch_covers.to_string(),
             ["fetch", "auto_fetch_assets"] => self.fetch.auto_fetch_assets.to_string(),
             _ => {
@@ -191,8 +202,9 @@ impl Config {
 
         format!(
             "Configuration:\n\
-             Storage:\n\
-             ├─ path: {}\n\
+             Data Directory:\n\
+             ├─ data_dir: {}\n\
+             ├─ storage_path: {}\n\
              Export:\n\
              ├─ format: {}\n\
              ├─ include_covers: {}\n\
@@ -202,7 +214,11 @@ impl Config {
              └─ auto_fetch_assets: {}\n\
              Registry:\n\
              └─ extension_sources: {}",
-            self.storage.path,
+            self.data_dir
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "(default)".to_string()),
+            self.get_storage_path().display(),
             self.export.format,
             self.export.include_covers,
             self.export
@@ -233,7 +249,7 @@ fn get_default_config_dir() -> PathBuf {
 }
 
 /// Get the default data directory
-fn get_default_data_dir() -> PathBuf {
+pub fn get_default_data_dir() -> PathBuf {
     if let Some(proj_dirs) = ProjectDirs::from("org", "quelle", "quelle") {
         proj_dirs.data_dir().to_path_buf()
     } else {

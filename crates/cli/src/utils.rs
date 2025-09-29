@@ -3,11 +3,11 @@ use quelle_engine::ExtensionEngine;
 use quelle_store::{StoreManager, registry::LocalRegistryStore};
 use std::path::PathBuf;
 
-use crate::config::Config;
+use crate::config::get_default_data_dir;
 
 /// Create a store manager with the default storage location
 pub async fn create_store_manager() -> Result<StoreManager> {
-    let storage_path = get_default_storage_path();
+    let storage_path = get_default_data_dir().join("library");
     create_store_manager_with_path(storage_path).await
 }
 
@@ -68,19 +68,6 @@ fn create_reqwest_engine() -> Result<ExtensionEngine> {
     ExtensionEngine::new(http_executor).map_err(eyre::Report::from)
 }
 
-/// Get the default storage path for Quelle data
-pub fn get_default_storage_path() -> PathBuf {
-    Config::get_data_dir().join("library")
-}
-
-/// Get storage path from CLI arguments, config, or use default
-pub fn get_storage_path_from_args(storage_path_arg: Option<&String>, config: &Config) -> PathBuf {
-    match storage_path_arg {
-        Some(path) => PathBuf::from(path),
-        None => PathBuf::from(&config.storage.path),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,19 +89,13 @@ mod tests {
     }
 
     #[test]
-    fn test_storage_path_helpers() {
+    fn test_config_storage_path() {
         use crate::config::Config;
 
-        let default_path = get_default_storage_path();
-        let path_str = default_path.to_string_lossy();
-        assert!(path_str.contains("quelle"));
-
         let config = Config::default();
-        let custom_path = "/custom/path";
-        let resolved_path = get_storage_path_from_args(Some(&custom_path.to_string()), &config);
-        assert_eq!(resolved_path, PathBuf::from(custom_path));
-
-        let default_resolved = get_storage_path_from_args(None, &config);
-        assert_eq!(default_resolved, PathBuf::from(&config.storage.path));
+        let storage_path = config.get_storage_path();
+        let path_str = storage_path.to_string_lossy();
+        assert!(path_str.contains("quelle"));
+        assert!(path_str.ends_with("library"));
     }
 }

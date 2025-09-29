@@ -21,7 +21,7 @@ async fn handle_set_config(key: String, value: String, dry_run: bool) -> Result<
 
     let mut config = Config::load().await?;
 
-    match config.set_value(&key, &value) {
+    match config.set_value(&key, &value).await {
         Ok(_) => {
             config.save().await?;
             println!("✅ Configuration updated: {} = {}", key, value);
