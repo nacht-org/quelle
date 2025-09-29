@@ -1,6 +1,6 @@
 use eyre::Result;
 use quelle_store::{SearchQuery, StoreManager};
-use tracing::{info, warn};
+use tracing::warn;
 
 pub async fn handle_search_command(
     store_manager: &StoreManager,

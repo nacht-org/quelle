@@ -1,5 +1,5 @@
 use eyre::Result;
-use quelle_engine::ExtensionEngine;
+
 use quelle_storage::{
     ChapterContent,
     backends::filesystem::FilesystemStorage,

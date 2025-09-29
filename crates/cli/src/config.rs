@@ -7,9 +7,13 @@ use tokio::fs;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
+    #[serde(default)]
     pub storage: StorageConfig,
+    #[serde(default)]
     pub export: ExportConfig,
+    #[serde(default)]
     pub fetch: FetchConfig,
+    #[serde(default)]
     pub registry: RegistryConfig,
 }
 
@@ -31,24 +35,42 @@ pub struct FetchConfig {
     pub auto_fetch_assets: bool,
 }
 
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            path: get_default_data_dir()
+                .join("library")
+                .to_string_lossy()
+                .to_string(),
+        }
+    }
+}
+
+impl Default for ExportConfig {
+    fn default() -> Self {
+        Self {
+            format: "epub".to_string(),
+            include_covers: true,
+            output_dir: None,
+        }
+    }
+}
+
+impl Default for FetchConfig {
+    fn default() -> Self {
+        Self {
+            auto_fetch_covers: true,
+            auto_fetch_assets: true,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
-            storage: StorageConfig {
-                path: get_default_data_dir()
-                    .join("library")
-                    .to_string_lossy()
-                    .to_string(),
-            },
-            export: ExportConfig {
-                format: "epub".to_string(),
-                include_covers: true,
-                output_dir: None,
-            },
-            fetch: FetchConfig {
-                auto_fetch_covers: true,
-                auto_fetch_assets: true,
-            },
+            storage: StorageConfig::default(),
+            export: ExportConfig::default(),
+            fetch: FetchConfig::default(),
             registry: RegistryConfig::default(),
         }
     }
