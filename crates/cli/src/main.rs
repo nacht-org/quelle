@@ -226,20 +226,53 @@ async fn handle_update_command(
 ) -> Result<()> {
     use crate::cli::LibraryCommands;
     use crate::commands::library::handle_library_command;
+    use crate::utils::{resolve_novel_id, show_novel_not_found_help};
 
     if dry_run {
         println!("Would update novel(s): {}", novel);
         return Ok(());
     }
 
-    if check_only {
-        println!("🔍 Checking for new chapters in: {}", novel);
-        let sync_cmd = LibraryCommands::Sync { novel_id: novel };
-        handle_library_command(sync_cmd, storage, store_manager, false).await
-    } else {
-        println!("🔄 Updating novel(s): {}", novel);
-        let update_cmd = LibraryCommands::Update { novel_id: novel };
-        handle_library_command(update_cmd, storage, store_manager, false).await
+    // Handle "all" case
+    if novel == "all" {
+        if check_only {
+            println!("🔍 Checking all novels for new chapters");
+        } else {
+            println!("🔄 Updating all novels with new chapters");
+        }
+        let cmd = if check_only {
+            LibraryCommands::Sync {
+                novel_id: "all".to_string(),
+            }
+        } else {
+            LibraryCommands::Update {
+                novel_id: "all".to_string(),
+            }
+        };
+        return handle_library_command(cmd, storage, store_manager, false).await;
+    }
+
+    // Resolve the novel identifier
+    match resolve_novel_id(&novel, storage).await? {
+        Some(novel_id) => {
+            if check_only {
+                println!("🔍 Checking for new chapters in: {}", novel);
+                let sync_cmd = LibraryCommands::Sync {
+                    novel_id: novel_id.as_str().to_string(),
+                };
+                handle_library_command(sync_cmd, storage, store_manager, false).await
+            } else {
+                println!("🔄 Updating novel: {}", novel);
+                let update_cmd = LibraryCommands::Update {
+                    novel_id: novel_id.as_str().to_string(),
+                };
+                handle_library_command(update_cmd, storage, store_manager, false).await
+            }
+        }
+        None => {
+            show_novel_not_found_help(&novel, storage).await;
+            Ok(())
+        }
     }
 }
 
@@ -253,39 +286,51 @@ async fn handle_read_command(
 ) -> Result<()> {
     use crate::cli::LibraryCommands;
     use crate::commands::library::handle_library_command;
+    use crate::utils::{resolve_novel_id, show_novel_not_found_help};
 
     if dry_run {
         println!("Would read from novel: {}", novel);
         return Ok(());
     }
 
-    if list {
-        println!("📚 Listing chapters for: {}", novel);
-        let chapters_cmd = LibraryCommands::Chapters {
-            novel_id: novel,
-            downloaded_only: true,
-        };
-        handle_library_command(chapters_cmd, storage, store_manager, false).await
-    } else {
-        match chapter {
-            Some(chapter_id) => {
-                println!("📖 Reading chapter: {}", chapter_id);
-                let read_cmd = LibraryCommands::Read {
-                    novel_id: novel,
-                    chapter: chapter_id,
-                };
-                handle_library_command(read_cmd, storage, store_manager, false).await
-            }
-            None => {
-                println!(
-                    "📚 Please specify a chapter to read, or use --list to see available chapters"
-                );
+    // Resolve the novel identifier
+    match resolve_novel_id(&novel, storage).await? {
+        Some(novel_id) => {
+            let novel_id_str = novel_id.as_str().to_string();
+
+            if list {
+                println!("📚 Listing chapters for: {}", novel);
                 let chapters_cmd = LibraryCommands::Chapters {
-                    novel_id: novel,
+                    novel_id: novel_id_str,
                     downloaded_only: true,
                 };
                 handle_library_command(chapters_cmd, storage, store_manager, false).await
+            } else {
+                match chapter {
+                    Some(chapter_id) => {
+                        println!("📖 Reading chapter: {}", chapter_id);
+                        let read_cmd = LibraryCommands::Read {
+                            novel_id: novel_id_str,
+                            chapter: chapter_id,
+                        };
+                        handle_library_command(read_cmd, storage, store_manager, false).await
+                    }
+                    None => {
+                        println!(
+                            "📚 Please specify a chapter to read, or use --list to see available chapters"
+                        );
+                        let chapters_cmd = LibraryCommands::Chapters {
+                            novel_id: novel_id_str,
+                            downloaded_only: true,
+                        };
+                        handle_library_command(chapters_cmd, storage, store_manager, false).await
+                    }
+                }
             }
+        }
+        None => {
+            show_novel_not_found_help(&novel, storage).await;
+            Ok(())
         }
     }
 }
@@ -299,18 +344,28 @@ async fn handle_remove_command(
 ) -> Result<()> {
     use crate::cli::LibraryCommands;
     use crate::commands::library::handle_library_command;
+    use crate::utils::{resolve_novel_id, show_novel_not_found_help};
 
     if dry_run {
         println!("Would remove novel: {}", novel);
         return Ok(());
     }
 
-    println!("🗑️  Removing novel: {}", novel);
-    let remove_cmd = LibraryCommands::Remove {
-        novel_id: novel,
-        force,
-    };
-    handle_library_command(remove_cmd, storage, store_manager, false).await
+    // Resolve the novel identifier
+    match resolve_novel_id(&novel, storage).await? {
+        Some(novel_id) => {
+            println!("🗑️  Removing novel: {}", novel);
+            let remove_cmd = LibraryCommands::Remove {
+                novel_id: novel_id.as_str().to_string(),
+                force,
+            };
+            handle_library_command(remove_cmd, storage, store_manager, false).await
+        }
+        None => {
+            show_novel_not_found_help(&novel, storage).await;
+            Ok(())
+        }
+    }
 }
 
 async fn handle_status_command(store_manager: &StoreManager) -> Result<()> {

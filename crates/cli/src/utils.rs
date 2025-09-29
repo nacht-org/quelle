@@ -1,7 +1,12 @@
 use eyre::Result;
 use quelle_engine::ExtensionEngine;
+use quelle_storage::{
+    traits::BookStorage,
+    types::{NovelFilter, NovelId},
+};
 use quelle_store::{StoreManager, registry::LocalRegistryStore};
 use std::path::PathBuf;
+use url::Url;
 
 use crate::config::get_default_data_dir;
 
@@ -97,5 +102,94 @@ mod tests {
         let path_str = storage_path.to_string_lossy();
         assert!(path_str.contains("quelle"));
         assert!(path_str.ends_with("library"));
+    }
+}
+
+/// Smart novel resolution - accepts URLs, IDs, or fuzzy title matching
+pub async fn resolve_novel_id(input: &str, storage: &dyn BookStorage) -> Result<Option<NovelId>> {
+    // Handle special case for "all"
+    if input == "all" {
+        return Ok(None); // Indicates "all novels"
+    }
+
+    // Try direct ID first (most efficient)
+    let direct_id = NovelId::new(input.to_string());
+    if storage.exists_novel(&direct_id).await.unwrap_or(false) {
+        return Ok(Some(direct_id));
+    }
+
+    // Try URL resolution - let the storage handle URL normalization and lookup
+    if let Ok(_url) = Url::parse(input) {
+        if let Ok(Some(found_novel)) = storage.find_novel_by_url(input).await {
+            // We found the novel by URL, now find its ID in the novels list
+            let novels = storage.list_novels(&NovelFilter::default()).await?;
+            // Match by title and URL to find the correct ID
+            if let Some(novel_summary) = novels.iter().find(|n| n.title == found_novel.title) {
+                return Ok(Some(novel_summary.id.clone()));
+            }
+        }
+    }
+
+    // Try fuzzy title matching
+    let novels = storage.list_novels(&NovelFilter::default()).await?;
+
+    // First try exact title match (case insensitive)
+    if let Some(novel) = novels
+        .iter()
+        .find(|n| n.title.to_lowercase() == input.to_lowercase())
+    {
+        return Ok(Some(novel.id.clone()));
+    }
+
+    // Then try partial title match (case insensitive)
+    let input_lower = input.to_lowercase();
+    let matches: Vec<_> = novels
+        .iter()
+        .filter(|n| n.title.to_lowercase().contains(&input_lower))
+        .collect();
+
+    match matches.len() {
+        0 => Ok(None),                        // No matches found
+        1 => Ok(Some(matches[0].id.clone())), // Single match - return it
+        _ => {
+            // Multiple matches - show them to user and return None
+            println!("🔍 Multiple novels found matching '{}':", input);
+            for novel in matches.iter().take(10) {
+                println!("  {} - {}", novel.id.as_str(), novel.title);
+            }
+            if matches.len() > 10 {
+                println!("  ... and {} more", matches.len() - 10);
+            }
+            println!("💡 Please be more specific or use the exact ID");
+            Ok(None)
+        }
+    }
+}
+
+/// Display helpful message when novel is not found
+pub async fn show_novel_not_found_help(input: &str, storage: &dyn BookStorage) {
+    println!("❌ Novel not found: '{}'", input);
+
+    // Show some suggestions
+    println!("💡 You can identify novels using:");
+    println!("   • Novel ID (exact match)");
+    println!("   • Novel URL (exact match)");
+    println!("   • Novel title (partial match allowed)");
+    println!();
+
+    // Show a few examples from the library if available
+    if let Ok(novels) = storage.list_novels(&NovelFilter::default()).await {
+        if !novels.is_empty() {
+            println!("📚 Available novels (showing first 3):");
+            for novel in novels.iter().take(3) {
+                println!("   {} - {}", novel.id.as_str(), novel.title);
+            }
+            if novels.len() > 3 {
+                println!("   ... and {} more", novels.len() - 3);
+            }
+            println!("   Use 'quelle library list' to see all novels");
+        } else {
+            println!("📚 No novels in library yet. Use 'quelle add <url>' to add some!");
+        }
     }
 }
