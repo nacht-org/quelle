@@ -162,6 +162,9 @@ pub trait RegistryStore: Send + Sync {
     /// - HTTP: Check URLs are reachable and content is valid
     async fn validate_installations(&self) -> Result<Vec<ValidationIssue>>;
 
+    /// Get WASM component bytes for an installed extension
+    async fn get_extension_wasm_bytes(&self, id: &str) -> Result<Vec<u8>>;
+
     /// Remove orphaned registry entries
     ///
     /// Removes registry entries that reference extensions no longer available
@@ -495,6 +498,11 @@ impl RegistryStore for LocalRegistryStore {
         installed.auto_update = options.auto_update;
         installed.checksum = Some(installed.manifest.checksum.clone());
 
+        // Calculate actual size from written files
+        if let Ok(actual_size) = installed.calculate_actual_size(self).await {
+            installed.size = actual_size;
+        }
+
         // Register installation
         self.register_installation(installed.clone()).await?;
 
@@ -602,8 +610,8 @@ impl RegistryStore for LocalRegistryStore {
         let mut issues = Vec::new();
 
         for extension in self.registry.extensions.values() {
-            // Validate in-memory data integrity
-            if !extension.verify_integrity() {
+            // Validate integrity by checking checksum
+            if !extension.verify_integrity(self).await {
                 issues.push(ValidationIssue {
                     extension_name: extension.name.clone(),
                     issue_type: ValidationIssueType::CorruptedFiles,
@@ -662,8 +670,9 @@ impl RegistryStore for LocalRegistryStore {
         let mut to_remove = Vec::new();
 
         for (name, extension) in &self.registry.extensions {
-            // Check if extension data is corrupted or invalid
-            if !extension.verify_integrity() {
+            // Check if extension files exist on disk
+            let install_path = self.extension_install_path(&extension.id);
+            if !install_path.exists() {
                 to_remove.push(name.clone());
             }
         }
@@ -675,10 +684,22 @@ impl RegistryStore for LocalRegistryStore {
 
         if removed > 0 {
             self.save_registry().await?;
-            info!("Cleaned up {} orphaned registry entries", removed);
         }
 
         Ok(removed)
+    }
+
+    async fn get_extension_wasm_bytes(&self, id: &str) -> Result<Vec<u8>> {
+        let install_path = self.extension_install_path(id);
+        let wasm_path = install_path.join("extension.wasm");
+
+        if !wasm_path.exists() {
+            return Err(crate::error::StoreError::ExtensionNotFound(id.to_string()));
+        }
+
+        fs::read(&wasm_path)
+            .await
+            .map_err(crate::error::StoreError::IoError)
     }
 }
 

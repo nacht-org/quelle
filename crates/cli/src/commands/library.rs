@@ -346,7 +346,12 @@ async fn sync_single_novel(
     let extension = find_and_install_extension_for_url(&stored_novel.url, store_manager).await?;
 
     // Fetch fresh novel metadata
-    let fresh_novel = fetch_novel_with_extension(&extension, &stored_novel.url).await?;
+    let fresh_novel = fetch_novel_with_extension(
+        &extension,
+        store_manager.registry_store(),
+        &stored_novel.url,
+    )
+    .await?;
 
     // Get current chapters from storage
     let stored_chapters = storage.list_chapters(novel_id).await?;
@@ -394,7 +399,13 @@ async fn update_single_novel(
     for chapter_info in chapters {
         if !chapter_info.has_content() {
             info!("📄 Downloading chapter: {}", chapter_info.chapter_title);
-            match fetch_chapter_with_extension(&extension, &chapter_info.chapter_url).await {
+            match fetch_chapter_with_extension(
+                &extension,
+                store_manager.registry_store(),
+                &chapter_info.chapter_url,
+            )
+            .await
+            {
                 Ok(chapter_content) => {
                     let content = ChapterContent {
                         data: chapter_content.data,

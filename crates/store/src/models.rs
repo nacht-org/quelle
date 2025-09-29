@@ -257,9 +257,8 @@ pub struct InstalledExtension {
     pub name: String,
     pub version: String,
     pub manifest: ExtensionManifest,
-    pub wasm_component: Vec<u8>,
     pub metadata: Option<ExtensionMetadata>,
-    pub assets: HashMap<String, Vec<u8>>, // Additional files (docs, examples, etc.)
+    pub size: u64, // Total size of the installation in bytes
     pub installed_at: DateTime<Utc>,
     pub last_updated: Option<DateTime<Utc>>,
     pub source_store: String, // Store where this was installed from
@@ -273,7 +272,6 @@ impl InstalledExtension {
         name: String,
         version: String,
         manifest: ExtensionManifest,
-        wasm_component: Vec<u8>,
         source_store: String,
     ) -> Self {
         Self {
@@ -281,9 +279,8 @@ impl InstalledExtension {
             name,
             version,
             manifest,
-            wasm_component,
             metadata: None,
-            assets: HashMap::new(),
+            size: 0, // Will be calculated later
             installed_at: Utc::now(),
             last_updated: Some(Utc::now()),
             source_store,
@@ -294,25 +291,20 @@ impl InstalledExtension {
 
     /// Create from an ExtensionPackage
     pub fn from_package(package: ExtensionPackage) -> Self {
+        let size = package.calculate_total_size();
         Self {
             id: package.manifest.id.clone(),
             name: package.manifest.name.clone(),
             version: package.manifest.version.clone(),
             manifest: package.manifest,
-            wasm_component: package.wasm_component,
             metadata: package.metadata,
-            assets: package.assets,
+            size,
             installed_at: Utc::now(),
             last_updated: Some(Utc::now()),
             source_store: package.source_store,
             auto_update: false,
             checksum: None,
         }
-    }
-
-    /// Get the WASM component bytes
-    pub fn get_wasm_bytes(&self) -> &[u8] {
-        &self.wasm_component
     }
 
     /// Get the manifest
@@ -322,21 +314,29 @@ impl InstalledExtension {
 
     /// Calculate the total size of the installation
     pub fn calculate_size(&self) -> u64 {
-        let mut size = self.wasm_component.len() as u64;
-        for asset in self.assets.values() {
-            size += asset.len() as u64;
+        self.size
+    }
+
+    /// Calculate the total size by reading actual files
+    pub async fn calculate_actual_size(
+        &self,
+        registry: &dyn crate::registry::RegistryStore,
+    ) -> crate::error::Result<u64> {
+        let mut total_size = 0u64;
+
+        // Get WASM component size
+        if let Ok(wasm_bytes) = registry.get_extension_wasm_bytes(&self.id).await {
+            total_size += wasm_bytes.len() as u64;
         }
-        size
+
+        // TODO: Add asset sizes when asset management is implemented
+
+        Ok(total_size)
     }
 
-    /// Add an asset to the installation
-    pub fn add_asset(&mut self, name: String, content: Vec<u8>) {
-        self.assets.insert(name, content);
-    }
-
-    /// Get an asset by name
-    pub fn get_asset(&self, name: &str) -> Option<&[u8]> {
-        self.assets.get(name).map(|v| v.as_slice())
+    /// Add an asset to the installation (placeholder - assets stored on disk)
+    pub fn add_asset(&mut self, _name: String, _content: Vec<u8>) {
+        // Assets are now stored on disk, not in memory
     }
 
     /// Update the installation timestamp
@@ -344,23 +344,37 @@ impl InstalledExtension {
         self.last_updated = Some(Utc::now());
     }
 
-    /// Verify the integrity of the installation if checksum is available
-    pub fn verify_integrity(&self) -> bool {
+    /// Verify the integrity by checking checksum
+    pub async fn verify_integrity(&self, registry: &dyn crate::registry::RegistryStore) -> bool {
         if let Some(ref checksum) = self.checksum {
-            checksum.verify(&self.wasm_component)
+            // Get WASM component bytes from disk
+            if let Ok(wasm_bytes) = registry.get_extension_wasm_bytes(&self.id).await {
+                return checksum.verify(&wasm_bytes);
+            }
+            false
         } else {
             // No checksum available, assume valid
             true
         }
     }
 
+    /// Update the size field by calculating actual size
+    pub async fn update_size(
+        &mut self,
+        registry: &dyn crate::registry::RegistryStore,
+    ) -> crate::error::Result<()> {
+        self.size = self.calculate_actual_size(registry).await?;
+        self.last_updated = Some(Utc::now());
+        Ok(())
+    }
+
     /// Convert to ExtensionPackage for operations that need the package format
     pub fn to_package(&self) -> ExtensionPackage {
         ExtensionPackage {
             manifest: self.manifest.clone(),
-            wasm_component: self.wasm_component.clone(),
+            wasm_component: Vec::new(), // Would need to load from disk
             metadata: self.metadata.clone(),
-            assets: self.assets.clone(),
+            assets: HashMap::new(), // Would need to load from disk
             package_layout: PackageLayout::default(),
             source_store: self.source_store.clone(),
         }
@@ -638,14 +652,12 @@ impl Default for StoreConfig {
 }
 
 /// Installation options
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct InstallOptions {
     pub auto_update: bool,
     pub force_reinstall: bool,
     pub skip_verification: bool,
 }
-
 
 /// Update options
 #[derive(Debug, Clone)]
@@ -664,5 +676,127 @@ impl Default for UpdateOptions {
             force_update: false,
             backup_current: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::registry::LocalRegistryStore;
+    use tempfile::TempDir;
+    use tokio;
+
+    #[tokio::test]
+    async fn test_installed_extension_size_tracking() {
+        // Create a test extension package
+        let manifest = crate::manifest::ExtensionManifest {
+            id: "test-ext".to_string(),
+            name: "Test Extension".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: crate::manifest::Checksum {
+                algorithm: crate::manifest::checksum::ChecksumAlgorithm::Sha256,
+                value: "test-checksum".to_string(),
+            },
+            signature: None,
+        };
+
+        let wasm_data = b"fake wasm content for testing";
+        let package = ExtensionPackage::new(manifest, wasm_data.to_vec(), "test-store".to_string());
+
+        // Create InstalledExtension from package
+        let installed = InstalledExtension::from_package(package);
+
+        // Verify that size is captured from package
+        assert!(installed.size > 0);
+        assert_eq!(installed.calculate_size(), installed.size);
+    }
+
+    #[tokio::test]
+    async fn test_installed_extension_integrity_verification() {
+        // Create temporary registry
+        let temp_dir = TempDir::new().unwrap();
+        let registry_dir = temp_dir.path().join("registry");
+
+        let registry = LocalRegistryStore::new(registry_dir).await.unwrap();
+
+        // Create a test extension with checksum
+        let wasm_data = b"test wasm content";
+        let manifest = crate::manifest::ExtensionManifest {
+            id: "integrity-test".to_string(),
+            name: "Integrity Test".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://test.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: crate::manifest::Checksum {
+                algorithm: crate::manifest::checksum::ChecksumAlgorithm::Sha256,
+                value: crate::manifest::checksum::ChecksumAlgorithm::Sha256.calculate(wasm_data),
+            },
+            signature: None,
+        };
+
+        let package = ExtensionPackage::new(manifest, wasm_data.to_vec(), "test".to_string());
+        let mut installed = InstalledExtension::from_package(package.clone());
+        installed.checksum = Some(installed.manifest.checksum.clone());
+
+        // Test integrity verification without files (should return false)
+        let integrity_result = installed.verify_integrity(&registry).await;
+        assert!(!integrity_result); // Should fail since WASM file doesn't exist on disk
+
+        // Test integrity verification is properly handled
+        // (The basic verify_integrity method was removed)
+    }
+
+    #[tokio::test]
+    async fn test_size_calculation_from_disk() {
+        // Create temporary registry
+        let temp_dir = TempDir::new().unwrap();
+        let registry_dir = temp_dir.path().join("registry");
+
+        let registry = LocalRegistryStore::new(registry_dir).await.unwrap();
+
+        // Create a test extension
+        let installed = InstalledExtension::new(
+            "size-test".to_string(),
+            "Size Test".to_string(),
+            "1.0.0".to_string(),
+            crate::manifest::ExtensionManifest {
+                id: "size-test".to_string(),
+                name: "Size Test".to_string(),
+                version: "1.0.0".to_string(),
+                author: "Test".to_string(),
+                langs: vec!["en".to_string()],
+                base_urls: vec!["https://test.com".to_string()],
+                rds: vec![crate::manifest::ReadingDirection::Ltr],
+                attrs: vec![],
+                checksum: crate::manifest::Checksum {
+                    algorithm: crate::manifest::checksum::ChecksumAlgorithm::Sha256,
+                    value: "test".to_string(),
+                },
+                signature: None,
+            },
+            "test".to_string(),
+        );
+
+        // Test size calculation (should return 0 since no files exist)
+        let disk_size = installed.calculate_actual_size(&registry).await.unwrap();
+        assert_eq!(disk_size, 0);
+    }
+
+    #[test]
+    fn test_update_options_default() {
+        let options = UpdateOptions::default();
+
+        assert!(!options.include_prereleases);
+        assert!(options.update_dependencies);
+        assert!(!options.force_update);
+        assert!(options.backup_current);
     }
 }

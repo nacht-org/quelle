@@ -70,7 +70,13 @@ async fn handle_fetch_novel(
             println!("📖 Fetching novel info from: {}", url);
 
             if let Some(installed) = store_manager.get_installed(&extension_id).await? {
-                match fetch_novel_with_extension(&installed, url.as_ref()).await {
+                match fetch_novel_with_extension(
+                    &installed,
+                    store_manager.registry_store(),
+                    url.as_ref(),
+                )
+                .await
+                {
                     Ok(novel) => {
                         println!("✅ Successfully fetched novel information:");
                         println!("  📖 Title: {}", novel.title);
@@ -176,7 +182,13 @@ async fn handle_fetch_chapter(
             println!("📄 Fetching chapter from: {}", url);
 
             if let Some(installed) = store_manager.get_installed(&extension_id).await? {
-                match fetch_chapter_with_extension(&installed, url.as_ref()).await {
+                match fetch_chapter_with_extension(
+                    &installed,
+                    store_manager.registry_store(),
+                    url.as_ref(),
+                )
+                .await
+                {
                     Ok(chapter) => {
                         println!("✅ Successfully fetched chapter:");
                         println!("  📄 Content length: {} characters", chapter.data.len());
@@ -313,7 +325,13 @@ async fn handle_fetch_chapters(
         if !chapter_info.has_content() {
             println!("📥 Fetching: {}", chapter_info.chapter_title);
 
-            match fetch_chapter_with_extension(&extension, &chapter_info.chapter_url).await {
+            match fetch_chapter_with_extension(
+                &extension,
+                store_manager.registry_store(),
+                &chapter_info.chapter_url,
+            )
+            .await
+            {
                 Ok(chapter_content) => {
                     let content = ChapterContent {
                         data: chapter_content.data,
@@ -426,16 +444,17 @@ pub async fn find_and_install_extension_for_url(
 /// Fetch novel information using an installed extension
 pub async fn fetch_novel_with_extension(
     installed: &quelle_store::models::InstalledExtension,
+    registry: &dyn quelle_store::registry::RegistryStore,
     url: &str,
 ) -> Result<quelle_storage::Novel> {
     // Create extension engine
     let engine = crate::utils::create_extension_engine()?;
 
-    // Get WASM component bytes
-    let wasm_bytes = installed.get_wasm_bytes();
+    // Get WASM component bytes from registry
+    let wasm_bytes = registry.get_extension_wasm_bytes(&installed.id).await?;
 
     // Create runner and fetch novel info
-    let runner = engine.new_runner_from_bytes(wasm_bytes).await?;
+    let runner = engine.new_runner_from_bytes(&wasm_bytes).await?;
     let (_, result) = runner.fetch_novel_info(url).await?;
 
     match result {
@@ -447,16 +466,17 @@ pub async fn fetch_novel_with_extension(
 /// Fetch chapter content using an installed extension
 pub async fn fetch_chapter_with_extension(
     installed: &quelle_store::models::InstalledExtension,
+    registry: &dyn quelle_store::registry::RegistryStore,
     url: &str,
 ) -> Result<ChapterContent> {
     // Create extension engine
     let engine = crate::utils::create_extension_engine()?;
 
-    // Get WASM component bytes
-    let wasm_bytes = installed.get_wasm_bytes();
+    // Get WASM component bytes from registry
+    let wasm_bytes = registry.get_extension_wasm_bytes(&installed.id).await?;
 
     // Create runner and fetch chapter content
-    let runner = engine.new_runner_from_bytes(wasm_bytes).await?;
+    let runner = engine.new_runner_from_bytes(&wasm_bytes).await?;
     let (_, result) = runner.fetch_chapter(url).await?;
 
     match result {
