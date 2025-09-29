@@ -139,10 +139,19 @@ impl FilesystemStorage {
         self.get_novel_dir(novel_id).join("novel.json")
     }
 
+    /// Convert volume index to directory name, with special handling for -1 as "default"
+    fn volume_index_to_dir_name(&self, volume_index: i32) -> String {
+        if volume_index == -1 {
+            "default".to_string()
+        } else {
+            volume_index.to_string()
+        }
+    }
+
     fn get_chapter_dir(&self, novel_id: &NovelId, volume_index: i32) -> PathBuf {
         self.get_novel_dir(novel_id)
             .join("chapters")
-            .join(volume_index.to_string())
+            .join(self.volume_index_to_dir_name(volume_index))
     }
 
     fn get_chapter_file(
