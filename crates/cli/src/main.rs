@@ -2,13 +2,13 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use eyre::{Context, Result};
-
 use quelle_storage::{
     backends::filesystem::FilesystemStorage,
     traits::BookStorage,
     types::{NovelFilter, NovelId},
 };
 use quelle_store::{StoreManager, registry::LocalRegistryStore};
+use tracing::info;
 
 mod cli;
 
@@ -50,13 +50,15 @@ async fn main() -> Result<()> {
     // Initialize store manager
     let registry_dir = storage_path.join("extensions");
     let registry_store = Box::new(LocalRegistryStore::new(&registry_dir).await?);
-    let _store_manager = StoreManager::new(registry_store)
+    let mut store_manager = StoreManager::new(registry_store)
         .await
         .context("Failed to initialize store manager")?;
 
     // Handle commands
     match cli.command {
-        Commands::Fetch { command } => handle_fetch_command(command, &storage, cli.dry_run).await,
+        Commands::Fetch { command } => {
+            handle_fetch_command(command, &mut store_manager, &storage, cli.dry_run).await
+        }
         Commands::Library { command } => {
             handle_library_command(command, &storage, cli.dry_run).await
         }
@@ -69,7 +71,7 @@ async fn main() -> Result<()> {
             limit,
         } => handle_search_command(query, author, tags, source, limit, cli.dry_run).await,
         Commands::Extension { command } => {
-            handle_extension_command(command, &storage_path, cli.dry_run).await
+            handle_extension_command(command, &mut store_manager, cli.dry_run).await
         }
         Commands::Config { command } => handle_config_command(command, cli.dry_run).await,
     }
@@ -77,6 +79,7 @@ async fn main() -> Result<()> {
 
 async fn handle_fetch_command(
     cmd: FetchCommands,
+    _store_manager: &mut StoreManager,
     _storage: &FilesystemStorage,
     dry_run: bool,
 ) -> Result<()> {
@@ -84,34 +87,62 @@ async fn handle_fetch_command(
         FetchCommands::Novel { url } => {
             if dry_run {
                 println!("Would fetch novel from: {}", url);
-            } else {
-                println!("🚧 Fetch novel is not yet implemented");
-                println!("📖 URL: {}", url);
+                return Ok(());
             }
+
+            info!("📖 Fetching novel from: {}", url);
+            println!("🚧 Novel fetching is not yet fully implemented");
+            println!("📖 URL: {}", url);
+
+            // TODO: Implement actual fetching
+            // 1. Find or install appropriate extension
+            // 2. Use extension to fetch novel
+            // 3. Store novel and cover in storage
+
+            println!("💡 This would:");
+            println!("  1. Find an extension that supports {}", url);
+            println!("  2. Fetch the novel metadata");
+            println!("  3. Download the cover image automatically");
+            println!("  4. Store everything in your library");
         }
+
         FetchCommands::Chapter { url } => {
             if dry_run {
                 println!("Would fetch chapter from: {}", url);
-            } else {
-                println!("🚧 Fetch chapter is not yet implemented");
-                println!("📄 URL: {}", url);
+                return Ok(());
             }
+
+            info!("📄 Fetching chapter from: {}", url);
+            println!("🚧 Chapter fetching is not yet fully implemented");
+            println!("📄 URL: {}", url);
+
+            println!("💡 This would:");
+            println!("  1. Find an extension that supports {}", url);
+            println!("  2. Fetch the chapter content");
+            println!("  3. Download any embedded images automatically");
+            println!("  4. Store everything in your library");
         }
+
         FetchCommands::Chapters { novel_id } => {
             if dry_run {
                 println!("Would fetch all chapters for: {}", novel_id);
-            } else {
-                println!("🚧 Fetch chapters is not yet implemented");
-                println!("📚 Novel ID: {}", novel_id);
+                return Ok(());
             }
+
+            info!("📚 Fetching all chapters for novel: {}", novel_id);
+            println!("🚧 Bulk chapter fetching is not yet fully implemented");
+            println!("📚 Novel ID: {}", novel_id);
         }
+
         FetchCommands::All { url } => {
             if dry_run {
                 println!("Would fetch everything from: {}", url);
-            } else {
-                println!("🚧 Fetch all is not yet implemented");
-                println!("🚀 URL: {}", url);
+                return Ok(());
             }
+
+            info!("🚀 Fetching everything from: {}", url);
+            println!("🚧 Complete fetching is not yet fully implemented");
+            println!("🚀 URL: {}", url);
         }
     }
     Ok(())
@@ -140,7 +171,7 @@ async fn handle_library_command(
                 println!("📚 Library ({} novels):", novels.len());
                 for novel in novels {
                     println!("  📖 {} by {}", novel.title, novel.authors.join(", "));
-                    println!("     ID: {}", novel.id);
+                    println!("     ID: {}", novel.id.as_str());
                     println!("     Status: {:?}", novel.status);
                     if novel.total_chapters > 0 {
                         println!(
@@ -346,16 +377,39 @@ async fn handle_library_command(
 
 async fn handle_export_command(
     cmd: ExportCommands,
-    _storage: &FilesystemStorage,
+    storage: &FilesystemStorage,
     dry_run: bool,
 ) -> Result<()> {
     match cmd {
         ExportCommands::Epub { novel_id, .. } => {
             if dry_run {
                 println!("Would export to EPUB: {}", novel_id);
+                return Ok(());
+            }
+
+            println!("🚧 EPUB export is not yet fully implemented");
+            println!("📚 Novel ID: {}", novel_id);
+
+            // Check if novel exists
+            if novel_id != "all" {
+                let id = NovelId::new(novel_id.clone());
+                match storage.get_novel(&id).await? {
+                    Some(novel) => {
+                        println!("💡 Would export: {}", novel.title);
+                        println!("  With cover image (if available)");
+                        println!("  With all downloaded chapters");
+                        println!(
+                            "  To current directory as {}.epub",
+                            sanitize_filename(&novel.title)
+                        );
+                    }
+                    None => {
+                        println!("❌ Novel not found: {}", id.as_str());
+                    }
+                }
             } else {
-                println!("🚧 EPUB export is not yet implemented");
-                println!("📚 Novel ID: {}", novel_id);
+                let novels = storage.list_novels(&NovelFilter::default()).await?;
+                println!("💡 Would export {} novels to EPUB", novels.len());
             }
         }
         ExportCommands::Pdf { novel_id, .. } => {
@@ -391,7 +445,7 @@ async fn handle_search_command(
     author: Option<String>,
     tags: Option<String>,
     source: Option<String>,
-    _limit: usize,
+    limit: usize,
     dry_run: bool,
 ) -> Result<()> {
     if dry_run {
@@ -402,41 +456,91 @@ async fn handle_search_command(
         return Ok(());
     }
 
-    println!("🚧 Search functionality is not yet implemented");
-    println!("🔍 Query: {}", query);
+    println!("🚧 Novel search is not yet fully implemented");
+    println!("🔍 Search parameters:");
+    println!("  Query: {}", query);
     if let Some(author) = author {
-        println!("👤 Author: {}", author);
+        println!("  Author: {}", author);
     }
     if let Some(tags) = tags {
-        println!("🏷️  Tags: {}", tags);
+        println!("  Tags: {}", tags);
     }
     if let Some(source) = source {
-        println!("📚 Source: {}", source);
+        println!("  Source filter: {}", source);
     }
+    println!("  Limit: {}", limit);
+
+    println!("\n💡 This would search across all installed extensions");
+    println!("💡 To search for extensions instead, use:");
+    println!("  quelle extension search {}", query);
 
     Ok(())
 }
 
 async fn handle_extension_command(
     cmd: ExtensionCommands,
-    _storage_path: &PathBuf,
+    store_manager: &mut StoreManager,
     dry_run: bool,
 ) -> Result<()> {
     match cmd {
         ExtensionCommands::Install { id, version, force } => {
             if dry_run {
                 println!("Would install extension: {} (version: {:?})", id, version);
-            } else {
-                println!("🚧 Extension installation is not yet implemented");
-                println!("📦 Extension ID: {}", id);
-                println!("📦 Version: {:?}", version);
-                println!("📦 Force: {}", force);
+                return Ok(());
+            }
+
+            println!("📦 Installing extension: {}", id);
+
+            // Check if already installed
+            if !force {
+                if let Some(installed) = store_manager.get_installed(&id).await? {
+                    println!(
+                        "⚠️ Extension {} v{} is already installed",
+                        installed.name, installed.version
+                    );
+                    println!("💡 Use --force to reinstall");
+                    return Ok(());
+                }
+            }
+
+            // Install the extension
+            match store_manager.install(&id, version.as_deref(), None).await {
+                Ok(installed) => {
+                    println!("✅ Installed {} v{}", installed.name, installed.version);
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to install {}: {}", id, e);
+                    return Err(e.into());
+                }
             }
         }
 
         ExtensionCommands::List { detailed } => {
-            println!("🚧 Extension listing is not yet implemented");
-            println!("📦 Detailed: {}", detailed);
+            let installed = store_manager.list_installed().await?;
+
+            if installed.is_empty() {
+                println!("📦 No extensions installed");
+                println!("💡 Use 'quelle extension search <query>' to find extensions");
+                return Ok(());
+            }
+
+            println!("📦 Installed extensions ({}):", installed.len());
+            for ext in installed {
+                if detailed {
+                    println!("  📦 {} v{}", ext.name, ext.version);
+                    println!("     ID: {}", ext.id);
+                    println!(
+                        "     Installed: {}",
+                        ext.installed_at.format("%Y-%m-%d %H:%M")
+                    );
+                    if !ext.source_store.is_empty() {
+                        println!("     Source: {}", ext.source_store);
+                    }
+                    println!();
+                } else {
+                    println!("  📦 {} v{} - {}", ext.name, ext.version, ext.id);
+                }
+            }
         }
 
         ExtensionCommands::Update { id, .. } => {
@@ -456,10 +560,39 @@ async fn handle_extension_command(
         ExtensionCommands::Remove { id, force } => {
             if dry_run {
                 println!("Would remove extension: {}", id);
-            } else {
-                println!("🚧 Extension removal is not yet implemented");
-                println!("📦 Extension ID: {}", id);
-                println!("📦 Force: {}", force);
+                return Ok(());
+            }
+
+            match store_manager.get_installed(&id).await? {
+                Some(installed) => {
+                    if !force {
+                        print!(
+                            "Are you sure you want to remove '{}'? (y/N): ",
+                            installed.name
+                        );
+                        use std::io::{self, Write};
+                        io::stdout().flush()?;
+                        let mut input = String::new();
+                        io::stdin().read_line(&mut input)?;
+                        if !input.trim().to_lowercase().starts_with('y') {
+                            println!("❌ Cancelled");
+                            return Ok(());
+                        }
+                    }
+
+                    match store_manager.uninstall(&id).await {
+                        Ok(_) => {
+                            println!("✅ Removed extension: {}", installed.name);
+                        }
+                        Err(e) => {
+                            eprintln!("❌ Failed to remove {}: {}", installed.name, e);
+                            return Err(e.into());
+                        }
+                    }
+                }
+                None => {
+                    println!("❌ Extension not installed: {}", id);
+                }
             }
         }
 
@@ -469,13 +602,41 @@ async fn handle_extension_command(
                 return Ok(());
             }
 
-            println!("🚧 Extension search is not yet implemented");
+            println!("🚧 Extension search is not yet fully implemented");
             println!("🔍 Query: {}", query);
+            println!("💡 This would search across all configured extension stores");
         }
 
         ExtensionCommands::Info { id } => {
-            println!("🚧 Extension info is not yet implemented");
-            println!("📦 Extension ID: {}", id);
+            match store_manager.get_installed(&id).await? {
+                Some(ext) => {
+                    println!("📦 {}", ext.name);
+                    println!("ID: {}", ext.id);
+                    println!("Version: {}", ext.version);
+                    println!(
+                        "Installed: {}",
+                        ext.installed_at.format("%Y-%m-%d %H:%M:%S")
+                    );
+
+                    if !ext.source_store.is_empty() {
+                        println!("Source: {}", ext.source_store);
+                    }
+
+                    // Show manifest information if available
+                    println!("\nManifest Information:");
+                    println!("  Name: {}", ext.manifest.name);
+                    println!("  Version: {}", ext.manifest.version);
+                    println!("  Author: {}", ext.manifest.author);
+
+                    if !ext.manifest.langs.is_empty() {
+                        println!("  Languages: {}", ext.manifest.langs.join(", "));
+                    }
+                }
+                None => {
+                    println!("❌ Extension not installed: {}", id);
+                    println!("💡 Use 'quelle extension search {}' to find it", id);
+                }
+            }
         }
     }
 
@@ -527,4 +688,13 @@ async fn handle_config_command(cmd: ConfigCommands, dry_run: bool) -> Result<()>
     }
 
     Ok(())
+}
+
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| match c {
+            '/' | '\\' | '?' | '%' | '*' | ':' | '|' | '"' | '<' | '>' => '_',
+            c => c,
+        })
+        .collect()
 }

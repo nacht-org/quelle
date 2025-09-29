@@ -229,11 +229,24 @@ Quelle automatically handles assets (images) when fetching content:
 
 ## Development Status
 
-🟢 **Ready**: CLI structure, library management, storage integration  
-🟡 **In Progress**: Extension system, search functionality  
-🔴 **Planned**: Actual fetching, export implementation, configuration management
+🟢 **Ready**: CLI structure, library management, storage integration, extension management (install/list/remove)  
+🟡 **In Progress**: Actual content fetching, export functionality, search across extensions  
+🔴 **Planned**: Configuration management, extension updates, advanced export options
 
-Most commands currently show "not yet implemented" messages as the underlying functionality is still being developed.
+### What Works Now
+
+- ✅ **Extension Management**: Install, list, remove extensions
+- ✅ **Library Management**: List novels, show details, read chapters, cleanup
+- ✅ **Storage**: All library operations work with the filesystem backend
+- ✅ **Asset Handling**: Infrastructure for automatic asset fetching
+- ✅ **CLI Interface**: All commands parse correctly with helpful messages
+
+### What's Coming Next
+
+- 🔄 **Content Fetching**: Integration with extensions to actually fetch novels/chapters
+- 🔄 **Export**: EPUB generation with cover images and assets
+- 🔄 **Search**: Cross-extension novel search functionality
+- 🔄 **Configuration**: Persistent settings management
 
 ## Contributing
 
