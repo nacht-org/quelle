@@ -59,6 +59,43 @@ async fn main() -> Result<()> {
 
     // Handle commands
     match cli.command {
+        Commands::Add {
+            url,
+            no_chapters,
+            max_chapters,
+        } => {
+            handle_add_command(
+                url,
+                no_chapters,
+                max_chapters,
+                &mut store_manager,
+                &storage,
+                cli.dry_run,
+            )
+            .await
+        }
+        Commands::Update { novel, check_only } => {
+            handle_update_command(novel, check_only, &storage, &mut store_manager, cli.dry_run)
+                .await
+        }
+        Commands::Read {
+            novel,
+            chapter,
+            list,
+        } => {
+            handle_read_command(
+                novel,
+                chapter,
+                list,
+                &storage,
+                &mut store_manager,
+                cli.dry_run,
+            )
+            .await
+        }
+        Commands::Remove { novel, force } => {
+            handle_remove_command(novel, force, &storage, &mut store_manager, cli.dry_run).await
+        }
         Commands::Fetch { command } => {
             handle_fetch_command(command, &mut store_manager, &storage, cli.dry_run).await
         }
@@ -132,6 +169,148 @@ async fn handle_list_command(store_manager: &StoreManager) -> Result<()> {
         println!();
     }
     Ok(())
+}
+
+async fn handle_add_command(
+    url: url::Url,
+    no_chapters: bool,
+    max_chapters: Option<usize>,
+    store_manager: &mut StoreManager,
+    storage: &FilesystemStorage,
+    dry_run: bool,
+) -> Result<()> {
+    use crate::cli::FetchCommands;
+    use crate::commands::fetch::handle_fetch_command;
+
+    if dry_run {
+        println!("Would add novel from: {}", url);
+        if !no_chapters {
+            println!("Would also fetch all chapters");
+        }
+        return Ok(());
+    }
+
+    println!("📚 Adding novel from: {}", url);
+
+    // First, fetch the novel metadata
+    let fetch_novel_cmd = FetchCommands::Novel { url: url.clone() };
+    handle_fetch_command(fetch_novel_cmd, store_manager, storage, false).await?;
+
+    // Then fetch chapters unless explicitly disabled
+    if !no_chapters {
+        println!("📄 Fetching chapters...");
+        let fetch_chapters_cmd = FetchCommands::Chapters {
+            novel_id: url.to_string(),
+        };
+
+        // TODO: Handle max_chapters limit in the future
+        if max_chapters.is_some() {
+            println!(
+                "💡 Note: max_chapters limit not yet implemented, fetching all available chapters"
+            );
+        }
+
+        handle_fetch_command(fetch_chapters_cmd, store_manager, storage, false).await?;
+    }
+
+    println!("✅ Novel added successfully!");
+    Ok(())
+}
+
+async fn handle_update_command(
+    novel: String,
+    check_only: bool,
+    storage: &FilesystemStorage,
+    store_manager: &mut StoreManager,
+    dry_run: bool,
+) -> Result<()> {
+    use crate::cli::LibraryCommands;
+    use crate::commands::library::handle_library_command;
+
+    if dry_run {
+        println!("Would update novel(s): {}", novel);
+        return Ok(());
+    }
+
+    if check_only {
+        println!("🔍 Checking for new chapters in: {}", novel);
+        let sync_cmd = LibraryCommands::Sync { novel_id: novel };
+        handle_library_command(sync_cmd, storage, store_manager, false).await
+    } else {
+        println!("🔄 Updating novel(s): {}", novel);
+        let update_cmd = LibraryCommands::Update { novel_id: novel };
+        handle_library_command(update_cmd, storage, store_manager, false).await
+    }
+}
+
+async fn handle_read_command(
+    novel: String,
+    chapter: Option<String>,
+    list: bool,
+    storage: &FilesystemStorage,
+    store_manager: &mut StoreManager,
+    dry_run: bool,
+) -> Result<()> {
+    use crate::cli::LibraryCommands;
+    use crate::commands::library::handle_library_command;
+
+    if dry_run {
+        println!("Would read from novel: {}", novel);
+        return Ok(());
+    }
+
+    if list {
+        println!("📚 Listing chapters for: {}", novel);
+        let chapters_cmd = LibraryCommands::Chapters {
+            novel_id: novel,
+            downloaded_only: true,
+        };
+        handle_library_command(chapters_cmd, storage, store_manager, false).await
+    } else {
+        match chapter {
+            Some(chapter_id) => {
+                println!("📖 Reading chapter: {}", chapter_id);
+                let read_cmd = LibraryCommands::Read {
+                    novel_id: novel,
+                    chapter: chapter_id,
+                };
+                handle_library_command(read_cmd, storage, store_manager, false).await
+            }
+            None => {
+                println!(
+                    "📚 Please specify a chapter to read, or use --list to see available chapters"
+                );
+                let chapters_cmd = LibraryCommands::Chapters {
+                    novel_id: novel,
+                    downloaded_only: true,
+                };
+                handle_library_command(chapters_cmd, storage, store_manager, false).await
+            }
+        }
+    }
+}
+
+async fn handle_remove_command(
+    novel: String,
+    force: bool,
+    storage: &FilesystemStorage,
+    store_manager: &mut StoreManager,
+    dry_run: bool,
+) -> Result<()> {
+    use crate::cli::LibraryCommands;
+    use crate::commands::library::handle_library_command;
+
+    if dry_run {
+        println!("Would remove novel: {}", novel);
+        return Ok(());
+    }
+
+    println!("🗑️  Removing novel: {}", novel);
+    let remove_cmd = LibraryCommands::Remove {
+        novel_id: novel,
+        force,
+    };
+    handle_library_command(remove_cmd, storage, store_manager, false).await
 }
 
 async fn handle_status_command(store_manager: &StoreManager) -> Result<()> {

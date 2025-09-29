@@ -32,6 +32,48 @@ pub struct Cli {
 
 #[derive(clap::Subcommand, Debug)]
 pub enum Commands {
+    /// Add a novel to your library (fetches novel + all chapters)
+    /// Example: quelle add https://example.com/novel
+    Add {
+        /// Novel URL to add
+        url: Url,
+        /// Only fetch novel metadata, skip downloading chapters
+        #[arg(long)]
+        no_chapters: bool,
+        /// Maximum number of chapters to fetch (useful for testing)
+        #[arg(long)]
+        max_chapters: Option<usize>,
+    },
+    /// Update novels with new chapters (default: update all novels)
+    /// Examples: quelle update, quelle update "Novel Title", quelle update novel-id
+    Update {
+        /// Novel ID, URL, title, or 'all' for all novels
+        #[arg(default_value = "all")]
+        novel: String,
+        /// Only check for new chapters, don't download them
+        #[arg(long)]
+        check_only: bool,
+    },
+    /// Read a chapter from your library
+    /// Examples: quelle read "Novel Title" 1, quelle read novel-id --list
+    Read {
+        /// Novel ID, URL, or title
+        novel: String,
+        /// Chapter number, title, or URL (shows available chapters if not specified)
+        chapter: Option<String>,
+        /// Show chapter list instead of reading
+        #[arg(long)]
+        list: bool,
+    },
+    /// Remove a novel and all its data from your library
+    /// Example: quelle remove "Novel Title" --force
+    Remove {
+        /// Novel ID, URL, or title
+        novel: String,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
     /// Fetch content from novels and websites
     Fetch {
         #[command(subcommand)]
