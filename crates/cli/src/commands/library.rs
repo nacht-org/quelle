@@ -4,7 +4,6 @@ use quelle_storage::{
     traits::BookStorage,
     types::{NovelFilter, NovelId},
 };
-use tracing::info;
 
 use crate::cli::LibraryCommands;
 
@@ -50,7 +49,7 @@ async fn handle_list_novels(source: Option<String>, storage: &FilesystemStorage)
         println!("📚 Library ({} novels):", novels.len());
         for novel in novels {
             println!("  📖 {} by {}", novel.title, novel.authors.join(", "));
-            println!("     ID: {}", novel.id.as_str());
+            println!("     ID: {}", novel.id.0);
             println!("     Status: {:?}", novel.status);
             if novel.total_chapters > 0 {
                 println!(
@@ -83,7 +82,7 @@ async fn handle_show_novel(novel_id: String, storage: &FilesystemStorage) -> Res
             }
         }
         None => {
-            println!("❌ Novel not found: {}", id.as_str());
+            println!("❌ Novel not found: {}", id.0);
         }
     }
     Ok(())
@@ -98,11 +97,11 @@ async fn handle_list_chapters(
     let chapters = storage.list_chapters(&id).await?;
 
     if chapters.is_empty() {
-        println!("📄 No chapters found for novel: {}", id.as_str());
+        println!("📄 No chapters found for novel: {}", id.0);
         return Ok(());
     }
 
-    println!("📄 Chapters for {}:", id.as_str());
+    println!("📄 Chapters for {}:", id.0);
     for chapter in chapters {
         if !downloaded_only || chapter.has_content() {
             let status = if chapter.has_content() { "✅" } else { "⬜" };
@@ -220,7 +219,7 @@ async fn handle_remove_novel(
             println!("✅ Removed novel: {}", novel.title);
         }
         None => {
-            println!("❌ Novel not found: {}", id.as_str());
+            println!("❌ Novel not found: {}", id.0);
         }
     }
     Ok(())

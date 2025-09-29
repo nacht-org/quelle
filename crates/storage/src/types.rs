@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// This is a simple string wrapper that allows different backends to use
 /// whatever identification scheme works best for them (URLs, UUIDs, integers, etc.).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct NovelId(pub String);
+pub struct NovelId(String);
 
 impl NovelId {
     /// Create a new NovelId
