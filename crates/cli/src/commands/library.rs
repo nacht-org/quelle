@@ -1,9 +1,13 @@
 use eyre::Result;
+use quelle_engine::ExtensionEngine;
 use quelle_storage::{
+    ChapterContent,
     backends::filesystem::FilesystemStorage,
     traits::BookStorage,
     types::{NovelFilter, NovelId},
 };
+use quelle_store::{StoreManager, registry::LocalRegistryStore};
+use tracing::{error, info, warn};
 
 use crate::cli::LibraryCommands;
 
@@ -22,8 +26,10 @@ pub async fn handle_library_command(
         LibraryCommands::Read { novel_id, chapter } => {
             handle_read_chapter(novel_id, chapter, storage).await
         }
-        LibraryCommands::Sync { novel_id } => handle_sync_novels(novel_id, dry_run).await,
-        LibraryCommands::Update { novel_id } => handle_update_novels(novel_id, dry_run).await,
+        LibraryCommands::Sync { novel_id } => handle_sync_novels(novel_id, storage, dry_run).await,
+        LibraryCommands::Update { novel_id } => {
+            handle_update_novels(novel_id, storage, dry_run).await
+        }
         LibraryCommands::Remove { novel_id, force } => {
             handle_remove_novel(novel_id, force, storage, dry_run).await
         }
@@ -159,7 +165,11 @@ async fn handle_read_chapter(
     Ok(())
 }
 
-async fn handle_sync_novels(novel_id: String, dry_run: bool) -> Result<()> {
+async fn handle_sync_novels(
+    novel_id: String,
+    storage: &FilesystemStorage,
+    dry_run: bool,
+) -> Result<()> {
     if dry_run {
         if novel_id == "all" {
             println!("Would sync all novels for new chapters");
@@ -169,33 +179,90 @@ async fn handle_sync_novels(novel_id: String, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
+    // Initialize extension infrastructure
+    let storage_path = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".quelle");
+    let registry_dir = storage_path.join("extensions");
+    let registry_store = Box::new(LocalRegistryStore::new(&registry_dir).await?);
+    let mut store_manager = StoreManager::new(registry_store).await?;
+    let http_executor = std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new());
+    let engine = ExtensionEngine::new(http_executor)?;
+
     if novel_id == "all" {
         println!("🔄 Syncing all novels for new chapters...");
-        println!("🚧 This feature requires:");
-        println!("  1. Extension engine to re-fetch novel metadata");
-        println!("  2. Comparison with stored chapter lists");
-        println!("  3. Detection of new chapters since last sync");
-        println!("💡 This would check all novels in your library for new chapters");
-        println!("💡 Use 'quelle library update all' to download new content");
+
+        let novels = storage.list_novels(&NovelFilter::default()).await?;
+        if novels.is_empty() {
+            println!("📚 No novels in library to sync");
+            return Ok(());
+        }
+
+        let mut total_new_chapters = 0;
+        let mut synced_count = 0;
+        let mut failed_count = 0;
+
+        for novel_summary in novels {
+            match sync_single_novel(&novel_summary.id, storage, &mut store_manager, &engine).await {
+                Ok(new_chapters) => {
+                    if new_chapters > 0 {
+                        println!(
+                            "  📖 {} - {} new chapters found",
+                            novel_summary.title, new_chapters
+                        );
+                        total_new_chapters += new_chapters;
+                    } else {
+                        println!("  📖 {} - up to date", novel_summary.title);
+                    }
+                    synced_count += 1;
+                }
+                Err(e) => {
+                    warn!("❌ Failed to sync {}: {}", novel_summary.title, e);
+                    failed_count += 1;
+                }
+            }
+        }
+
+        println!("\n📊 Sync Summary:");
+        println!("  🔄 Novels synced: {}", synced_count);
+        println!("  📄 New chapters found: {}", total_new_chapters);
+        if failed_count > 0 {
+            println!("  ❌ Failed syncs: {}", failed_count);
+        }
+
+        if total_new_chapters > 0 {
+            println!("\n💡 Use 'quelle library update all' to download new chapters");
+        }
     } else {
         let id = NovelId::new(novel_id.clone());
         println!("🔄 Syncing novel {} for new chapters...", id.as_str());
-        println!("🚧 This feature requires:");
-        println!(
-            "  1. Extension engine to re-fetch novel metadata for: {}",
-            novel_id
-        );
-        println!("  2. Comparison with stored chapter list");
-        println!("  3. Detection of new chapters since last sync");
-        println!(
-            "💡 Use 'quelle library update {}' to download new content",
-            novel_id
-        );
+
+        match sync_single_novel(&id, storage, &mut store_manager, &engine).await {
+            Ok(new_chapters) => {
+                if new_chapters > 0 {
+                    println!("✅ Found {} new chapters", new_chapters);
+                    println!(
+                        "💡 Use 'quelle library update {}' to download them",
+                        novel_id
+                    );
+                } else {
+                    println!("✅ Novel is up to date - no new chapters found");
+                }
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to sync novel: {}", e);
+                return Err(e);
+            }
+        }
     }
     Ok(())
 }
 
-async fn handle_update_novels(novel_id: String, dry_run: bool) -> Result<()> {
+async fn handle_update_novels(
+    novel_id: String,
+    storage: &FilesystemStorage,
+    dry_run: bool,
+) -> Result<()> {
     if dry_run {
         if novel_id == "all" {
             println!("Would fetch new chapters for all novels");
@@ -205,24 +272,185 @@ async fn handle_update_novels(novel_id: String, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
+    // Initialize extension infrastructure
+    let storage_path = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".quelle");
+    let registry_dir = storage_path.join("extensions");
+    let registry_store = Box::new(LocalRegistryStore::new(&registry_dir).await?);
+    let mut store_manager = StoreManager::new(registry_store).await?;
+    let http_executor = std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new());
+    let engine = ExtensionEngine::new(http_executor)?;
+
     if novel_id == "all" {
         println!("📥 Updating all novels with new chapters...");
-        println!("🚧 This feature requires:");
-        println!("  1. Integration with fetch command logic");
-        println!("  2. Automatic detection of novels that need updates");
-        println!("  3. Batch processing of chapter downloads");
-        println!("💡 For now, use 'quelle fetch chapters <novel_id>' for individual novels");
+
+        let novels = storage.list_novels(&NovelFilter::default()).await?;
+        if novels.is_empty() {
+            println!("📚 No novels in library to update");
+            return Ok(());
+        }
+
+        let mut total_downloaded = 0;
+        let mut updated_count = 0;
+        let mut failed_count = 0;
+
+        for novel_summary in novels {
+            match update_single_novel(&novel_summary.id, storage, &mut store_manager, &engine).await
+            {
+                Ok(downloaded) => {
+                    if downloaded > 0 {
+                        println!(
+                            "  📖 {} - downloaded {} chapters",
+                            novel_summary.title, downloaded
+                        );
+                        total_downloaded += downloaded;
+                    } else {
+                        println!("  📖 {} - no new chapters to download", novel_summary.title);
+                    }
+                    updated_count += 1;
+                }
+                Err(e) => {
+                    warn!("❌ Failed to update {}: {}", novel_summary.title, e);
+                    failed_count += 1;
+                }
+            }
+        }
+
+        println!("\n📊 Update Summary:");
+        println!("  📖 Novels processed: {}", updated_count);
+        println!("  📄 Chapters downloaded: {}", total_downloaded);
+        if failed_count > 0 {
+            println!("  ❌ Failed updates: {}", failed_count);
+        }
     } else {
         let id = NovelId::new(novel_id.clone());
         println!("📥 Updating novel {} with new chapters...", id.as_str());
-        println!("🚧 This feature requires:");
-        println!("  1. Integration with fetch command logic");
-        println!("  2. Detection of new chapters for: {}", novel_id);
-        println!("  3. Automatic chapter content download");
-        println!("💡 For now, use 'quelle fetch chapters {}'", novel_id);
+
+        match update_single_novel(&id, storage, &mut store_manager, &engine).await {
+            Ok(downloaded) => {
+                if downloaded > 0 {
+                    println!("✅ Downloaded {} new chapters", downloaded);
+                } else {
+                    println!("✅ No new chapters to download - novel is up to date");
+                }
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to update novel: {}", e);
+                return Err(e);
+            }
+        }
     }
     Ok(())
 }
+
+async fn sync_single_novel(
+    novel_id: &NovelId,
+    storage: &FilesystemStorage,
+    store_manager: &mut StoreManager,
+    engine: &ExtensionEngine,
+) -> Result<u32> {
+    // Get the stored novel
+    let stored_novel = storage
+        .get_novel(novel_id)
+        .await?
+        .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_id.as_str()))?;
+
+    // Find extension for this novel
+    let extension = find_and_install_extension_for_url(&stored_novel.url, store_manager).await?;
+
+    // Fetch fresh novel metadata
+    let fresh_novel = fetch_novel_with_extension(&extension, &stored_novel.url, engine).await?;
+
+    // Get current chapters from storage
+    let stored_chapters = storage.list_chapters(novel_id).await?;
+    let stored_chapter_urls: std::collections::HashSet<_> =
+        stored_chapters.iter().map(|ch| &ch.chapter_url).collect();
+
+    // Count new chapters
+    let mut new_chapters = 0;
+    for volume in &fresh_novel.volumes {
+        for chapter in &volume.chapters {
+            if !stored_chapter_urls.contains(&chapter.url) {
+                new_chapters += 1;
+            }
+        }
+    }
+
+    // Update stored novel with fresh metadata (this will add new chapters)
+    if new_chapters > 0 {
+        storage.store_novel(&fresh_novel).await?;
+    }
+
+    Ok(new_chapters)
+}
+
+async fn update_single_novel(
+    novel_id: &NovelId,
+    storage: &FilesystemStorage,
+    store_manager: &mut StoreManager,
+    engine: &ExtensionEngine,
+) -> Result<u32> {
+    // Get the stored novel
+    let stored_novel = storage
+        .get_novel(novel_id)
+        .await?
+        .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_id.as_str()))?;
+
+    // Find extension for this novel
+    let extension = find_and_install_extension_for_url(&stored_novel.url, store_manager).await?;
+
+    // Get chapters that need downloading
+    let chapters = storage.list_chapters(novel_id).await?;
+    let mut downloaded_count = 0;
+    let mut failed_count = 0;
+
+    for chapter_info in chapters {
+        if !chapter_info.has_content() {
+            info!("📄 Downloading chapter: {}", chapter_info.chapter_title);
+            match fetch_chapter_with_extension(&extension, &chapter_info.chapter_url, engine).await
+            {
+                Ok(chapter_content) => {
+                    let content = ChapterContent {
+                        data: chapter_content.data,
+                    };
+                    match storage
+                        .store_chapter_content(
+                            novel_id,
+                            chapter_info.volume_index,
+                            &chapter_info.chapter_url,
+                            &content,
+                        )
+                        .await
+                    {
+                        Ok(_) => {
+                            downloaded_count += 1;
+                        }
+                        Err(e) => {
+                            error!("  ❌ Failed to store {}: {}", chapter_info.chapter_title, e);
+                            failed_count += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("  ❌ Failed to fetch {}: {}", chapter_info.chapter_title, e);
+                    failed_count += 1;
+                }
+            }
+        }
+    }
+
+    if failed_count > 0 {
+        warn!("⚠️ {} chapters failed to download", failed_count);
+    }
+
+    Ok(downloaded_count)
+}
+
+// Helper functions from fetch.rs - we need to add these to avoid duplication
+use crate::commands::fetch::{
+    fetch_chapter_with_extension, fetch_novel_with_extension, find_and_install_extension_for_url,
+};
 
 async fn handle_remove_novel(
     novel_id: String,

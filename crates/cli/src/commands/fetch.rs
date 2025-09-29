@@ -271,7 +271,7 @@ async fn handle_fetch_all(
     Ok(())
 }
 
-async fn find_and_install_extension_for_url(
+pub async fn find_and_install_extension_for_url(
     url: &str,
     store_manager: &mut StoreManager,
 ) -> Result<quelle_store::models::InstalledExtension> {
@@ -373,7 +373,7 @@ async fn find_and_install_extension_for_url(
     }
 }
 
-async fn fetch_novel_with_extension(
+pub async fn fetch_novel_with_extension(
     extension: &quelle_store::models::InstalledExtension,
     url: &str,
     engine: &ExtensionEngine,
@@ -391,7 +391,7 @@ async fn fetch_novel_with_extension(
     }
 }
 
-async fn fetch_chapter_with_extension(
+pub async fn fetch_chapter_with_extension(
     extension: &quelle_store::models::InstalledExtension,
     url: &str,
     engine: &ExtensionEngine,
