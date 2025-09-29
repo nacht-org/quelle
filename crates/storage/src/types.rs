@@ -279,13 +279,6 @@ pub struct Asset {
     pub size: u64,
 }
 
-/// Complete asset with binary data
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AssetWithData {
-    pub asset: Asset,
-    pub data: Vec<u8>,
-}
-
 /// Summary information about an asset (without binary data)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetSummary {

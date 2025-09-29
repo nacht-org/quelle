@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tokio::{fs, io::AsyncReadExt};
+use tokio::fs;
 
 use crate::error::{BookStorageError, Result};
 use crate::models::{
@@ -159,10 +159,20 @@ impl FilesystemStorage {
         self.root_path.join("metadata").join("index.json")
     }
 
-    fn get_asset_file(&self, novel_id: &NovelId, asset_id: &AssetId) -> PathBuf {
+    fn get_asset_metadata_file(&self, novel_id: &NovelId, asset_id: &AssetId) -> PathBuf {
         let asset_hash = self.hash_string(asset_id.as_str());
         self.get_novel_dir(novel_id)
-            .join(format!("asset_{}.json", asset_hash))
+            .join("assets")
+            .join("metadata")
+            .join(format!("{}.json", asset_hash))
+    }
+
+    fn get_asset_data_file(&self, novel_id: &NovelId, asset_id: &AssetId) -> PathBuf {
+        let asset_hash = self.hash_string(asset_id.as_str());
+        self.get_novel_dir(novel_id)
+            .join("assets")
+            .join("data")
+            .join(format!("{}.bin", asset_hash))
     }
 
     fn hash_string(&self, input: &str) -> String {
@@ -969,73 +979,96 @@ impl BookStorage for FilesystemStorage {
         asset: Asset,
         mut reader: Box<dyn tokio::io::AsyncRead + Send + Unpin>,
     ) -> Result<AssetId> {
-        let asset_file = self.get_asset_file(&asset.novel_id, &asset.id);
+        let metadata_file = self.get_asset_metadata_file(&asset.novel_id, &asset.id);
+        let data_file = self.get_asset_data_file(&asset.novel_id, &asset.id);
 
-        // Create directory structure
-        if let Some(parent) = asset_file.parent() {
+        // Create directory structure for both metadata and data
+        if let Some(parent) = metadata_file.parent() {
             fs::create_dir_all(parent)
                 .await
                 .map_err(|e| BookStorageError::BackendError {
-                    source: Some(eyre::eyre!("Failed to create asset directory: {}", e)),
+                    source: Some(eyre::eyre!(
+                        "Failed to create asset metadata directory: {}",
+                        e
+                    )),
+                })?;
+        }
+        if let Some(parent) = data_file.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| BookStorageError::BackendError {
+                    source: Some(eyre::eyre!("Failed to create asset data directory: {}", e)),
                 })?;
         }
 
-        // Check if asset already exists
-        if asset_file.exists() {
-            return Err(BookStorageError::AssetAlreadyExists {
-                id: asset.id.as_str().to_string(),
-                source: None,
-            });
-        }
+        // Stream binary data directly to file
+        let mut data_writer =
+            fs::File::create(&data_file)
+                .await
+                .map_err(|e| BookStorageError::BackendError {
+                    source: Some(eyre::eyre!("Failed to create asset data file: {}", e)),
+                })?;
 
-        // Read all data from the reader
-        let mut data = Vec::new();
-        reader
-            .read_to_end(&mut data)
+        tokio::io::copy(&mut reader, &mut data_writer)
             .await
             .map_err(|e| BookStorageError::BackendError {
-                source: Some(eyre::eyre!("Failed to read asset data: {}", e)),
+                source: Some(eyre::eyre!("Failed to write asset data: {}", e)),
             })?;
 
-        // Create AssetWithData for storage
-        let asset_with_data = crate::types::AssetWithData {
-            asset: asset.clone(),
-            data,
-        };
+        // Get the actual file size and update asset
+        let file_metadata =
+            fs::metadata(&data_file)
+                .await
+                .map_err(|e| BookStorageError::BackendError {
+                    source: Some(eyre::eyre!("Failed to get asset file metadata: {}", e)),
+                })?;
 
-        // Convert asset to JSON and write to file
-        let asset_json = serde_json::to_string_pretty(&asset_with_data).map_err(|e| {
+        let asset_id = asset.id.clone();
+        let mut updated_asset = asset;
+        updated_asset.size = file_metadata.len();
+
+        // Store metadata as JSON with correct size
+        let metadata_json = serde_json::to_string_pretty(&updated_asset).map_err(|e| {
             BookStorageError::DataConversionError {
-                message: "Failed to serialize asset".to_string(),
+                message: "Failed to serialize asset metadata".to_string(),
                 source: Some(eyre::eyre!("JSON error: {}", e)),
             }
         })?;
 
-        fs::write(&asset_file, asset_json)
+        fs::write(&metadata_file, metadata_json)
             .await
             .map_err(|e| BookStorageError::BackendError {
-                source: Some(eyre::eyre!("Failed to write asset file: {}", e)),
+                source: Some(eyre::eyre!("Failed to write asset metadata file: {}", e)),
             })?;
 
-        // Add to index
-        self.add_asset_to_index(&asset, asset_with_data.data.len() as u64)
+        self.add_asset_to_index(&updated_asset, file_metadata.len())
             .await?;
 
-        Ok(asset.id)
+        Ok(asset_id)
     }
 
     async fn get_asset(&self, asset_id: &AssetId) -> Result<Option<Asset>> {
         let index = self.load_index().await?;
 
         if let Some(indexed_asset) = self.find_asset_in_index(&index, asset_id) {
-            let asset = Asset {
-                id: indexed_asset.id.clone(),
-                novel_id: indexed_asset.novel_id.clone(),
-                original_url: indexed_asset.original_url.clone(),
-                mime_type: indexed_asset.mime_type.clone(),
-                size: indexed_asset.size,
-            };
-            return Ok(Some(asset));
+            let metadata_file = self.get_asset_metadata_file(&indexed_asset.novel_id, asset_id);
+
+            if metadata_file.exists() {
+                let content = fs::read_to_string(&metadata_file).await.map_err(|e| {
+                    BookStorageError::BackendError {
+                        source: Some(eyre::eyre!("Failed to read asset metadata file: {}", e)),
+                    }
+                })?;
+
+                let asset: Asset = serde_json::from_str(&content).map_err(|e| {
+                    BookStorageError::DataConversionError {
+                        message: "Failed to deserialize asset metadata".to_string(),
+                        source: Some(eyre::eyre!("JSON error: {}", e)),
+                    }
+                })?;
+
+                return Ok(Some(asset));
+            }
         }
 
         Ok(None)
@@ -1045,24 +1078,17 @@ impl BookStorage for FilesystemStorage {
         let index = self.load_index().await?;
 
         if let Some(indexed_asset) = self.find_asset_in_index(&index, asset_id) {
-            let asset_file = self.get_asset_file(&indexed_asset.novel_id, asset_id);
+            let data_file = self.get_asset_data_file(&indexed_asset.novel_id, asset_id);
 
-            if asset_file.exists() {
-                let content = fs::read_to_string(&asset_file).await.map_err(|e| {
-                    BookStorageError::BackendError {
-                        source: Some(eyre::eyre!("Failed to read asset file: {}", e)),
-                    }
-                })?;
+            if data_file.exists() {
+                let data =
+                    fs::read(&data_file)
+                        .await
+                        .map_err(|e| BookStorageError::BackendError {
+                            source: Some(eyre::eyre!("Failed to read asset data file: {}", e)),
+                        })?;
 
-                let asset_with_data: crate::types::AssetWithData = serde_json::from_str(&content)
-                    .map_err(|e| {
-                    BookStorageError::DataConversionError {
-                        message: "Failed to deserialize asset".to_string(),
-                        source: Some(eyre::eyre!("JSON error: {}", e)),
-                    }
-                })?;
-
-                return Ok(Some(asset_with_data.data));
+                return Ok(Some(data));
             }
         }
 
@@ -1073,19 +1099,29 @@ impl BookStorage for FilesystemStorage {
         let index = self.load_index().await?;
 
         if let Some(indexed_asset) = self.find_asset_in_index(&index, asset_id) {
-            let asset_file = self.get_asset_file(&indexed_asset.novel_id, asset_id);
+            let metadata_file = self.get_asset_metadata_file(&indexed_asset.novel_id, asset_id);
+            let data_file = self.get_asset_data_file(&indexed_asset.novel_id, asset_id);
 
-            if asset_file.exists() {
-                fs::remove_file(&asset_file)
+            // Remove both metadata and data files
+            if metadata_file.exists() {
+                fs::remove_file(&metadata_file).await.map_err(|e| {
+                    BookStorageError::BackendError {
+                        source: Some(eyre::eyre!("Failed to delete asset metadata file: {}", e)),
+                    }
+                })?;
+            }
+
+            if data_file.exists() {
+                fs::remove_file(&data_file)
                     .await
                     .map_err(|e| BookStorageError::BackendError {
-                        source: Some(eyre::eyre!("Failed to delete asset file: {}", e)),
+                        source: Some(eyre::eyre!("Failed to delete asset data file: {}", e)),
                     })?;
-
-                // Remove from index
-                self.remove_asset_from_index(asset_id).await?;
-                return Ok(true);
             }
+
+            // Remove from index
+            self.remove_asset_from_index(asset_id).await?;
+            return Ok(true);
         }
 
         Ok(false)
@@ -1571,5 +1607,65 @@ mod tests {
         assert!(found1.is_some());
         assert!(found2.is_some());
         assert_eq!(found1.unwrap().url, found2.unwrap().url);
+    }
+
+    #[tokio::test]
+    async fn test_asset_storage_separation() {
+        use crate::types::{Asset, AssetId};
+        use std::io::Cursor;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        // Create test novel first
+        let novel = create_test_novel();
+        let novel_id = storage.store_novel(&novel).await.unwrap();
+
+        // Create test asset
+        let asset = Asset {
+            id: AssetId::from("test-asset".to_string()),
+            novel_id: novel_id.clone(),
+            original_url: "https://example.com/cover.jpg".to_string(),
+            mime_type: "image/jpeg".to_string(),
+            size: 0, // Will be updated when stored
+        };
+
+        // Test binary data
+        let test_data = b"fake image data";
+        let reader = Box::new(Cursor::new(test_data.to_vec()));
+
+        // Store asset
+        let stored_id = storage.store_asset(asset.clone(), reader).await.unwrap();
+        assert_eq!(stored_id, asset.id);
+
+        // Verify metadata and data are stored separately
+        let metadata_file = storage.get_asset_metadata_file(&novel_id, &asset.id);
+        let data_file = storage.get_asset_data_file(&novel_id, &asset.id);
+
+        // Both files should exist
+        assert!(metadata_file.exists());
+        assert!(data_file.exists());
+
+        // Metadata file should contain JSON (not binary data)
+        let metadata_content = std::fs::read_to_string(&metadata_file).unwrap();
+        assert!(metadata_content.contains("test-asset"));
+        assert!(metadata_content.contains("image/jpeg"));
+        // Should NOT contain binary data
+        assert!(!metadata_content.contains("fake image data"));
+
+        // Data file should contain raw binary data
+        let data_content = std::fs::read(&data_file).unwrap();
+        assert_eq!(data_content, test_data);
+
+        // Verify we can retrieve metadata
+        let retrieved_asset = storage.get_asset(&asset.id).await.unwrap().unwrap();
+        assert_eq!(retrieved_asset.id, asset.id);
+        assert_eq!(retrieved_asset.mime_type, "image/jpeg");
+        assert_eq!(retrieved_asset.size, test_data.len() as u64);
+
+        // Verify we can retrieve data
+        let retrieved_data = storage.get_asset_data(&asset.id).await.unwrap().unwrap();
+        assert_eq!(retrieved_data, test_data);
     }
 }
