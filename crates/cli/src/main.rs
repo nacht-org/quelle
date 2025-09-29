@@ -12,7 +12,7 @@ mod utils;
 use cli::{Cli, Commands};
 use commands::{
     handle_config_command, handle_export_command, handle_extension_command, handle_fetch_command,
-    handle_library_command, handle_search_command, handle_store_command,
+    handle_library_command, handle_publish_command, handle_search_command, handle_store_command,
 };
 use config::Config;
 
@@ -93,6 +93,9 @@ async fn main() -> Result<()> {
         }
         Commands::Export { command } => handle_export_command(command, &storage, cli.dry_run).await,
         Commands::Config { command } => handle_config_command(command, cli.dry_run).await,
+        Commands::Publish { command } => {
+            handle_publish_command(command, &config.registry, &mut store_manager).await
+        }
     }
 }
 

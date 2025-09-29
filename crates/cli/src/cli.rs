@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use url::Url;
 
 #[derive(clap::Parser, Debug)]
@@ -81,6 +82,11 @@ pub enum Commands {
     Config {
         #[command(subcommand)]
         command: ConfigCommands,
+    },
+    /// Publish and manage extensions
+    Publish {
+        #[command(subcommand)]
+        command: PublishCommands,
     },
 }
 
@@ -278,4 +284,93 @@ pub enum ConfigCommands {
         #[arg(long)]
         force: bool,
     },
+}
+
+#[derive(clap::Subcommand, Debug)]
+pub enum PublishCommands {
+    /// Publish an extension (new or updated version)
+    Extension {
+        /// Path to extension package or directory
+        package_path: PathBuf,
+        /// Target store name
+        #[arg(long)]
+        store: String,
+        /// Mark as pre-release
+        #[arg(long)]
+        pre_release: bool,
+        /// Extension visibility
+        #[arg(long, default_value = "public")]
+        visibility: VisibilityOption,
+        /// Overwrite existing version
+        #[arg(long)]
+        overwrite: bool,
+        /// Skip validation checks
+        #[arg(long)]
+        skip_validation: bool,
+        /// Release notes
+        #[arg(long)]
+        notes: Option<String>,
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+        /// Access token for authentication
+        #[arg(long)]
+        token: Option<String>,
+        /// Timeout in seconds
+        #[arg(long, default_value = "300")]
+        timeout: u64,
+        /// Use development defaults (overwrite, skip validation, etc.)
+        #[arg(long)]
+        dev: bool,
+    },
+    /// Remove a published extension version
+    Unpublish {
+        /// Extension ID
+        id: String,
+        /// Version to unpublish
+        version: String,
+        /// Target store name
+        #[arg(long)]
+        store: String,
+        /// Reason for unpublishing
+        #[arg(long)]
+        reason: Option<String>,
+        /// Keep tombstone record
+        #[arg(long)]
+        keep_record: bool,
+        /// Notify users who installed this version
+        #[arg(long)]
+        notify_users: bool,
+        /// Access token for authentication
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Validate an extension package (dry-run)
+    Validate {
+        /// Path to extension package or directory
+        package_path: PathBuf,
+        /// Target store name (optional)
+        #[arg(long)]
+        store: Option<String>,
+        /// Use strict validation rules
+        #[arg(long)]
+        strict: bool,
+        /// Show detailed validation results
+        #[arg(long)]
+        verbose: bool,
+    },
+    /// Show publishing requirements for a store
+    Requirements {
+        /// Store name (optional, shows all if not specified)
+        #[arg(long)]
+        store: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub enum VisibilityOption {
+    Public,
+    Private,
+    Unlisted,
+    Organization,
 }
