@@ -1776,6 +1776,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_chapter_storage_disk_persistence() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        let novel = create_test_novel();
+        let novel_id = storage.store_novel(&novel).await.unwrap();
+
+        let content = ChapterContent {
+            data: "Test chapter content for disk persistence".to_string(),
+        };
+
+        // Store content
+        let updated_chapter = storage
+            .store_chapter_content(&novel_id, 1, "https://test.com/chapter-1", &content)
+            .await
+            .unwrap();
+
+        // Verify the returned ChapterInfo has correct status
+        assert!(updated_chapter.has_content());
+        assert_eq!(
+            updated_chapter.content_size().unwrap(),
+            content.data.len() as u64
+        );
+
+        // Verify data is actually written to disk by reading the file directly
+        let chapter_file = storage.get_chapter_file(&novel_id, 1, "https://test.com/chapter-1");
+        assert!(chapter_file.exists(), "Chapter file should exist on disk");
+
+        // Read and parse the file content
+        let file_content = fs::read_to_string(&chapter_file).await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+
+        // Verify the file contains both content and metadata
+        assert!(
+            parsed.get("content").is_some(),
+            "File should contain content"
+        );
+        assert!(
+            parsed.get("metadata").is_some(),
+            "File should contain metadata"
+        );
+
+        // Verify metadata structure
+        let metadata = parsed.get("metadata").unwrap();
+        assert_eq!(metadata.get("volume_index").unwrap().as_i64().unwrap(), 1);
+        assert_eq!(
+            metadata.get("chapter_url").unwrap().as_str().unwrap(),
+            "https://test.com/chapter-1"
+        );
+        assert_eq!(
+            metadata.get("content_size").unwrap().as_u64().unwrap(),
+            content.data.len() as u64
+        );
+        assert!(
+            metadata.get("stored_at").is_some(),
+            "Metadata should have stored_at timestamp"
+        );
+
+        // Create a new storage instance to verify persistence across sessions
+        let storage2 = FilesystemStorage::new(temp_dir.path());
+        storage2.initialize().await.unwrap();
+
+        // Verify the new storage instance can read the stored data correctly
+        let chapters = storage2.list_chapters(&novel_id).await.unwrap();
+        assert_eq!(chapters.len(), 1);
+        assert!(
+            chapters[0].has_content(),
+            "Chapter should show as having content after restart"
+        );
+        assert_eq!(
+            chapters[0].content_size().unwrap(),
+            content.data.len() as u64
+        );
+
+        // Verify we can retrieve the actual content
+        let retrieved_content = storage2
+            .get_chapter_content(&novel_id, 1, "https://test.com/chapter-1")
+            .await
+            .unwrap();
+        assert!(retrieved_content.is_some());
+        assert_eq!(retrieved_content.unwrap().data, content.data);
+    }
+
+    #[tokio::test]
     async fn test_url_normalization() {
         let temp_dir = tempfile::tempdir().unwrap();
         let storage = FilesystemStorage::new(temp_dir.path());
