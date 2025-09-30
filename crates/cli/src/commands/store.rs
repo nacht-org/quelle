@@ -1,10 +1,15 @@
 use eyre::Result;
 use quelle_store::stores::local::LocalStore;
-use quelle_store::{BaseStore, RegistryConfig, StoreManager, StoreType};
+use quelle_store::{BaseStore, ExtensionSource, RegistryConfig, StoreManager, StoreType};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::{cli::StoreCommands, config::Config};
+use quelle_store::{GitAuth, GitReference};
+
+use crate::{
+    cli::{AddStoreCommands, StoreCommands},
+    config::Config,
+};
 
 pub async fn handle_store_command(
     cmd: StoreCommands,
@@ -12,11 +17,9 @@ pub async fn handle_store_command(
     store_manager: &mut StoreManager,
 ) -> Result<()> {
     match cmd {
-        StoreCommands::Add {
-            name,
-            path,
-            priority,
-        } => handle_add_store(name, path, priority, config, store_manager).await,
+        StoreCommands::Add { store_type } => {
+            handle_add_store(store_type, config, store_manager).await
+        }
         StoreCommands::Remove { name, force } => {
             handle_remove_store(name, force, config, store_manager).await
         }
@@ -29,12 +32,55 @@ pub async fn handle_store_command(
 }
 
 async fn handle_add_store(
-    name: String,
-    path: String,
-    priority: u32,
+    store_type: AddStoreCommands,
     config: &mut Config,
     store_manager: &mut StoreManager,
 ) -> Result<()> {
+    let (name, source) = match store_type {
+        AddStoreCommands::Local {
+            name,
+            path,
+            priority,
+        } => {
+            let source = handle_add_local_store(name.clone(), path, priority).await?;
+            (name, source)
+        }
+        AddStoreCommands::Git {
+            name,
+            url,
+            priority,
+            branch,
+            tag,
+            commit,
+            token,
+            ssh_key,
+            ssh_pub_key,
+            ssh_passphrase,
+            username,
+            password,
+            cache_dir,
+        } => {
+            let source = handle_add_git_store(
+                name.clone(),
+                url,
+                priority,
+                branch,
+                tag,
+                commit,
+                token,
+                ssh_key,
+                ssh_pub_key,
+                ssh_passphrase,
+                username,
+                password,
+                cache_dir,
+                config,
+            )
+            .await?;
+            (name, source)
+        }
+    };
+
     // Check if store already exists
     if config.registry.has_source(&name) {
         println!("❌ Store '{}' already exists", name);
@@ -42,11 +88,35 @@ async fn handle_add_store(
         return Ok(());
     }
 
-    // Only support local stores
+    // Add to CLI configuration
+    config.registry.add_source(source);
+
+    // Save CLI configuration
+    config.save().await?;
+
+    println!("✅ Added store '{}'", name);
+
+    // Try to apply the updated registry config to store manager
+    // If it fails (e.g., store doesn't have proper manifest), warn but don't fail
+    store_manager.clear_extension_stores().await?;
+    if let Err(e) = config.registry.apply(store_manager).await {
+        println!("⚠️  Warning: Store added to configuration but could not be loaded:");
+        println!("   {}", e);
+        println!("💡 Make sure the store contains a valid manifest file");
+        println!("   The store will be retried on next CLI startup");
+    }
+
+    Ok(())
+}
+
+async fn handle_add_local_store(
+    name: String,
+    path: String,
+    priority: u32,
+) -> Result<ExtensionSource> {
     let store_path = PathBuf::from(&path);
     if !store_path.exists() {
-        println!("❌ Local path does not exist: {}", path);
-        return Ok(());
+        return Err(eyre::eyre!("Local path does not exist: {}", path));
     }
 
     // If the directory exists but is empty, initialize it as a store
@@ -101,32 +171,125 @@ async fn handle_add_store(
         .canonicalize()
         .map_err(|e| eyre::eyre!("Failed to resolve absolute path for '{}': {}", path, e))?;
 
-    // Create extension source
-    let source = quelle_store::ExtensionSource::local(name.clone(), absolute_path.clone())
-        .with_priority(priority);
-
-    // Add to CLI configuration
-    config.registry.add_source(source);
-
-    // Save CLI configuration
-    config.save().await?;
-
-    println!("✅ Added store '{}'", name);
     println!("  Type: Local");
     println!("  Path: {}", absolute_path.display());
     println!("  Priority: {}", priority);
 
-    // Try to apply the updated registry config to store manager
-    // If it fails (e.g., store doesn't have proper manifest), warn but don't fail
-    store_manager.clear_extension_stores().await?;
-    if let Err(e) = config.registry.apply(store_manager).await {
-        println!("⚠️  Warning: Store added to configuration but could not be loaded:");
-        println!("   {}", e);
-        println!("💡 Make sure the store directory contains a valid manifest file");
-        println!("   The store will be retried on next CLI startup");
+    // Create extension source
+    Ok(ExtensionSource::local(name, absolute_path).with_priority(priority))
+}
+
+async fn handle_add_git_store(
+    name: String,
+    url: String,
+    priority: u32,
+    branch: Option<String>,
+    tag: Option<String>,
+    commit: Option<String>,
+    token: Option<String>,
+    ssh_key: Option<String>,
+    ssh_pub_key: Option<String>,
+    ssh_passphrase: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    cache_dir: Option<String>,
+    config: &Config,
+) -> Result<ExtensionSource> {
+    // Validate git reference options (only one should be specified)
+    let ref_count = [&branch, &tag, &commit]
+        .iter()
+        .filter(|x| x.is_some())
+        .count();
+    if ref_count > 1 {
+        return Err(eyre::eyre!(
+            "Only one of --branch, --tag, or --commit can be specified"
+        ));
     }
 
-    Ok(())
+    // Create git reference
+    let reference = if let Some(branch) = branch {
+        GitReference::Branch(branch)
+    } else if let Some(tag) = tag {
+        GitReference::Tag(tag)
+    } else if let Some(commit) = commit {
+        GitReference::Commit(commit)
+    } else {
+        GitReference::Default
+    };
+
+    // Validate auth options (only one type should be specified)
+    let auth_count = [&token, &ssh_key, &username]
+        .iter()
+        .filter(|x| x.is_some())
+        .count();
+    if auth_count > 1 {
+        return Err(eyre::eyre!(
+            "Only one authentication method can be specified (--token, --ssh-key, or --username)"
+        ));
+    }
+
+    // Create git authentication
+    let auth = if let Some(token) = token {
+        GitAuth::Token { token }
+    } else if let Some(ssh_key) = ssh_key {
+        let private_key_path = PathBuf::from(ssh_key);
+        let public_key_path = ssh_pub_key.map(PathBuf::from);
+        GitAuth::SshKey {
+            private_key_path,
+            public_key_path,
+            passphrase: ssh_passphrase,
+        }
+    } else if let Some(username) = username {
+        let password = password.ok_or_else(|| {
+            eyre::eyre!("Password is required when using username authentication")
+        })?;
+        GitAuth::UserPassword { username, password }
+    } else {
+        GitAuth::None
+    };
+
+    // Determine cache directory
+    let cache_path = if let Some(cache_dir) = cache_dir {
+        PathBuf::from(cache_dir)
+    } else {
+        // Use config's data directory + stores + store name
+        let mut cache_path = config.get_data_dir();
+        cache_path.push("stores");
+        cache_path.push(&name);
+        cache_path
+    };
+
+    // Ensure cache directory parent exists
+    if let Some(parent) = cache_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            eyre::eyre!(
+                "Failed to create cache directory parent '{}': {}",
+                parent.display(),
+                e
+            )
+        })?;
+    }
+
+    println!("  Type: Git");
+    println!("  URL: {}", url);
+    println!("  Reference: {:?}", reference);
+    println!(
+        "  Auth: {}",
+        match &auth {
+            GitAuth::None => "None".to_string(),
+            GitAuth::Token { .. } => "Token".to_string(),
+            GitAuth::SshKey { .. } => "SSH Key".to_string(),
+            GitAuth::UserPassword { username, .. } => format!("Username ({})", username),
+        }
+    );
+    println!("  Cache Dir: {}", cache_path.display());
+    println!("  Priority: {}", priority);
+
+    // Create extension source
+    Ok(
+        ExtensionSource::git_with_config(name, url, cache_path, reference, auth)
+            .with_priority(priority),
+    )
 }
 
 async fn handle_remove_store(
@@ -194,6 +357,37 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
         match &source.store_type {
             StoreType::Local { path } => {
                 println!("     Path: {}", path.display());
+                println!(
+                    "     Status: {}",
+                    if source.enabled {
+                        "✅ Enabled"
+                    } else {
+                        "❌ Disabled"
+                    }
+                );
+                if source.trusted {
+                    println!("     Trusted: ✅ Yes");
+                }
+            }
+            StoreType::Git {
+                url,
+                cache_dir,
+                reference,
+                auth,
+            } => {
+                println!("     URL: {}", url);
+                println!("     Cache Dir: {}", cache_dir.display());
+                println!("     Reference: {:?}", reference);
+                println!(
+                    "     Auth: {}",
+                    match auth {
+                        GitAuth::None => "None".to_string(),
+                        GitAuth::Token { .. } => "Token".to_string(),
+                        GitAuth::SshKey { .. } => "SSH Key".to_string(),
+                        GitAuth::UserPassword { username, .. } =>
+                            format!("Username ({})", username),
+                    }
+                );
                 println!(
                     "     Status: {}",
                     if source.enabled {
@@ -316,6 +510,32 @@ async fn handle_store_info(
                 StoreType::Local { path } => {
                     println!("Path: {}", path.display());
                     println!("Exists: {}", path.exists());
+                }
+                StoreType::Git {
+                    url,
+                    cache_dir,
+                    reference,
+                    auth,
+                } => {
+                    println!("URL: {}", url);
+                    println!("Cache Dir: {}", cache_dir.display());
+                    println!("Cache Exists: {}", cache_dir.exists());
+                    println!("Reference: {:?}", reference);
+                    println!(
+                        "Auth: {}",
+                        match auth {
+                            GitAuth::None => "None (public repository)".to_string(),
+                            GitAuth::Token { .. } => "Token authentication".to_string(),
+                            GitAuth::SshKey {
+                                private_key_path, ..
+                            } => {
+                                format!("SSH key ({})", private_key_path.display())
+                            }
+                            GitAuth::UserPassword { username, .. } => {
+                                format!("Username/password ({})", username)
+                            }
+                        }
+                    );
                 }
             }
 

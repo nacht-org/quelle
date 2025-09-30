@@ -16,7 +16,7 @@ use crate::error::{Result, StoreError};
 use crate::stores::providers::traits::{StoreProvider, SyncResult};
 
 /// Git authentication configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum GitAuth {
     /// No authentication (public repos)
     None,
@@ -32,8 +32,14 @@ pub enum GitAuth {
     UserPassword { username: String, password: String },
 }
 
+impl Default for GitAuth {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 /// Git reference type for specifying what to checkout
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum GitReference {
     /// Use the default branch (usually main/master)
     Default,
