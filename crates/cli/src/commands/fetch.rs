@@ -111,10 +111,10 @@ async fn handle_fetch_novel(
 
                                 // Fetch cover image if available
                                 if let Some(cover_url) = &novel.cover {
-                                    println!("📷 Fetching cover image...");
+                                    println!("📷 Checking cover image...");
                                     match fetch_and_store_asset(&novel_id, cover_url, storage).await
                                     {
-                                        Ok(_) => println!("✅ Cover image saved"),
+                                        Ok(_) => {} // Message handled by fetch_and_store_asset
                                         Err(e) => warn!("⚠️ Failed to fetch cover: {}", e),
                                     }
                                 }
@@ -496,6 +496,13 @@ async fn fetch_and_store_asset(
     asset_url: &str,
     storage: &FilesystemStorage,
 ) -> Result<AssetId> {
+    // First check if the asset already exists
+    if let Some(existing_asset_id) = storage.find_asset_by_url(asset_url).await? {
+        println!("✅ Cover image already downloaded");
+        return Ok(existing_asset_id);
+    }
+
+    println!("📷 Downloading cover image...");
     info!("📷 Fetching asset from: {}", asset_url);
 
     // Make HTTP request to fetch the asset
@@ -526,8 +533,11 @@ async fn fetch_and_store_asset(
     let reader = Box::new(Cursor::new(data.to_vec()));
 
     // Store asset
-    storage
+    let asset_id = storage
         .store_asset(asset, reader)
         .await
-        .map_err(|e| eyre::eyre!("Failed to store asset: {}", e))
+        .map_err(|e| eyre::eyre!("Failed to store asset: {}", e))?;
+
+    println!("✅ Cover image saved");
+    Ok(asset_id)
 }
