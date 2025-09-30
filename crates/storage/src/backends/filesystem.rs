@@ -906,6 +906,9 @@ impl BookStorage for FilesystemStorage {
             }
         }
 
+        // Save the updated novel structure and index back to storage
+        self.
+
         // If we get here, the chapter wasn't found in the novel structure
         // This shouldn't happen since we validated the novel exists earlier
         Err(BookStorageError::InvalidChapterData {

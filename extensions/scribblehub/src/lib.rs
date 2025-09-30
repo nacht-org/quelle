@@ -11,7 +11,7 @@ const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     name: String::from("ScribbleHub"),
     langs: vec![String::from("en")],
     version: String::from(env!("CARGO_PKG_VERSION")),
-    base_urls: vec![String::from(BASE_URL)],
+    base_urls: vec![BASE_URL.to_string(), "https://scribblehub.com".to_string()],
     rds: vec![ReadingDirection::Ltr],
     attrs: vec![],
     capabilities: SourceCapabilities {
