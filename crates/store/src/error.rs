@@ -98,6 +98,13 @@ pub enum StoreError {
     #[error("Timeout error: operation timed out")]
     Timeout,
 
+    #[error("Git operation '{operation}' failed for repository '{url}': {source}")]
+    GitError {
+        operation: String,
+        url: String,
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
     #[error("Unsupported operation: {0}")]
     UnsupportedOperation(String),
 

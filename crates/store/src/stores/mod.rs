@@ -8,9 +8,13 @@ pub mod traits;
 
 // Store implementations
 pub mod local;
+pub mod locally_cached;
+pub mod providers;
+
+#[cfg(feature = "git")]
+pub mod git;
 
 // Future store implementations
-// pub mod git;
 // pub mod http;
 // pub mod s3;
 
@@ -27,6 +31,16 @@ pub use traits::{
     AuthCredentials, AuthStatus, AuthenticatedStore, BaseStore, CacheStats, CacheableStore,
     ReadWriteStore, ReadableStore, RefInfo, RefType, VersionedStore, WritableStore,
 };
+
+// Re-export provider types and locally cached store
+pub use locally_cached::LocallyCachedStore;
+pub use providers::{StoreProvider, SyncResult};
+
+#[cfg(feature = "git")]
+pub use providers::{GitAuth, GitProvider, GitReference};
+
+#[cfg(feature = "git")]
+pub use git::GitStore;
 
 /// Configuration for creating different types of stores
 #[derive(Debug, Clone, Serialize, Deserialize)]
