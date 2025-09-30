@@ -67,7 +67,7 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
     }
 
     /// Ensure the store is synced and ready for use with time-based caching
-    async fn ensure_synced(&self) -> Result<Option<SyncResult>> {
+    pub async fn ensure_synced(&self) -> Result<Option<SyncResult>> {
         const SYNC_CACHE_DURATION: Duration = Duration::from_secs(30);
 
         // Acquire sync state lock - this serves as both cache check and concurrency protection

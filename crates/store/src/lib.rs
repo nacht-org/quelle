@@ -65,6 +65,8 @@ pub mod manager;
 pub mod manifest;
 pub mod models;
 pub mod publish;
+#[cfg(feature = "git")]
+pub mod publish_git;
 pub mod registry;
 pub mod registry_config;
 pub mod source;
@@ -95,6 +97,10 @@ pub use store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
 pub use stores::traits::{BaseStore, ReadableStore, WritableStore};
 pub use stores::{LocallyCachedStore, StoreProvider, SyncResult};
 
+#[cfg(feature = "git")]
+pub use publish_git::{GitInitConfig, GitInitResult, GitPublishResult, GitStatus};
+#[cfg(feature = "git")]
+pub use stores::providers::git::{GitAuthor, GitWriteConfig};
 #[cfg(feature = "git")]
 pub use stores::{GitAuth, GitProvider, GitReference, GitStore};
 pub use validation::{

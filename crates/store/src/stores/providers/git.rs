@@ -51,6 +51,49 @@ impl Default for GitReference {
     }
 }
 
+/// Git author information for commits
+#[derive(Debug, Clone)]
+pub struct GitAuthor {
+    pub name: String,
+    pub email: String,
+}
+
+impl Default for GitAuthor {
+    fn default() -> Self {
+        Self {
+            name: "Quelle".to_string(),
+            email: "quelle@localhost".to_string(),
+        }
+    }
+}
+
+/// Configuration for git write operations
+#[derive(Debug, Clone)]
+pub struct GitWriteConfig {
+    /// Authentication for write operations (can be different from read auth)
+    pub write_auth: Option<GitAuth>,
+    /// Author information for commits
+    pub author: GitAuthor,
+    /// Target branch for writes (None = use current branch)
+    pub write_branch: Option<String>,
+    /// Whether to automatically push after commit
+    pub auto_push: bool,
+    /// Commit message template
+    pub commit_message_template: String,
+}
+
+impl Default for GitWriteConfig {
+    fn default() -> Self {
+        Self {
+            write_auth: None,
+            author: GitAuthor::default(),
+            write_branch: None,
+            auto_push: true,
+            commit_message_template: "{action}: {extension_id} v{version}".to_string(),
+        }
+    }
+}
+
 /// Provider for Git repository-based stores
 #[derive(Debug)]
 pub struct GitProvider {
@@ -68,6 +111,8 @@ pub struct GitProvider {
     last_fetch: RwLock<Option<Instant>>,
     /// Whether to use shallow clone (faster but limited history)
     shallow: bool,
+    /// Write configuration (None = read-only)
+    pub write_config: Option<GitWriteConfig>,
 }
 
 impl GitProvider {
@@ -83,9 +128,10 @@ impl GitProvider {
             reference,
             auth,
             cache_dir: cache_dir.into(),
-            fetch_interval: Duration::from_secs(3600), // 1 hour default
+            fetch_interval: Duration::from_secs(300), // 5 minutes
             last_fetch: RwLock::new(None),
             shallow: true,
+            write_config: None,
         }
     }
 
@@ -99,6 +145,39 @@ impl GitProvider {
     pub fn with_shallow(mut self, shallow: bool) -> Self {
         self.shallow = shallow;
         self
+    }
+
+    /// Configure write operations for this git provider
+    pub fn with_write_config(mut self, config: GitWriteConfig) -> Self {
+        self.write_config = Some(config);
+        self
+    }
+
+    /// Enable write operations with default configuration
+    pub fn enable_writing(mut self) -> Self {
+        self.write_config = Some(GitWriteConfig::default());
+        self
+    }
+
+    /// Set write authentication (convenience method)
+    pub fn with_write_auth(mut self, auth: GitAuth) -> Self {
+        let mut config = self.write_config.unwrap_or_default();
+        config.write_auth = Some(auth);
+        self.write_config = Some(config);
+        self
+    }
+
+    /// Set author for commits (convenience method)
+    pub fn with_author(mut self, name: String, email: String) -> Self {
+        let mut config = self.write_config.unwrap_or_default();
+        config.author = GitAuthor { name, email };
+        self.write_config = Some(config);
+        self
+    }
+
+    /// Check if this provider supports writing
+    pub fn is_writable(&self) -> bool {
+        self.write_config.is_some()
     }
 
     /// Get the repository URL
@@ -458,6 +537,335 @@ impl StoreProvider for GitProvider {
 
     fn provider_type(&self) -> &'static str {
         "git"
+    }
+}
+
+#[cfg(feature = "git")]
+impl GitProvider {
+    /// Check if the repository is in a clean state (no uncommitted changes)
+    pub async fn check_repository_status(&self) -> Result<crate::publish_git::GitStatus> {
+        use crate::error::GitStoreError;
+        use crate::publish_git::GitStatus;
+        use git2::{Repository, Status, StatusOptions};
+        use std::path::Path;
+
+        let repo_path = &self.cache_dir;
+
+        if !repo_path.exists() || !repo_path.join(".git").exists() {
+            return Ok(GitStatus::not_exists());
+        }
+
+        let repo = Repository::open(repo_path).map_err(|e| GitStoreError::Git(e))?;
+
+        // Get repository status
+        let mut status_options = StatusOptions::new();
+        status_options.include_untracked(true);
+        let statuses = repo
+            .statuses(Some(&mut status_options))
+            .map_err(|e| GitStoreError::Git(e))?;
+
+        let mut modified_files = Vec::new();
+        let mut untracked_files = Vec::new();
+        let mut staged_files = Vec::new();
+
+        for status in statuses.iter() {
+            let path = status.path().unwrap_or("").to_string();
+            let flags = status.status();
+
+            if flags.contains(Status::WT_MODIFIED)
+                || flags.contains(Status::WT_DELETED)
+                || flags.contains(Status::WT_RENAMED)
+                || flags.contains(Status::WT_TYPECHANGE)
+            {
+                modified_files.push(Path::new(&path).to_path_buf());
+            }
+
+            if flags.contains(Status::WT_NEW) {
+                untracked_files.push(Path::new(&path).to_path_buf());
+            }
+
+            if flags.contains(Status::INDEX_MODIFIED)
+                || flags.contains(Status::INDEX_DELETED)
+                || flags.contains(Status::INDEX_RENAMED)
+                || flags.contains(Status::INDEX_TYPECHANGE)
+                || flags.contains(Status::INDEX_NEW)
+            {
+                staged_files.push(Path::new(&path).to_path_buf());
+            }
+        }
+
+        // Get current branch
+        let current_branch = repo
+            .head()
+            .ok()
+            .and_then(|head| head.shorthand().map(|s| s.to_string()));
+
+        // Get current commit
+        let current_commit = repo
+            .head()
+            .ok()
+            .and_then(|head| head.target())
+            .map(|oid| oid.to_string());
+
+        let is_clean =
+            modified_files.is_empty() && untracked_files.is_empty() && staged_files.is_empty();
+
+        if is_clean {
+            Ok(GitStatus::clean(current_branch, current_commit))
+        } else {
+            Ok(GitStatus::dirty(
+                modified_files,
+                untracked_files,
+                staged_files,
+                current_branch,
+                current_commit,
+            ))
+        }
+    }
+
+    /// Add files to git staging area
+    pub async fn git_add(&self, files: &[std::path::PathBuf]) -> Result<()> {
+        use crate::error::GitStoreError;
+        use git2::Repository;
+
+        let repo = Repository::open(&self.cache_dir).map_err(|e| GitStoreError::Git(e))?;
+
+        let mut index = repo.index().map_err(|e| GitStoreError::Git(e))?;
+
+        for file in files {
+            let relative_path = file.strip_prefix(&self.cache_dir).unwrap_or(file);
+
+            index
+                .add_path(relative_path)
+                .map_err(|e| GitStoreError::Git(e))?;
+        }
+
+        index.write().map_err(|e| GitStoreError::Git(e))?;
+
+        Ok(())
+    }
+
+    /// Create a git commit
+    pub async fn git_commit(&self, message: &str) -> Result<String> {
+        use crate::error::GitStoreError;
+        use git2::{Repository, Signature};
+
+        let config =
+            self.write_config
+                .as_ref()
+                .ok_or_else(|| GitStoreError::NoWritePermission {
+                    url: self.url.clone(),
+                })?;
+
+        let repo = Repository::open(&self.cache_dir).map_err(|e| GitStoreError::Git(e))?;
+
+        let signature = Signature::now(&config.author.name, &config.author.email)
+            .map_err(|e| GitStoreError::Git(e))?;
+
+        let mut index = repo.index().map_err(|e| GitStoreError::Git(e))?;
+        let tree_id = index.write_tree().map_err(|e| GitStoreError::Git(e))?;
+        let tree = repo.find_tree(tree_id).map_err(|e| GitStoreError::Git(e))?;
+
+        let parent_commit = match repo.head() {
+            Ok(head) => Some(head.peel_to_commit().map_err(|e| GitStoreError::Git(e))?),
+            Err(_) => None, // First commit
+        };
+
+        let parents = if let Some(ref parent) = parent_commit {
+            vec![parent]
+        } else {
+            vec![]
+        };
+
+        let commit_id = repo
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                message,
+                &tree,
+                &parents,
+            )
+            .map_err(|e| GitStoreError::Git(e))?;
+
+        Ok(commit_id.to_string())
+    }
+
+    /// Push changes to remote repository
+    pub async fn git_push(&self) -> Result<()> {
+        use crate::error::GitStoreError;
+        use git2::{Cred, CredentialType, PushOptions, RemoteCallbacks, Repository};
+
+        let config =
+            self.write_config
+                .as_ref()
+                .ok_or_else(|| GitStoreError::NoWritePermission {
+                    url: self.url.clone(),
+                })?;
+
+        let repo = Repository::open(&self.cache_dir).map_err(|e| GitStoreError::Git(e))?;
+
+        let mut remote = repo
+            .find_remote("origin")
+            .map_err(|e| GitStoreError::Git(e))?;
+
+        let mut callbacks = RemoteCallbacks::new();
+
+        // Set up authentication
+        let write_auth = config.write_auth.as_ref().unwrap_or(&self.auth);
+        match write_auth {
+            GitAuth::Token { token } => {
+                callbacks.credentials(|_url, username_from_url, _allowed_types| {
+                    Cred::userpass_plaintext(username_from_url.unwrap_or("git"), token)
+                });
+            }
+            GitAuth::SshKey {
+                private_key_path,
+                public_key_path,
+                passphrase,
+            } => {
+                let private_key = private_key_path.clone();
+                let public_key = public_key_path.clone();
+                let pass = passphrase.clone();
+                callbacks.credentials(move |_url, username_from_url, allowed_types| {
+                    if allowed_types.contains(CredentialType::SSH_KEY) {
+                        Cred::ssh_key(
+                            username_from_url.unwrap_or("git"),
+                            public_key.as_ref().map(|p| p.as_path()),
+                            &private_key,
+                            pass.as_deref(),
+                        )
+                    } else {
+                        Err(git2::Error::from_str(
+                            "SSH key authentication not supported",
+                        ))
+                    }
+                });
+            }
+            GitAuth::UserPassword { username, password } => {
+                let user = username.clone();
+                let pass = password.clone();
+                callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
+                    Cred::userpass_plaintext(&user, &pass)
+                });
+            }
+            GitAuth::None => {
+                // No authentication
+            }
+        }
+
+        let mut push_options = PushOptions::new();
+        push_options.remote_callbacks(callbacks);
+
+        // Determine which branch to push
+        let current_branch = repo
+            .head()
+            .map_err(|e| GitStoreError::Git(e))?
+            .shorthand()
+            .unwrap_or("main")
+            .to_string();
+
+        let refspec = format!(
+            "refs/heads/{}:refs/heads/{}",
+            current_branch, current_branch
+        );
+
+        remote
+            .push(&[&refspec], Some(&mut push_options))
+            .map_err(|e| GitStoreError::PushRejected {
+                reason: e.message().to_string(),
+            })?;
+
+        Ok(())
+    }
+
+    /// Initialize a new git repository with store structure
+    pub async fn initialize_repository(
+        &self,
+        config: crate::publish_git::GitInitConfig,
+    ) -> Result<crate::publish_git::GitInitResult> {
+        use crate::error::GitStoreError;
+        use crate::publish_git::GitInitResult;
+        use crate::store_manifest::StoreManifest;
+        use git2::{Repository, Signature};
+        use tokio::fs;
+
+        let repo_path = &self.cache_dir;
+
+        // Check if repository already exists
+        let created_new = if repo_path.join(".git").exists() {
+            false
+        } else {
+            // Create directory if it doesn't exist
+            fs::create_dir_all(repo_path)
+                .await
+                .map_err(|e| GitStoreError::Io(e))?;
+
+            // Initialize git repository
+            Repository::init(repo_path).map_err(|e| GitStoreError::Git(e))?;
+
+            // Create store manifest
+            let store_manifest = StoreManifest::new(
+                config.store_name.clone(),
+                "git".to_string(),
+                config.store_version.clone(),
+            )
+            .with_description(config.store_description.unwrap_or_default());
+
+            let manifest_path = repo_path.join("store.json");
+            let manifest_content = serde_json::to_string_pretty(&store_manifest).map_err(|e| {
+                GitStoreError::Git(git2::Error::from_str(&format!(
+                    "JSON serialization error: {}",
+                    e
+                )))
+            })?;
+
+            fs::write(&manifest_path, manifest_content)
+                .await
+                .map_err(|e| GitStoreError::Io(e))?;
+
+            true
+        };
+
+        // Create initial commit if requested and repository was newly created
+        let initial_commit = if created_new && config.create_initial_commit {
+            let repo = Repository::open(repo_path).map_err(|e| GitStoreError::Git(e))?;
+
+            let mut index = repo.index().map_err(|e| GitStoreError::Git(e))?;
+
+            index
+                .add_path(std::path::Path::new("store.json"))
+                .map_err(|e| GitStoreError::Git(e))?;
+
+            index.write().map_err(|e| GitStoreError::Git(e))?;
+
+            let tree_id = index.write_tree().map_err(|e| GitStoreError::Git(e))?;
+            let tree = repo.find_tree(tree_id).map_err(|e| GitStoreError::Git(e))?;
+
+            let signature = Signature::now(&config.author.name, &config.author.email)
+                .map_err(|e| GitStoreError::Git(e))?;
+
+            let commit_id = repo
+                .commit(
+                    Some("HEAD"),
+                    &signature,
+                    &signature,
+                    &config.initial_commit_message,
+                    &tree,
+                    &[],
+                )
+                .map_err(|e| GitStoreError::Git(e))?;
+
+            Some(commit_id.to_string())
+        } else {
+            None
+        };
+
+        Ok(GitInitResult::success(
+            repo_path.clone(),
+            initial_commit,
+            created_new,
+        ))
     }
 }
 
