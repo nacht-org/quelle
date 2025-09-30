@@ -42,7 +42,7 @@ async fn handle_add_store(
             path,
             priority,
         } => {
-            let source = handle_add_local_store(name.clone(), path, priority).await?;
+            let source = handle_add_local_store(name.clone(), path, priority, config).await?;
             (name, source)
         }
         AddStoreCommands::Git {
@@ -111,27 +111,55 @@ async fn handle_add_store(
 
 async fn handle_add_local_store(
     name: String,
-    path: String,
+    path: Option<String>,
     priority: u32,
+    config: &Config,
 ) -> Result<ExtensionSource> {
-    let store_path = PathBuf::from(&path);
-    if !store_path.exists() {
-        return Err(eyre::eyre!("Local path does not exist: {}", path));
-    }
+    let store_path = if let Some(path) = path {
+        let provided_path = PathBuf::from(&path);
+        if !provided_path.exists() {
+            return Err(eyre::eyre!(
+                "Local path does not exist: {}",
+                provided_path.display()
+            ));
+        }
+        provided_path
+    } else {
+        // Default to data_dir/stores/name
+        let mut default_path = config.get_data_dir();
+        default_path.push("stores");
+        default_path.push(&name);
+
+        // Create the default directory if it doesn't exist
+        if !default_path.exists() {
+            println!("📂 Creating store directory: {}", default_path.display());
+            std::fs::create_dir_all(&default_path).map_err(|e| {
+                eyre::eyre!(
+                    "Failed to create store directory '{}': {}",
+                    default_path.display(),
+                    e
+                )
+            })?;
+        }
+        default_path
+    };
 
     // If the directory exists but is empty, initialize it as a store
     if store_path.is_file() {
         return Err(eyre::eyre!(
             "Path '{}' is a file, expected a directory",
-            path
+            store_path.display()
         ));
     }
 
     let is_empty = store_path.read_dir()?.next().is_none();
     if is_empty {
-        println!("📂 Initializing empty directory as a local store: {}", path);
+        println!(
+            "📂 Initializing empty directory as a local store: {}",
+            store_path.display()
+        );
 
-        let local_store = LocalStore::new(&path)
+        let local_store = LocalStore::new(&store_path)
             .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
 
         local_store
@@ -139,9 +167,12 @@ async fn handle_add_local_store(
             .await
             .map_err(|e| eyre::eyre!("Failed to initialize store: {}", e))?;
     } else {
-        println!("📂 Using existing directory as local store: {}", path);
+        println!(
+            "📂 Using existing directory as local store: {}",
+            store_path.display()
+        );
 
-        let local_store = LocalStore::new(&path)
+        let local_store = LocalStore::new(&store_path)
             .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
 
         // Validate existing store - don't write anything to it
@@ -167,9 +198,13 @@ async fn handle_add_local_store(
     }
 
     // Convert to absolute path to ensure consistency
-    let absolute_path = store_path
-        .canonicalize()
-        .map_err(|e| eyre::eyre!("Failed to resolve absolute path for '{}': {}", path, e))?;
+    let absolute_path = store_path.canonicalize().map_err(|e| {
+        eyre::eyre!(
+            "Failed to resolve absolute path for '{}': {}",
+            store_path.display(),
+            e
+        )
+    })?;
 
     println!("  Type: Local");
     println!("  Path: {}", absolute_path.display());

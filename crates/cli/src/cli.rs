@@ -390,8 +390,8 @@ pub enum AddStoreCommands {
     Local {
         /// Store name
         name: String,
-        /// Local directory path
-        path: String,
+        /// Local directory path (defaults to data_dir/stores/name if not provided)
+        path: Option<String>,
         /// Priority (lower = higher priority)
         #[arg(long, default_value = "100")]
         priority: u32,
