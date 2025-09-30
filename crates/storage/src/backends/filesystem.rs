@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -256,18 +257,55 @@ impl FilesystemStorage {
             .collect()
     }
 
-    /// Normalize URL by removing trailing slashes and trimming whitespace
+    /// Normalize URL conservatively - only handle basic cases to avoid breaking functionality
     fn normalize_url(&self, url: &str) -> String {
         let trimmed = url.trim();
         if trimmed.is_empty() {
             return String::new();
         }
 
-        // Remove trailing slash unless it's just the protocol (e.g., "https://")
-        if trimmed.ends_with('/') && trimmed.len() > 1 && !trimmed.ends_with("://") {
-            trimmed.trim_end_matches('/').to_string()
+        // Try to parse as a proper URL for basic normalization
+        if let Ok(mut parsed_url) = url::Url::parse(trimmed) {
+            // Only normalize domain case - this is generally safe
+            if let Some(host) = parsed_url.host_str() {
+                let host_lower = host.to_lowercase();
+                // Remove www. prefix as it's typically equivalent
+                let normalized_host = if host_lower.starts_with("www.") {
+                    &host_lower[4..]
+                } else {
+                    &host_lower
+                };
+                if parsed_url.set_host(Some(normalized_host)).is_err() {
+                    // If host change fails, continue with original
+                }
+            }
+
+            // Only remove trailing slash from path (safe for most URLs)
+            let path = parsed_url.path().to_string();
+            if path.len() > 1 && path.ends_with('/') {
+                parsed_url.set_path(&path[..path.len() - 1]);
+            }
+
+            let mut url_string = parsed_url.to_string();
+            // Handle root trailing slash removal with string manipulation
+            // since URL library always adds '/' for empty paths
+            if url_string.ends_with('/') && url_string.matches('/').count() == 3 {
+                url_string.pop();
+            }
+            url_string
         } else {
-            trimmed.to_string()
+            // Fallback to basic normalization for malformed URLs
+            self.basic_normalize_url(trimmed)
+        }
+    }
+
+    /// Basic URL normalization fallback
+    fn basic_normalize_url(&self, url: &str) -> String {
+        // Remove trailing slash unless it's just the protocol
+        if url.ends_with('/') && url.len() > 1 && !url.ends_with("://") {
+            url.trim_end_matches('/').to_string()
+        } else {
+            url.to_string()
         }
     }
 
@@ -1644,11 +1682,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_url_normalization() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let storage = FilesystemStorage::new(temp_dir.path());
         storage.initialize().await.unwrap();
 
-        // Test URL normalization
+        // Test basic trailing slash removal
         assert_eq!(
             storage.normalize_url("https://example.com"),
             "https://example.com"
@@ -1668,6 +1706,29 @@ mod tests {
         assert_eq!(storage.normalize_url("https://"), "https://"); // Don't remove protocol slash
         assert_eq!(storage.normalize_url(""), "");
         assert_eq!(storage.normalize_url("   "), "");
+
+        // Test case normalization and www removal
+        assert_eq!(
+            storage.normalize_url("https://Example.Com/Path/Image.JPG"),
+            "https://example.com/Path/Image.JPG"
+        );
+        assert_eq!(
+            storage.normalize_url("https://WWW.Example.com/cover.PNG"),
+            "https://example.com/cover.PNG"
+        );
+
+        // Test query parameters are preserved
+        assert_eq!(
+            storage.normalize_url("https://example.com/api/data?param=value"),
+            "https://example.com/api/data?param=value"
+        );
+        assert_eq!(
+            storage.normalize_url("https://cdn.example.com/cover.jpg?v=123&t=456"),
+            "https://cdn.example.com/cover.jpg?v=123&t=456"
+        );
+
+        // Test malformed URLs fall back to basic normalization
+        assert_eq!(storage.normalize_url("not-a-url/path/"), "not-a-url/path");
 
         // Test that novels with trailing slashes are treated as the same
         let mut novel1 = create_test_novel();
@@ -1695,7 +1756,56 @@ mod tests {
 
         assert!(found1.is_some());
         assert!(found2.is_some());
-        assert_eq!(found1.unwrap().url, found2.unwrap().url);
+        assert_eq!(found1.as_ref().unwrap().url, found2.as_ref().unwrap().url);
+    }
+
+    #[tokio::test]
+    async fn test_asset_url_deduplication() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        let novel_id = NovelId::from("test-novel");
+
+        // Test basic URL normalization cases
+        let test_cases = vec![
+            (
+                "https://www.example.com/cover.jpg",
+                "https://example.com/cover.jpg",
+            ),
+            (
+                "https://Example.Com/Cover.JPG",
+                "https://example.com/Cover.JPG",
+            ),
+        ];
+
+        for (original_url, expected_normalized) in test_cases {
+            let normalized = storage.normalize_url(original_url);
+            assert_eq!(
+                normalized, expected_normalized,
+                "URL {} should normalize to {}",
+                original_url, expected_normalized
+            );
+        }
+
+        // Test that identical URLs after normalization get deduplicated
+        let asset1 = storage.create_asset(
+            novel_id.clone(),
+            "https://www.example.com/cover.jpg".to_string(),
+            "image/jpeg".to_string(),
+        );
+
+        let test_data = b"fake image data";
+        let reader1 = Box::new(std::io::Cursor::new(test_data.to_vec()));
+        let asset_id1 = storage.store_asset(asset1, reader1).await.unwrap();
+
+        // Try to find the asset using normalized variation
+        let found_id1 = storage
+            .find_asset_by_url("https://example.com/cover.jpg")
+            .await
+            .unwrap();
+
+        assert_eq!(found_id1, Some(asset_id1));
     }
 
     #[tokio::test]

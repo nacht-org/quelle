@@ -6,6 +6,9 @@
 
 use async_trait::async_trait;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, info, warn};
 
 use crate::error::Result;
@@ -25,6 +28,10 @@ pub struct LocallyCachedStore<T: StoreProvider> {
     local_store: LocalStore,
     sync_dir: PathBuf,
     name: String,
+    /// Track last sync time to prevent redundancy
+    last_sync: Arc<RwLock<Option<Instant>>>,
+    /// Mutex to prevent concurrent syncs
+    sync_mutex: Arc<Mutex<()>>,
 }
 
 impl<T: StoreProvider> LocallyCachedStore<T> {
@@ -36,6 +43,8 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
             local_store,
             sync_dir,
             name,
+            last_sync: Arc::new(RwLock::new(None)),
+            sync_mutex: Arc::new(Mutex::new(())),
         })
     }
 
@@ -54,8 +63,39 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
         &self.local_store
     }
 
-    /// Ensure the store is synced and ready for use
+    /// Ensure the store is synced and ready for use with time-based caching
     async fn ensure_synced(&self) -> Result<Option<SyncResult>> {
+        // Check if we've synced recently
+        const SYNC_CACHE_DURATION: Duration = Duration::from_secs(30);
+
+        {
+            let last_sync = self.last_sync.read().await;
+            if let Some(sync_time) = *last_sync {
+                if sync_time.elapsed() < SYNC_CACHE_DURATION {
+                    debug!(
+                        "Skipping sync for store '{}' - synced {} seconds ago",
+                        self.name,
+                        sync_time.elapsed().as_secs()
+                    );
+                    return Ok(None);
+                }
+            }
+        }
+
+        // Acquire sync mutex to prevent concurrent syncs
+        let _sync_guard = self.sync_mutex.lock().await;
+
+        // Double-check after acquiring lock (another thread might have synced)
+        {
+            let last_sync = self.last_sync.read().await;
+            if let Some(sync_time) = *last_sync {
+                if sync_time.elapsed() < SYNC_CACHE_DURATION {
+                    debug!("Sync completed by another thread for store '{}'", self.name);
+                    return Ok(None);
+                }
+            }
+        }
+
         debug!(
             "Checking if sync needed for store '{}' ({})",
             self.name,
@@ -75,10 +115,23 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
                     warn!("Sync warning for '{}': {}", self.name, warning);
                 }
 
+                // Update last sync time
+                {
+                    let mut last_sync = self.last_sync.write().await;
+                    *last_sync = Some(Instant::now());
+                }
+
                 Ok(Some(result))
             }
             Ok(None) => {
                 debug!("Store '{}' is up to date, no sync needed", self.name);
+
+                // Still update last sync time to prevent redundant checks
+                {
+                    let mut last_sync = self.last_sync.write().await;
+                    *last_sync = Some(Instant::now());
+                }
+
                 Ok(None)
             }
             Err(e) => {
@@ -212,9 +265,24 @@ impl<T: StoreProvider> ReadableStore for LocallyCachedStore<T> {
 #[async_trait]
 impl<T: StoreProvider> CacheableStore for LocallyCachedStore<T> {
     async fn refresh_cache(&self) -> Result<()> {
-        // Force a sync from the provider
+        // Force a sync from the provider (bypass cache)
         debug!("Force refreshing cache for store '{}'", self.name);
+
+        // Clear last sync time to force fresh sync
+        {
+            let mut last_sync = self.last_sync.write().await;
+            *last_sync = None;
+        }
+
+        // Acquire sync mutex and force sync
+        let _sync_guard = self.sync_mutex.lock().await;
         self.provider.sync(&self.sync_dir).await?;
+
+        // Update last sync time
+        {
+            let mut last_sync = self.last_sync.write().await;
+            *last_sync = Some(Instant::now());
+        }
 
         // Then refresh the local store cache
         self.local_store.refresh_cache().await
@@ -248,5 +316,262 @@ impl<T: StoreProvider> std::fmt::Display for LocallyCachedStore<T> {
             self.name,
             self.provider.description()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    use tempfile::TempDir;
+    use tokio::sync::Mutex;
+    use tokio::time::sleep;
+
+    /// Mock provider for testing sync behavior
+    #[derive(Debug)]
+    pub struct MockProvider {
+        sync_count: Arc<Mutex<u32>>,
+        sync_delay: Duration,
+        should_sync: bool,
+    }
+
+    impl MockProvider {
+        pub fn new() -> Self {
+            Self {
+                sync_count: Arc::new(Mutex::new(0)),
+                sync_delay: Duration::from_millis(10),
+                should_sync: true,
+            }
+        }
+
+        pub fn with_delay(mut self, delay: Duration) -> Self {
+            self.sync_delay = delay;
+            self
+        }
+
+        pub fn with_sync_needed(mut self, should_sync: bool) -> Self {
+            self.should_sync = should_sync;
+            self
+        }
+
+        pub async fn get_sync_count(&self) -> u32 {
+            *self.sync_count.lock().await
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl StoreProvider for MockProvider {
+        async fn sync(&self, _sync_dir: &std::path::Path) -> Result<SyncResult> {
+            // Simulate sync work
+            sleep(self.sync_delay).await;
+
+            // Increment sync counter
+            {
+                let mut count = self.sync_count.lock().await;
+                *count += 1;
+            }
+
+            Ok(SyncResult::with_changes(vec![
+                "Mock sync completed".to_string()
+            ]))
+        }
+
+        async fn needs_sync(&self, _sync_dir: &std::path::Path) -> Result<bool> {
+            Ok(self.should_sync)
+        }
+
+        fn description(&self) -> String {
+            "Mock provider for testing".to_string()
+        }
+
+        fn provider_type(&self) -> &'static str {
+            "mock"
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sync_efficiency_caching() {
+        let temp_dir = TempDir::new().unwrap();
+        let provider = MockProvider::new();
+        let store = LocallyCachedStore::new(
+            provider,
+            temp_dir.path().to_path_buf(),
+            "test-store".to_string(),
+        )
+        .unwrap();
+
+        // Create a minimal store manifest for the local store to work
+        let manifest_path = temp_dir.path().join("store.json");
+        tokio::fs::write(
+            &manifest_path,
+            r#"{
+            "name": "test-store",
+            "version": "1.0.0",
+            "description": "Test store",
+            "extensions": []
+        }"#,
+        )
+        .await
+        .unwrap();
+
+        // First call should trigger sync
+        let start = Instant::now();
+        let _ = store.list_extensions().await;
+        let first_duration = start.elapsed();
+
+        // Provider should have been called once
+        let sync_count = store.provider().get_sync_count().await;
+        assert_eq!(sync_count, 1);
+
+        // Second call within cache window should NOT trigger sync
+        let start = Instant::now();
+        let _ = store.list_extensions().await;
+        let second_duration = start.elapsed();
+
+        // Provider should still only have been called once
+        let sync_count = store.provider().get_sync_count().await;
+        assert_eq!(sync_count, 1);
+
+        // Second call should be much faster (no sync delay)
+        assert!(second_duration < first_duration);
+
+        // Wait for cache to expire
+        sleep(Duration::from_secs(31)).await;
+
+        // Third call should trigger sync again
+        let _ = store.list_extensions().await;
+        let sync_count = store.provider().get_sync_count().await;
+        assert_eq!(sync_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_sync_prevention() {
+        let temp_dir = TempDir::new().unwrap();
+        let provider = MockProvider::new().with_delay(Duration::from_millis(100));
+        let store = Arc::new(
+            LocallyCachedStore::new(
+                provider,
+                temp_dir.path().to_path_buf(),
+                "test-store".to_string(),
+            )
+            .unwrap(),
+        );
+
+        // Create a minimal store manifest
+        let manifest_path = temp_dir.path().join("store.json");
+        tokio::fs::write(
+            &manifest_path,
+            r#"{
+            "name": "test-store",
+            "version": "1.0.0",
+            "description": "Test store",
+            "extensions": []
+        }"#,
+        )
+        .await
+        .unwrap();
+
+        // Launch multiple concurrent operations
+        let mut handles = vec![];
+        for _ in 0..5 {
+            let store_clone = Arc::clone(&store);
+            let handle = tokio::spawn(async move {
+                let _ = store_clone.list_extensions().await;
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all operations to complete
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // Despite 5 concurrent calls, sync should only happen once due to mutex
+        let sync_count = store.provider().get_sync_count().await;
+        assert_eq!(sync_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_refresh_cache_forces_sync() {
+        let temp_dir = TempDir::new().unwrap();
+        let provider = MockProvider::new();
+        let store = LocallyCachedStore::new(
+            provider,
+            temp_dir.path().to_path_buf(),
+            "test-store".to_string(),
+        )
+        .unwrap();
+
+        // Create a minimal store manifest
+        let manifest_path = temp_dir.path().join("store.json");
+        tokio::fs::write(
+            &manifest_path,
+            r#"{
+            "name": "test-store",
+            "version": "1.0.0",
+            "description": "Test store",
+            "extensions": []
+        }"#,
+        )
+        .await
+        .unwrap();
+
+        // Normal operation triggers sync
+        let _ = store.list_extensions().await;
+        let sync_count = store.provider().get_sync_count().await;
+        assert_eq!(sync_count, 1);
+
+        // Another operation within cache window should not sync
+        let _ = store.list_extensions().await;
+        let sync_count = store.provider().get_sync_count().await;
+        assert_eq!(sync_count, 1);
+
+        // Force refresh should bypass cache and sync
+        let _ = store.refresh_cache().await;
+        let sync_count = store.provider().get_sync_count().await;
+        assert_eq!(sync_count, 2);
+
+        // Subsequent operations should not sync (cache updated by refresh)
+        let _ = store.list_extensions().await;
+        let sync_count = store.provider().get_sync_count().await;
+        assert_eq!(sync_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_no_sync_when_not_needed() {
+        let temp_dir = TempDir::new().unwrap();
+        let provider = MockProvider::new().with_sync_needed(false);
+        let store = LocallyCachedStore::new(
+            provider,
+            temp_dir.path().to_path_buf(),
+            "test-store".to_string(),
+        )
+        .unwrap();
+
+        // Create a minimal store manifest
+        let manifest_path = temp_dir.path().join("store.json");
+        tokio::fs::write(
+            &manifest_path,
+            r#"{
+            "name": "test-store",
+            "version": "1.0.0",
+            "description": "Test store",
+            "extensions": []
+        }"#,
+        )
+        .await
+        .unwrap();
+
+        // Operation should not trigger sync when provider says it's not needed
+        let _ = store.list_extensions().await;
+        let sync_count = store.provider().get_sync_count().await;
+        assert_eq!(sync_count, 0);
+
+        // Multiple operations should still not sync
+        let _ = store.list_extensions().await;
+        let _ = store.get_store_manifest().await;
+        let sync_count = store.provider().get_sync_count().await;
+        assert_eq!(sync_count, 0);
     }
 }
