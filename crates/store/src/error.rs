@@ -98,6 +98,13 @@ pub enum StoreError {
     #[error("Timeout error: operation timed out")]
     Timeout,
 
+    #[error("Git operation '{operation}' failed for repository '{url}': {source}")]
+    GitError {
+        operation: String,
+        url: String,
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
     #[error("Unsupported operation: {0}")]
     UnsupportedOperation(String),
 
@@ -204,6 +211,36 @@ pub enum GitStoreError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    // Publishing-specific errors
+    #[error(
+        "Repository has uncommitted changes. Please commit or stash changes before publishing."
+    )]
+    DirtyRepository,
+
+    #[error("Push rejected by remote: {reason}")]
+    PushRejected { reason: String },
+
+    #[error("Merge conflict detected in files: {files:?}")]
+    MergeConflict { files: Vec<String> },
+
+    #[error("Repository is not initialized as a git repository")]
+    NotARepository,
+
+    #[error("No write permissions for repository: {url}")]
+    NoWritePermission { url: String },
+
+    #[error("Extension {id} version {version} already exists in repository")]
+    ExtensionVersionExists { id: String, version: String },
+
+    #[error("Commit failed: {reason}")]
+    CommitFailed { reason: String },
+
+    #[error("Failed to create branch {branch}: {reason}")]
+    BranchCreationFailed { branch: String, reason: String },
+
+    #[error("Repository is in an inconsistent state: {details}")]
+    InconsistentState { details: String },
 }
 
 #[cfg(feature = "git")]
@@ -222,6 +259,33 @@ impl From<GitStoreError> for StoreError {
             }
             GitStoreError::NetworkTimeout => StoreError::Timeout,
             GitStoreError::Io(err) => StoreError::IoError(err),
+            GitStoreError::DirtyRepository => {
+                StoreError::ValidationError("Repository has uncommitted changes".to_string())
+            }
+            GitStoreError::PushRejected { reason } => {
+                StoreError::NetworkError(format!("Push rejected: {}", reason))
+            }
+            GitStoreError::MergeConflict { files } => {
+                StoreError::ValidationError(format!("Merge conflict in files: {:?}", files))
+            }
+            GitStoreError::NotARepository => {
+                StoreError::ConfigError("Directory is not a git repository".to_string())
+            }
+            GitStoreError::NoWritePermission { url } => {
+                StoreError::PermissionDenied(format!("No write permission for repository: {}", url))
+            }
+            GitStoreError::ExtensionVersionExists { id, version } => StoreError::ValidationError(
+                format!("Extension {} version {} already exists", id, version),
+            ),
+            GitStoreError::CommitFailed { reason } => {
+                StoreError::RuntimeError(format!("Commit failed: {}", reason))
+            }
+            GitStoreError::BranchCreationFailed { branch, reason } => {
+                StoreError::RuntimeError(format!("Failed to create branch {}: {}", branch, reason))
+            }
+            GitStoreError::InconsistentState { details } => {
+                StoreError::RuntimeError(format!("Repository in inconsistent state: {}", details))
+            }
         }
     }
 }

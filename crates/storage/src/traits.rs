@@ -65,7 +65,7 @@ pub trait BookStorage: Send + Sync {
         volume_index: i32,
         chapter_url: &str,
         content: &ChapterContent,
-    ) -> Result<()>;
+    ) -> Result<ChapterInfo>;
 
     /// Get content for a specific chapter.
     ///
@@ -87,7 +87,7 @@ pub trait BookStorage: Send + Sync {
         novel_id: &NovelId,
         volume_index: i32,
         chapter_url: &str,
-    ) -> Result<bool>;
+    ) -> Result<Option<ChapterInfo>>;
 
     /// Check if chapter content exists.
     async fn exists_chapter_content(

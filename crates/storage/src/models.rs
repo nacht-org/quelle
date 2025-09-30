@@ -3,7 +3,9 @@
 //! Since WIT-generated types don't implement Serde traits, we define storage-specific
 //! models that can be serialized and provide conversion utilities between WIT and storage types.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::error::{BookStorageError, Result};
 use crate::{ChapterContent, Novel};
@@ -11,6 +13,44 @@ use quelle_engine::bindings::quelle::extension::novel::{
     Chapter, ChapterContent as WitChapterContent, Metadata, Namespace, Novel as WitNovel,
     NovelStatus, Volume,
 };
+
+/// Content metadata for a single chapter
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChapterContentMetadata {
+    pub content_size: u64,
+    pub stored_at: DateTime<Utc>,
+}
+
+/// Content index that tracks which chapters have content
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ContentIndex {
+    /// Map from chapter URL to content metadata
+    pub chapters: HashMap<String, ChapterContentMetadata>,
+}
+
+impl ContentIndex {
+    pub fn mark_chapter_stored(&mut self, chapter_url: String, content_size: u64) {
+        self.chapters.insert(
+            chapter_url,
+            ChapterContentMetadata {
+                content_size,
+                stored_at: Utc::now(),
+            },
+        );
+    }
+
+    pub fn mark_chapter_removed(&mut self, chapter_url: &str) {
+        self.chapters.remove(chapter_url);
+    }
+
+    pub fn has_content(&self, chapter_url: &str) -> bool {
+        self.chapters.contains_key(chapter_url)
+    }
+
+    pub fn get_content_metadata(&self, chapter_url: &str) -> Option<&ChapterContentMetadata> {
+        self.chapters.get(chapter_url)
+    }
+}
 
 /// Storage representation of a Novel
 #[derive(Debug, Clone, Serialize, Deserialize)]

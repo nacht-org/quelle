@@ -436,7 +436,7 @@ async fn update_single_novel(
                         )
                         .await
                     {
-                        Ok(_) => {
+                        Ok(_updated_chapter) => {
                             downloaded_count += 1;
                         }
                         Err(e) => {

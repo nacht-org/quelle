@@ -93,6 +93,12 @@ pub use registry_config::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfig
 pub use source::{create_readable_store_from_source, ExtensionSource, RegistryConfig, StoreType};
 pub use store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
 pub use stores::traits::{BaseStore, ReadableStore, WritableStore};
+pub use stores::{LocallyCachedStore, StoreProvider, SyncResult};
+
+#[cfg(feature = "git")]
+pub use stores::providers::git::{GitAuthor, GitStatus, GitWriteConfig};
+#[cfg(feature = "git")]
+pub use stores::{GitAuth, GitProvider, GitReference, GitStore};
 pub use validation::{
     create_default_validator, create_strict_validator, ExtensionValidationReport, RuleResult,
     SecurityRuleConfig, SecurityValidationRule, ValidationConfig, ValidationEngine, ValidationRule,

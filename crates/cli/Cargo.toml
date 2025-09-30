@@ -3,9 +3,13 @@ name = "quelle_cli"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["git"]
+git = ["quelle_store/git"]
+
 [dependencies]
 quelle_engine = { path = "../engine" }
-quelle_store = { path = "../store" }
+quelle_store = { path = "../store", features = ["git"] }
 quelle_storage = { path = "../storage" }
 quelle_export = { path = "../export" }
 

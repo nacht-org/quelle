@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         data: "This is the content of chapter 1. The story begins here...".to_string(),
     };
 
-    storage
+    let updated_chapter = storage
         .store_chapter_content(
             &novel_id,
             1, // volume_index
@@ -72,6 +72,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &chapter_content,
         )
         .await?;
+    println!(
+        "Stored chapter - has content: {}",
+        updated_chapter.has_content()
+    );
     println!("\nStored content for chapter 1");
 
     // List chapters again to see the updated status

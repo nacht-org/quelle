@@ -190,13 +190,8 @@ pub enum LibraryCommands {
 pub enum StoreCommands {
     /// Add a new extension store
     Add {
-        /// Store name
-        name: String,
-        /// Store path
-        path: String,
-        /// Priority (lower = higher priority)
-        #[arg(long, default_value = "100")]
-        priority: u32,
+        #[command(subcommand)]
+        store_type: AddStoreCommands,
     },
     /// Remove an extension store
     Remove {
@@ -387,4 +382,58 @@ pub enum VisibilityOption {
     Private,
     Unlisted,
     Organization,
+}
+
+#[derive(clap::Subcommand, Debug)]
+pub enum AddStoreCommands {
+    /// Add a local file system store
+    Local {
+        /// Store name
+        name: String,
+        /// Local directory path (defaults to data_dir/stores/name if not provided)
+        path: Option<String>,
+        /// Priority (lower = higher priority)
+        #[arg(long, default_value = "100")]
+        priority: u32,
+    },
+    /// Add a git repository store
+    Git {
+        /// Store name
+        name: String,
+        /// Git repository URL
+        url: String,
+        /// Priority (lower = higher priority)
+        #[arg(long, default_value = "100")]
+        priority: u32,
+        /// Git branch to track
+        #[arg(long)]
+        branch: Option<String>,
+        /// Git tag to track
+        #[arg(long)]
+        tag: Option<String>,
+        /// Git commit hash to pin to
+        #[arg(long)]
+        commit: Option<String>,
+        /// Git authentication token (GitHub/GitLab personal access token)
+        #[arg(long)]
+        token: Option<String>,
+        /// SSH private key path for authentication
+        #[arg(long)]
+        ssh_key: Option<String>,
+        /// SSH public key path (optional, will be inferred if not provided)
+        #[arg(long)]
+        ssh_pub_key: Option<String>,
+        /// SSH key passphrase
+        #[arg(long)]
+        ssh_passphrase: Option<String>,
+        /// Username for basic authentication
+        #[arg(long)]
+        username: Option<String>,
+        /// Password for basic authentication
+        #[arg(long)]
+        password: Option<String>,
+        /// Custom cache directory (defaults to data_dir/stores/name)
+        #[arg(long)]
+        cache_dir: Option<String>,
+    },
 }

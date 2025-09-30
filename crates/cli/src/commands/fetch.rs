@@ -247,7 +247,7 @@ async fn handle_fetch_chapter(
                     .store_chapter_content(&novel_summary.id, volume.index, url.as_ref(), &chapter)
                     .await
                 {
-                    Ok(()) => {
+                    Ok(_updated_chapter) => {
                         println!("💾 Saved chapter content to local library");
                         saved = true;
                     }
@@ -361,7 +361,7 @@ async fn handle_fetch_chapters(
             )
             .await
         {
-            Ok(_) => {
+            Ok(_updated_chapter) => {
                 println!("  ✅ {}", chapter_info.chapter_title);
                 success_count += 1;
             }

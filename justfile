@@ -9,7 +9,7 @@ reset-store:
     cargo run -p quelle_cli -- store remove local --force
     rm -rf ./data
     mkdir -p ./data/stores/local
-    cargo run -p quelle_cli -- store add local ./data/stores/local
+    cargo run -p quelle_cli -- store add local local
 
 setup:
     just reset-store

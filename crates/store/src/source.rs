@@ -15,12 +15,27 @@ use crate::{
     ReadableStore, WritableStore,
 };
 
+#[cfg(feature = "git")]
+use crate::stores::git::GitStore;
+#[cfg(feature = "git")]
+use crate::stores::providers::git::{GitAuth, GitReference};
+
 /// Type of extension store with associated data
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum StoreType {
     /// Local file system store
     Local { path: PathBuf },
+    /// Git repository store
+    #[cfg(feature = "git")]
+    Git {
+        url: String,
+        cache_dir: PathBuf,
+        #[serde(default)]
+        reference: GitReference,
+        #[serde(default)]
+        auth: GitAuth,
+    },
 }
 
 impl StoreType {
@@ -28,13 +43,26 @@ impl StoreType {
     pub fn as_str(&self) -> &'static str {
         match self {
             StoreType::Local { .. } => "local",
+            #[cfg(feature = "git")]
+            StoreType::Git { .. } => "git",
         }
     }
 
-    /// Get the path for Local store type
+    /// Get the path for Local store type or cache_dir for Git store type
     pub fn path(&self) -> Option<&PathBuf> {
         match self {
             StoreType::Local { path } => Some(path),
+            #[cfg(feature = "git")]
+            StoreType::Git { cache_dir, .. } => Some(cache_dir),
+        }
+    }
+
+    /// Get the URL for Git store type
+    #[cfg(feature = "git")]
+    pub fn url(&self) -> Option<&str> {
+        match self {
+            StoreType::Local { .. } => None,
+            StoreType::Git { url, .. } => Some(url),
         }
     }
 }
@@ -156,6 +184,46 @@ impl ExtensionSource {
         }
     }
 
+    #[cfg(feature = "git")]
+    pub fn git(name: String, url: String, cache_dir: PathBuf) -> Self {
+        Self {
+            name,
+            store_type: StoreType::Git {
+                url,
+                cache_dir,
+                reference: GitReference::Default,
+                auth: GitAuth::None,
+            },
+            enabled: true,
+            priority: 100,
+            trusted: false,
+            added_at: Utc::now(),
+        }
+    }
+
+    #[cfg(feature = "git")]
+    pub fn git_with_config(
+        name: String,
+        url: String,
+        cache_dir: PathBuf,
+        reference: GitReference,
+        auth: GitAuth,
+    ) -> Self {
+        Self {
+            name,
+            store_type: StoreType::Git {
+                url,
+                cache_dir,
+                reference,
+                auth,
+            },
+            enabled: true,
+            priority: 100,
+            trusted: false,
+            added_at: Utc::now(),
+        }
+    }
+
     pub fn with_priority(mut self, priority: u32) -> Self {
         self.priority = priority;
         self
@@ -185,6 +253,28 @@ impl ExtensionSource {
                     })?;
                 Ok(Box::new(local_store))
             }
+            #[cfg(feature = "git")]
+            StoreType::Git {
+                url,
+                cache_dir,
+                reference,
+                auth,
+            } => {
+                let git_store = GitStore::with_config(
+                    self.name.clone(),
+                    url.clone(),
+                    cache_dir.clone(),
+                    reference.clone(),
+                    auth.clone(),
+                    std::time::Duration::from_secs(300), // 5 minutes default
+                    true,                                // shallow by default
+                )
+                .map_err(|e| StoreError::StoreCreationError {
+                    store_type: "git".to_string(),
+                    source: Box::new(e),
+                })?;
+                Ok(Box::new(git_store))
+            }
         }
     }
 
@@ -198,6 +288,29 @@ impl ExtensionSource {
                     })?;
                 Ok(Some(Box::new(local_store)))
             }
+            #[cfg(feature = "git")]
+            StoreType::Git {
+                url,
+                cache_dir,
+                reference,
+                auth,
+            } => {
+                let git_store = GitStore::with_config(
+                    self.name.clone(),
+                    url.clone(),
+                    cache_dir.clone(),
+                    reference.clone(),
+                    auth.clone(),
+                    std::time::Duration::from_secs(300), // 5 minutes default
+                    true,                                // shallow by default
+                )
+                .map_err(|e| StoreError::StoreCreationError {
+                    store_type: "git".to_string(),
+                    source: Box::new(e),
+                })?;
+                // Git stores can be writable if properly configured
+                Ok(Some(Box::new(git_store)))
+            }
         }
     }
 
@@ -210,6 +323,28 @@ impl ExtensionSource {
                         source: Box::new(e),
                     })?;
                 Ok(Some(Box::new(local_store)))
+            }
+            #[cfg(feature = "git")]
+            StoreType::Git {
+                url,
+                cache_dir,
+                reference,
+                auth,
+            } => {
+                let git_store = GitStore::with_config(
+                    self.name.clone(),
+                    url.clone(),
+                    cache_dir.clone(),
+                    reference.clone(),
+                    auth.clone(),
+                    std::time::Duration::from_secs(300), // 5 minutes default
+                    true,                                // shallow by default
+                )
+                .map_err(|e| StoreError::StoreCreationError {
+                    store_type: "git".to_string(),
+                    source: Box::new(e),
+                })?;
+                Ok(Some(Box::new(git_store)))
             }
         }
     }
@@ -228,6 +363,29 @@ pub async fn create_readable_store_from_source(
                 })?;
 
             Ok(Box::new(local_store))
+        }
+        #[cfg(feature = "git")]
+        StoreType::Git {
+            url,
+            cache_dir,
+            reference,
+            auth,
+        } => {
+            let git_store = GitStore::with_config(
+                source.name.clone(),
+                url.clone(),
+                cache_dir.clone(),
+                reference.clone(),
+                auth.clone(),
+                std::time::Duration::from_secs(300), // 5 minutes default
+                true,                                // shallow by default
+            )
+            .map_err(|e| StoreError::StoreCreationError {
+                store_type: "git".to_string(),
+                source: Box::new(e),
+            })?;
+
+            Ok(Box::new(git_store))
         }
     }
 }

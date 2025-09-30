@@ -127,6 +127,60 @@ pub struct UnpublishOptions {
     pub notify_users: bool,
 }
 
+impl UnpublishOptions {
+    /// Create new unpublish options with default values
+    pub fn new() -> Self {
+        Self {
+            access_token: None,
+            version: None,
+            reason: None,
+            keep_record: true,
+            notify_users: false,
+        }
+    }
+
+    /// Create unpublish options for a specific version
+    pub fn for_version(version: String) -> Self {
+        Self {
+            access_token: None,
+            version: Some(version),
+            reason: None,
+            keep_record: true,
+            notify_users: false,
+        }
+    }
+
+    /// Set the access token
+    pub fn with_token(mut self, token: String) -> Self {
+        self.access_token = Some(token);
+        self
+    }
+
+    /// Set the reason for unpublishing
+    pub fn with_reason(mut self, reason: String) -> Self {
+        self.reason = Some(reason);
+        self
+    }
+
+    /// Set whether to keep a record
+    pub fn with_keep_record(mut self, keep: bool) -> Self {
+        self.keep_record = keep;
+        self
+    }
+
+    /// Set whether to notify users
+    pub fn with_notify_users(mut self, notify: bool) -> Self {
+        self.notify_users = notify;
+        self
+    }
+}
+
+impl Default for UnpublishOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Visibility levels for published extensions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExtensionVisibility {

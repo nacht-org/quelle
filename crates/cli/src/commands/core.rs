@@ -23,7 +23,10 @@ pub async fn handle_add_command(
     if dry_run {
         println!("Would add novel from: {}", url);
         if !no_chapters {
-            println!("Would also fetch all chapters");
+            match max_chapters {
+                Some(limit) => println!("Would fetch first {} chapters", limit),
+                None => println!("Would fetch all chapters"),
+            }
         }
         return Ok(());
     }
@@ -37,18 +40,9 @@ pub async fn handle_add_command(
     // Then fetch chapters unless explicitly disabled
     if !no_chapters {
         println!("📄 Fetching chapters...");
-        let fetch_chapters_cmd = FetchCommands::Chapters {
-            novel_id: url.to_string(),
-        };
 
-        // TODO: Handle max_chapters limit in the future
-        if max_chapters.is_some() {
-            println!(
-                "💡 Note: max_chapters limit not yet implemented, fetching all available chapters"
-            );
-        }
-
-        handle_fetch_command(fetch_chapters_cmd, store_manager, storage, false).await?;
+        handle_fetch_chapters_with_limit(url.to_string(), max_chapters, store_manager, storage)
+            .await?;
     }
 
     println!("✅ Novel added successfully!");
@@ -172,6 +166,136 @@ pub async fn handle_remove_command(
             Ok(())
         }
     }
+}
+
+/// Handle fetching chapters with optional limit
+async fn handle_fetch_chapters_with_limit(
+    novel_id: String,
+    max_chapters: Option<usize>,
+    store_manager: &mut StoreManager,
+    storage: &FilesystemStorage,
+) -> Result<()> {
+    use crate::commands::fetch::{
+        fetch_chapter_with_extension, find_and_install_extension_for_url,
+    };
+    use quelle_storage::{ChapterContent, traits::BookStorage, types::NovelId};
+
+    println!("📚 Fetching chapters for novel: {}", novel_id);
+
+    // Try to find novel by ID or URL
+    let (novel, novel_storage_id) = if novel_id.starts_with("http") {
+        let novel = match storage.find_novel_by_url(&novel_id).await? {
+            Some(novel) => novel,
+            None => {
+                println!("❌ Novel not found with URL: {}", novel_id);
+                return Ok(());
+            }
+        };
+        // Find the storage ID from the library listing
+        let filter = quelle_storage::types::NovelFilter { source_ids: vec![] };
+        let novels = storage.list_novels(&filter).await?;
+        let storage_id = novels
+            .iter()
+            .find(|n| n.title == novel.title)
+            .map(|n| n.id.clone())
+            .unwrap_or_else(|| NovelId::new(novel_id.clone()));
+        (novel, storage_id)
+    } else {
+        let id = NovelId::new(novel_id.clone());
+        let novel = match storage.get_novel(&id).await? {
+            Some(novel) => novel,
+            None => {
+                println!("❌ Novel not found with ID: {}", novel_id);
+                return Ok(());
+            }
+        };
+        (novel, id)
+    };
+
+    let extension = match find_and_install_extension_for_url(&novel.url, store_manager).await {
+        Ok(ext) => ext,
+        Err(e) => {
+            tracing::error!("❌ Failed to find/install extension: {}", e);
+            return Err(e);
+        }
+    };
+
+    let mut chapters = storage.list_chapters(&novel_storage_id).await?;
+    let original_count = chapters.len();
+
+    // Apply max_chapters limit if specified
+    if let Some(limit) = max_chapters {
+        if chapters.len() > limit {
+            chapters.truncate(limit);
+            println!(
+                "📏 Limited to {} chapters (out of {} available)",
+                limit, original_count
+            );
+        }
+    }
+
+    let mut success_count = 0;
+    let mut failed_count = 0;
+    let mut skipped_count = 0;
+
+    println!("📄 Processing {} chapters", chapters.len());
+
+    for chapter_info in chapters {
+        if chapter_info.has_content() {
+            println!("  ⏭️ {} (already downloaded)", chapter_info.chapter_title);
+            skipped_count += 1;
+            continue;
+        }
+
+        println!("📥 Fetching: {}", chapter_info.chapter_title);
+
+        let chapter_content = match fetch_chapter_with_extension(
+            &extension,
+            store_manager.registry_store(),
+            &chapter_info.chapter_url,
+        )
+        .await
+        {
+            Ok(content) => content,
+            Err(e) => {
+                tracing::error!("  ❌ Failed to fetch {}: {}", chapter_info.chapter_title, e);
+                failed_count += 1;
+                continue;
+            }
+        };
+
+        let content = ChapterContent {
+            data: chapter_content.data,
+        };
+
+        match storage
+            .store_chapter_content(
+                &novel_storage_id,
+                chapter_info.volume_index,
+                &chapter_info.chapter_url,
+                &content,
+            )
+            .await
+        {
+            Ok(_updated_chapter) => {
+                println!("  ✅ {}", chapter_info.chapter_title);
+                success_count += 1;
+            }
+            Err(e) => {
+                tracing::error!("  ❌ Failed to store {}: {}", chapter_info.chapter_title, e);
+                failed_count += 1;
+            }
+        }
+    }
+
+    println!("📊 Fetch complete:");
+    println!("  ✅ Successfully fetched: {}", success_count);
+    println!("  ⏭️ Already downloaded: {}", skipped_count);
+    if failed_count > 0 {
+        println!("  ❌ Failed: {}", failed_count);
+    }
+
+    Ok(())
 }
 
 /// Handle the export command - export novels to various formats
