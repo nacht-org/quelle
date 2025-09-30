@@ -42,9 +42,9 @@ pub struct FilesystemStorage {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct NovelStorageMetadata {
-    source_id: String,
-    stored_at: DateTime<Utc>,
+pub struct NovelStorageMetadata {
+    pub source_id: String,
+    pub stored_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -593,56 +593,16 @@ impl BookStorage for FilesystemStorage {
         // Normalize chapter URLs in the novel before storing
         let normalized_novel = self.normalize_novel_urls(novel);
 
-        // Convert normalized novel to JSON string using conversion utilities
-        let novel_json = novel_to_json(&normalized_novel)?;
-
-        // Store metadata separately
+        // Create metadata
         let source_id = self.extract_source_id(&normalized_url);
         let metadata = NovelStorageMetadata {
             source_id,
             stored_at: Utc::now(),
         };
 
-        let metadata_json = serde_json::to_string_pretty(&metadata).map_err(|e| {
-            BookStorageError::DataConversionError {
-                message: "Failed to serialize novel metadata".to_string(),
-                source: Some(eyre::eyre!("JSON error: {}", e)),
-            }
-        })?;
-
-        // Create a combined JSON object
-        let novel_value = serde_json::from_str::<serde_json::Value>(&novel_json).map_err(|e| {
-            BookStorageError::DataConversionError {
-                message: "Failed to parse novel JSON".to_string(),
-                source: Some(eyre::eyre!("JSON error: {}", e)),
-            }
-        })?;
-
-        let metadata_value =
-            serde_json::from_str::<serde_json::Value>(&metadata_json).map_err(|e| {
-                BookStorageError::DataConversionError {
-                    message: "Failed to parse metadata JSON".to_string(),
-                    source: Some(eyre::eyre!("JSON error: {}", e)),
-                }
-            })?;
-
-        let combined = serde_json::json!({
-            "novel": novel_value,
-            "metadata": metadata_value
-        });
-
-        let combined_json = serde_json::to_string_pretty(&combined).map_err(|e| {
-            BookStorageError::DataConversionError {
-                message: "Failed to create combined JSON".to_string(),
-                source: Some(eyre::eyre!("JSON error: {}", e)),
-            }
-        })?;
-
-        fs::write(&novel_file, combined_json).await.map_err(|e| {
-            BookStorageError::BackendError {
-                source: Some(eyre::eyre!("Failed to write novel file: {}", e)),
-            }
-        })?;
+        // Use helper method to write combined structure
+        self.write_novel_file_combined(&novel_id, &normalized_novel, &metadata)
+            .await?;
 
         // Update index
         self.update_index_for_novel(&novel_id, novel).await?;
@@ -657,31 +617,8 @@ impl BookStorage for FilesystemStorage {
             return Ok(None);
         }
 
-        let content =
-            fs::read_to_string(&novel_file)
-                .await
-                .map_err(|e| BookStorageError::BackendError {
-                    source: Some(eyre::eyre!("Failed to read novel file: {}", e)),
-                })?;
-
-        // Parse the combined JSON
-        let combined: serde_json::Value =
-            serde_json::from_str(&content).map_err(|e| BookStorageError::DataConversionError {
-                message: "Failed to parse novel file".to_string(),
-                source: Some(eyre::eyre!("JSON error: {}", e)),
-            })?;
-
-        // Extract the novel part and convert it back
-        let novel_value = combined["novel"].clone();
-        let novel_json = serde_json::to_string(&novel_value).map_err(|e| {
-            BookStorageError::DataConversionError {
-                message: "Failed to extract novel data".to_string(),
-                source: Some(eyre::eyre!("JSON error: {}", e)),
-            }
-        })?;
-
-        let novel = novel_from_json(&novel_json)?;
-
+        // Use helper method to read combined structure
+        let (novel, _metadata) = self.read_novel_file_combined(id).await?;
         Ok(Some(novel))
     }
 
@@ -695,10 +632,7 @@ impl BookStorage for FilesystemStorage {
             });
         }
 
-        // Convert novel to JSON string using conversion utilities
-        let novel_json = novel_to_json(novel)?;
-
-        // Store metadata separately
+        // Create updated metadata
         let metadata = NovelStorageMetadata {
             source_id: id
                 .as_str()
@@ -709,46 +643,8 @@ impl BookStorage for FilesystemStorage {
             stored_at: Utc::now(),
         };
 
-        let metadata_json = serde_json::to_string_pretty(&metadata).map_err(|e| {
-            BookStorageError::DataConversionError {
-                message: "Failed to serialize novel metadata".to_string(),
-                source: Some(eyre::eyre!("JSON error: {}", e)),
-            }
-        })?;
-
-        // Create a combined JSON object
-        let novel_value = serde_json::from_str::<serde_json::Value>(&novel_json).map_err(|e| {
-            BookStorageError::DataConversionError {
-                message: "Failed to parse novel JSON".to_string(),
-                source: Some(eyre::eyre!("JSON error: {}", e)),
-            }
-        })?;
-
-        let metadata_value =
-            serde_json::from_str::<serde_json::Value>(&metadata_json).map_err(|e| {
-                BookStorageError::DataConversionError {
-                    message: "Failed to parse metadata JSON".to_string(),
-                    source: Some(eyre::eyre!("JSON error: {}", e)),
-                }
-            })?;
-
-        let combined = serde_json::json!({
-            "novel": novel_value,
-            "metadata": metadata_value
-        });
-
-        let combined_json = serde_json::to_string_pretty(&combined).map_err(|e| {
-            BookStorageError::DataConversionError {
-                message: "Failed to create combined JSON".to_string(),
-                source: Some(eyre::eyre!("JSON error: {}", e)),
-            }
-        })?;
-
-        fs::write(&novel_file, combined_json).await.map_err(|e| {
-            BookStorageError::BackendError {
-                source: Some(eyre::eyre!("Failed to write novel file: {}", e)),
-            }
-        })?;
+        // Use helper method to write combined structure
+        self.write_novel_file_combined(id, novel, &metadata).await?;
 
         // Update index
         self.update_index_for_novel(id, novel).await?;
@@ -887,7 +783,7 @@ impl BookStorage for FilesystemStorage {
                     source: None,
                 })?;
 
-        // Find the chapter in the novel structure
+        // Find the chapter in the novel structure and return updated ChapterInfo
         for volume in &novel.volumes {
             if volume.index == volume_index {
                 for chapter in &volume.chapters {
@@ -905,9 +801,6 @@ impl BookStorage for FilesystemStorage {
                 }
             }
         }
-
-        // Save the updated novel structure and index back to storage
-        self.
 
         // If we get here, the chapter wasn't found in the novel structure
         // This shouldn't happen since we validated the novel exists earlier
@@ -1391,6 +1284,147 @@ impl BookStorage for FilesystemStorage {
     }
 }
 
+impl FilesystemStorage {
+    // Helper methods for efficient novel file operations
+
+    /// Read the combined novel file structure (novel + metadata)
+    async fn read_novel_file_combined(
+        &self,
+        novel_id: &NovelId,
+    ) -> Result<(Novel, NovelStorageMetadata)> {
+        let novel_file = self.get_novel_file(novel_id);
+
+        if !novel_file.exists() {
+            return Err(BookStorageError::NovelNotFound {
+                id: novel_id.as_str().to_string(),
+                source: None,
+            });
+        }
+
+        let content =
+            fs::read_to_string(&novel_file)
+                .await
+                .map_err(|e| BookStorageError::BackendError {
+                    source: Some(eyre::eyre!("Failed to read novel file: {}", e)),
+                })?;
+
+        // Parse the combined JSON
+        let combined: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| BookStorageError::DataConversionError {
+                message: "Failed to parse novel file".to_string(),
+                source: Some(eyre::eyre!("JSON error: {}", e)),
+            })?;
+
+        // Extract and convert the novel part
+        let novel_value = combined["novel"].clone();
+        let novel_json = serde_json::to_string(&novel_value).map_err(|e| {
+            BookStorageError::DataConversionError {
+                message: "Failed to extract novel data".to_string(),
+                source: Some(eyre::eyre!("JSON error: {}", e)),
+            }
+        })?;
+        let novel = novel_from_json(&novel_json)?;
+
+        // Extract and convert the metadata part
+        let metadata_value = combined["metadata"].clone();
+        let metadata: NovelStorageMetadata =
+            serde_json::from_value(metadata_value).map_err(|e| {
+                BookStorageError::DataConversionError {
+                    message: "Failed to extract metadata".to_string(),
+                    source: Some(eyre::eyre!("JSON error: {}", e)),
+                }
+            })?;
+
+        Ok((novel, metadata))
+    }
+
+    /// Write the combined novel file structure (novel + metadata) atomically
+    async fn write_novel_file_combined(
+        &self,
+        novel_id: &NovelId,
+        novel: &Novel,
+        metadata: &NovelStorageMetadata,
+    ) -> Result<()> {
+        let novel_file = self.get_novel_file(novel_id);
+
+        // Create directory structure
+        if let Some(parent) = novel_file.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| BookStorageError::BackendError {
+                    source: Some(eyre::eyre!("Failed to create novel directory: {}", e)),
+                })?;
+        }
+
+        // Convert novel to JSON
+        let novel_json = novel_to_json(novel)?;
+        let novel_value = serde_json::from_str::<serde_json::Value>(&novel_json).map_err(|e| {
+            BookStorageError::DataConversionError {
+                message: "Failed to parse novel JSON".to_string(),
+                source: Some(eyre::eyre!("JSON error: {}", e)),
+            }
+        })?;
+
+        // Convert metadata to JSON value
+        let metadata_value =
+            serde_json::to_value(metadata).map_err(|e| BookStorageError::DataConversionError {
+                message: "Failed to serialize metadata".to_string(),
+                source: Some(eyre::eyre!("JSON error: {}", e)),
+            })?;
+
+        // Create combined JSON structure
+        let combined = serde_json::json!({
+            "novel": novel_value,
+            "metadata": metadata_value
+        });
+
+        let combined_json = serde_json::to_string_pretty(&combined).map_err(|e| {
+            BookStorageError::DataConversionError {
+                message: "Failed to create combined JSON".to_string(),
+                source: Some(eyre::eyre!("JSON error: {}", e)),
+            }
+        })?;
+
+        // Write atomically using a temporary file
+        let temp_file = novel_file.with_extension("tmp");
+        fs::write(&temp_file, &combined_json).await.map_err(|e| {
+            BookStorageError::BackendError {
+                source: Some(eyre::eyre!("Failed to write temporary novel file: {}", e)),
+            }
+        })?;
+
+        // Atomic rename
+        fs::rename(&temp_file, &novel_file)
+            .await
+            .map_err(|e| BookStorageError::BackendError {
+                source: Some(eyre::eyre!("Failed to rename novel file: {}", e)),
+            })?;
+
+        Ok(())
+    }
+
+    /// Update only the metadata part of a stored novel
+    pub async fn update_novel_metadata(
+        &self,
+        novel_id: &NovelId,
+        metadata: NovelStorageMetadata,
+    ) -> Result<()> {
+        let (novel, _) = self.read_novel_file_combined(novel_id).await?;
+        self.write_novel_file_combined(novel_id, &novel, &metadata)
+            .await?;
+        Ok(())
+    }
+
+    /// Update the stored timestamp for a novel without changing its content
+    pub async fn touch_novel(&self, novel_id: &NovelId) -> Result<()> {
+        let (novel, mut metadata) = self.read_novel_file_combined(novel_id).await?;
+        metadata.stored_at = Utc::now();
+        self.write_novel_file_combined(novel_id, &novel, &metadata)
+            .await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1763,7 +1797,7 @@ mod tests {
         let novel_id = storage.store_novel(&novel).await.unwrap();
 
         // Get the initial chapter info
-        let mut chapters = storage.list_chapters(&novel_id).await.unwrap();
+        let chapters = storage.list_chapters(&novel_id).await.unwrap();
         let mut chapter_info = chapters.into_iter().next().unwrap();
 
         // Initially no content
