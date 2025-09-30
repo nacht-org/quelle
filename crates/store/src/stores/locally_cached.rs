@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::error::Result;
@@ -22,16 +22,20 @@ use crate::{
     InstalledExtension, SearchQuery, StoreHealth, StoreManifest, UpdateInfo,
 };
 
+/// Synchronized sync state combining last sync time and mutex protection
+#[derive(Debug)]
+struct SyncState {
+    last_sync: Option<Instant>,
+}
+
 /// A store that syncs data from a provider and uses LocalStore for access
 pub struct LocallyCachedStore<T: StoreProvider> {
     provider: T,
     local_store: LocalStore,
     sync_dir: PathBuf,
     name: String,
-    /// Track last sync time to prevent redundancy
-    last_sync: Arc<RwLock<Option<Instant>>>,
-    /// Mutex to prevent concurrent syncs
-    sync_mutex: Arc<Mutex<()>>,
+    /// Combined sync state with mutex protection
+    sync_state: Arc<Mutex<SyncState>>,
 }
 
 impl<T: StoreProvider> LocallyCachedStore<T> {
@@ -43,8 +47,7 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
             local_store,
             sync_dir,
             name,
-            last_sync: Arc::new(RwLock::new(None)),
-            sync_mutex: Arc::new(Mutex::new(())),
+            sync_state: Arc::new(Mutex::new(SyncState { last_sync: None })),
         })
     }
 
@@ -65,34 +68,20 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
 
     /// Ensure the store is synced and ready for use with time-based caching
     async fn ensure_synced(&self) -> Result<Option<SyncResult>> {
-        // Check if we've synced recently
         const SYNC_CACHE_DURATION: Duration = Duration::from_secs(30);
 
-        {
-            let last_sync = self.last_sync.read().await;
-            if let Some(sync_time) = *last_sync {
-                if sync_time.elapsed() < SYNC_CACHE_DURATION {
-                    debug!(
-                        "Skipping sync for store '{}' - synced {} seconds ago",
-                        self.name,
-                        sync_time.elapsed().as_secs()
-                    );
-                    return Ok(None);
-                }
-            }
-        }
+        // Acquire sync state lock - this serves as both cache check and concurrency protection
+        let mut sync_state = self.sync_state.lock().await;
 
-        // Acquire sync mutex to prevent concurrent syncs
-        let _sync_guard = self.sync_mutex.lock().await;
-
-        // Double-check after acquiring lock (another thread might have synced)
-        {
-            let last_sync = self.last_sync.read().await;
-            if let Some(sync_time) = *last_sync {
-                if sync_time.elapsed() < SYNC_CACHE_DURATION {
-                    debug!("Sync completed by another thread for store '{}'", self.name);
-                    return Ok(None);
-                }
+        // Check if we've synced recently
+        if let Some(sync_time) = sync_state.last_sync {
+            if sync_time.elapsed() < SYNC_CACHE_DURATION {
+                debug!(
+                    "Skipping sync for store '{}' - synced {} seconds ago",
+                    self.name,
+                    sync_time.elapsed().as_secs()
+                );
+                return Ok(None);
             }
         }
 
@@ -116,10 +105,7 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
                 }
 
                 // Update last sync time
-                {
-                    let mut last_sync = self.last_sync.write().await;
-                    *last_sync = Some(Instant::now());
-                }
+                sync_state.last_sync = Some(Instant::now());
 
                 Ok(Some(result))
             }
@@ -127,10 +113,7 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
                 debug!("Store '{}' is up to date, no sync needed", self.name);
 
                 // Still update last sync time to prevent redundant checks
-                {
-                    let mut last_sync = self.last_sync.write().await;
-                    *last_sync = Some(Instant::now());
-                }
+                sync_state.last_sync = Some(Instant::now());
 
                 Ok(None)
             }
@@ -268,21 +251,20 @@ impl<T: StoreProvider> CacheableStore for LocallyCachedStore<T> {
         // Force a sync from the provider (bypass cache)
         debug!("Force refreshing cache for store '{}'", self.name);
 
-        // Clear last sync time to force fresh sync
-        {
-            let mut last_sync = self.last_sync.write().await;
-            *last_sync = None;
-        }
+        // Acquire sync state lock and force sync
+        let mut sync_state = self.sync_state.lock().await;
 
-        // Acquire sync mutex and force sync
-        let _sync_guard = self.sync_mutex.lock().await;
+        // Clear last sync time to force fresh sync
+        sync_state.last_sync = None;
+
+        // Force sync while holding the lock
         self.provider.sync(&self.sync_dir).await?;
 
         // Update last sync time
-        {
-            let mut last_sync = self.last_sync.write().await;
-            *last_sync = Some(Instant::now());
-        }
+        sync_state.last_sync = Some(Instant::now());
+
+        // Release the lock before refreshing local store cache
+        drop(sync_state);
 
         // Then refresh the local store cache
         self.local_store.refresh_cache().await
