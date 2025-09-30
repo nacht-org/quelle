@@ -10,6 +10,7 @@ use tokio::fs;
 use crate::error::{BookStorageError, Result};
 use crate::models::{
     chapter_content_from_json, chapter_content_to_json, novel_from_json, novel_to_json,
+    ContentIndex,
 };
 use crate::traits::BookStorage;
 use crate::types::{
@@ -45,6 +46,7 @@ pub struct FilesystemStorage {
 pub struct NovelStorageMetadata {
     pub source_id: String,
     pub stored_at: DateTime<Utc>,
+    pub content_index: ContentIndex,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -598,6 +600,7 @@ impl BookStorage for FilesystemStorage {
         let metadata = NovelStorageMetadata {
             source_id,
             stored_at: Utc::now(),
+            content_index: ContentIndex::default(),
         };
 
         // Use helper method to write combined structure
@@ -632,16 +635,9 @@ impl BookStorage for FilesystemStorage {
             });
         }
 
-        // Create updated metadata
-        let metadata = NovelStorageMetadata {
-            source_id: id
-                .as_str()
-                .split("::")
-                .next()
-                .unwrap_or("unknown")
-                .to_string(),
-            stored_at: Utc::now(),
-        };
+        // Read existing metadata to preserve content index
+        let (_, mut metadata) = self.read_novel_file_combined(id).await?;
+        metadata.stored_at = Utc::now();
 
         // Use helper method to write combined structure
         self.write_novel_file_combined(id, novel, &metadata).await?;
@@ -774,8 +770,17 @@ impl BookStorage for FilesystemStorage {
         // Update index to reflect the new stored chapter count
         self.update_index_stored_chapters(novel_id).await?;
 
-        // Create and return updated ChapterInfo
-        let novel =
+        // Update the novel structure to mark this chapter as having content
+        self.update_chapter_content_in_novel(
+            novel_id,
+            volume_index,
+            &normalized_chapter_url,
+            content_size,
+        )
+        .await?;
+
+        // Find and return the updated ChapterInfo
+        let updated_novel =
             self.get_novel(novel_id)
                 .await?
                 .ok_or_else(|| BookStorageError::NovelNotFound {
@@ -783,8 +788,7 @@ impl BookStorage for FilesystemStorage {
                     source: None,
                 })?;
 
-        // Find the chapter in the novel structure and return updated ChapterInfo
-        for volume in &novel.volumes {
+        for volume in &updated_novel.volumes {
             if volume.index == volume_index {
                 for chapter in &volume.chapters {
                     if chapter.url == normalized_chapter_url {
@@ -870,11 +874,15 @@ impl BookStorage for FilesystemStorage {
                 source: Some(eyre::eyre!("Failed to delete chapter file: {}", e)),
             })?;
 
+        // Update the novel structure to mark this chapter as having no content
+        self.remove_chapter_content_from_novel(novel_id, volume_index, &normalized_chapter_url)
+            .await?;
+
         // Update stored chapter count for the novel
         self.update_index_stored_chapters(novel_id).await?;
 
-        // Create and return updated ChapterInfo
-        let novel =
+        // Find and return the updated ChapterInfo
+        let updated_novel =
             self.get_novel(novel_id)
                 .await?
                 .ok_or_else(|| BookStorageError::NovelNotFound {
@@ -883,7 +891,7 @@ impl BookStorage for FilesystemStorage {
                 })?;
 
         // Find the chapter in the novel structure
-        for volume in &novel.volumes {
+        for volume in &updated_novel.volumes {
             if volume.index == volume_index {
                 for chapter in &volume.chapters {
                     if chapter.url == normalized_chapter_url {
@@ -968,71 +976,28 @@ impl BookStorage for FilesystemStorage {
     }
 
     async fn list_chapters(&self, novel_id: &NovelId) -> Result<Vec<ChapterInfo>> {
-        // Get the novel first to access chapter metadata
-        let novel = self.get_novel(novel_id).await?;
-        let novel = match novel {
-            Some(n) => n,
-            None => return Ok(Vec::new()),
-        };
+        // Read the novel structure and metadata
+        let (novel, metadata) = self.read_novel_file_combined(novel_id).await?;
 
         let mut chapter_infos = Vec::new();
 
-        // Iterate through volumes and chapters
+        // Iterate through volumes and chapters, using content index from metadata
         for volume in &novel.volumes {
             for chapter in &volume.chapters {
-                let chapter_file = self.get_chapter_file(novel_id, volume.index, &chapter.url);
-
-                let chapter_info = if chapter_file.exists() {
-                    if let Ok(content) = fs::read_to_string(&chapter_file).await {
-                        if let Ok(combined) = serde_json::from_str::<serde_json::Value>(&content) {
-                            // Extract metadata
-                            if let Some(metadata) = combined.get("metadata") {
-                                if let Ok(chapter_metadata) =
-                                    serde_json::from_value::<ChapterStorageMetadata>(
-                                        metadata.clone(),
-                                    )
-                                {
-                                    ChapterInfo::with_content(
-                                        volume.index,
-                                        chapter.url.clone(),
-                                        chapter.title.clone(),
-                                        chapter.index,
-                                        chapter_metadata.stored_at,
-                                        chapter_metadata.content_size,
-                                    )
-                                } else {
-                                    ChapterInfo::new(
-                                        volume.index,
-                                        chapter.url.clone(),
-                                        chapter.title.clone(),
-                                        chapter.index,
-                                    )
-                                }
-                            } else {
-                                ChapterInfo::new(
-                                    volume.index,
-                                    chapter.url.clone(),
-                                    chapter.title.clone(),
-                                    chapter.index,
-                                )
-                            }
-                        } else {
-                            ChapterInfo::new(
-                                volume.index,
-                                chapter.url.clone(),
-                                chapter.title.clone(),
-                                chapter.index,
-                            )
-                        }
-                    } else {
-                        ChapterInfo::new(
-                            volume.index,
-                            chapter.url.clone(),
-                            chapter.title.clone(),
-                            chapter.index,
-                        )
-                    }
+                let chapter_info = if let Some(content_metadata) =
+                    metadata.content_index.get_content_metadata(&chapter.url)
+                {
+                    // Chapter has content - create ChapterInfo with content metadata
+                    ChapterInfo::with_content(
+                        volume.index,
+                        chapter.url.clone(),
+                        chapter.title.clone(),
+                        chapter.index,
+                        content_metadata.stored_at,
+                        content_metadata.content_size,
+                    )
                 } else {
+                    // Chapter has no content
                     ChapterInfo::new(
                         volume.index,
                         chapter.url.clone(),
@@ -1327,13 +1292,19 @@ impl FilesystemStorage {
 
         // Extract and convert the metadata part
         let metadata_value = combined["metadata"].clone();
-        let metadata: NovelStorageMetadata =
+        let mut metadata: NovelStorageMetadata =
             serde_json::from_value(metadata_value).map_err(|e| {
                 BookStorageError::DataConversionError {
                     message: "Failed to extract metadata".to_string(),
                     source: Some(eyre::eyre!("JSON error: {}", e)),
                 }
             })?;
+
+        // Handle missing content_index field for backwards compatibility
+        if metadata.content_index.chapters.is_empty() {
+            // Initialize empty content index for existing novels
+            metadata.content_index = ContentIndex::default();
+        }
 
         Ok((novel, metadata))
     }
@@ -1421,6 +1392,49 @@ impl FilesystemStorage {
         metadata.stored_at = Utc::now();
         self.write_novel_file_combined(novel_id, &novel, &metadata)
             .await?;
+        Ok(())
+    }
+
+    /// Update a specific chapter's content status in the novel metadata
+    async fn update_chapter_content_in_novel(
+        &self,
+        novel_id: &NovelId,
+        _volume_index: i32,
+        chapter_url: &str,
+        content_size: u64,
+    ) -> Result<()> {
+        // Read the current novel file and extract both novel and metadata
+        let (novel, mut metadata) = self.read_novel_file_combined(novel_id).await?;
+
+        // Update the content index in metadata
+        metadata
+            .content_index
+            .mark_chapter_stored(chapter_url.to_string(), content_size);
+
+        // Save the updated metadata (novel content stays the same)
+        self.write_novel_file_combined(novel_id, &novel, &metadata)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Remove content status from a specific chapter in the novel metadata
+    async fn remove_chapter_content_from_novel(
+        &self,
+        novel_id: &NovelId,
+        _volume_index: i32,
+        chapter_url: &str,
+    ) -> Result<()> {
+        // Read the current novel file and extract both novel and metadata
+        let (novel, mut metadata) = self.read_novel_file_combined(novel_id).await?;
+
+        // Update the content index in metadata
+        metadata.content_index.mark_chapter_removed(chapter_url);
+
+        // Save the updated metadata (novel content stays the same)
+        self.write_novel_file_combined(novel_id, &novel, &metadata)
+            .await?;
+
         Ok(())
     }
 }

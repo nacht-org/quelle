@@ -7,9 +7,7 @@ use chrono::Utc;
 use quelle_storage::{
     backends::filesystem::{FilesystemStorage, NovelStorageMetadata},
     traits::BookStorage,
-    types::NovelId,
 };
-use std::path::Path;
 use tempfile::TempDir;
 
 #[tokio::main]
@@ -35,15 +33,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let custom_metadata = NovelStorageMetadata {
         source_id: "custom_source".to_string(),
         stored_at: Utc::now(),
+        content_index: quelle_storage::models::ContentIndex::default(),
     };
-    storage.update_novel_metadata(&novel_id, custom_metadata).await?;
+    storage
+        .update_novel_metadata(&novel_id, custom_metadata)
+        .await?;
     println!("✅ Novel metadata updated with custom source_id");
 
     // Scenario 3: Read the current metadata to check values
     println!("\n🔍 Reading current novel metadata...");
     if let Some(novel) = storage.get_novel(&novel_id).await? {
         println!("Novel title: {}", novel.title);
-        println!("Total chapters: {}", novel.volumes.iter().map(|v| v.chapters.len()).sum::<usize>());
+        println!(
+            "Total chapters: {}",
+            novel
+                .volumes
+                .iter()
+                .map(|v| v.chapters.len())
+                .sum::<usize>()
+        );
     }
 
     println!("\n💡 Benefits of these helper methods:");
@@ -56,8 +64,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn create_test_novel() -> quelle_storage::Novel {
-    use quelle_storage::Novel;
     use quelle_engine::bindings::quelle::extension::novel::{Chapter, NovelStatus, Volume};
+    use quelle_storage::Novel;
 
     Novel {
         url: "https://example.com/novel".to_string(),
@@ -65,26 +73,24 @@ fn create_test_novel() -> quelle_storage::Novel {
         authors: vec!["Test Author".to_string()],
         cover: None,
         description: vec!["A test novel for demonstration.".to_string()],
-        volumes: vec![
-            Volume {
-                name: "Volume 1".to_string(),
-                index: 1,
-                chapters: vec![
-                    Chapter {
-                        title: "Chapter 1: The Beginning".to_string(),
-                        index: 1,
-                        url: "https://example.com/chapter-1".to_string(),
-                        updated_at: None,
-                    },
-                    Chapter {
-                        title: "Chapter 2: The Journey".to_string(),
-                        index: 2,
-                        url: "https://example.com/chapter-2".to_string(),
-                        updated_at: None,
-                    },
-                ],
-            }
-        ],
+        volumes: vec![Volume {
+            name: "Volume 1".to_string(),
+            index: 1,
+            chapters: vec![
+                Chapter {
+                    title: "Chapter 1: The Beginning".to_string(),
+                    index: 1,
+                    url: "https://example.com/chapter-1".to_string(),
+                    updated_at: None,
+                },
+                Chapter {
+                    title: "Chapter 2: The Journey".to_string(),
+                    index: 2,
+                    url: "https://example.com/chapter-2".to_string(),
+                    updated_at: None,
+                },
+            ],
+        }],
         metadata: vec![],
         status: NovelStatus::Ongoing,
         langs: vec!["en".to_string()],
