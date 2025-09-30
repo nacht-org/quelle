@@ -587,20 +587,41 @@ impl BookStorage for FilesystemStorage {
                 })?;
         }
 
-        // Check if novel already exists
-        if novel_file.exists() {
-            tracing::info!("Novel manifest file already exists: {}", novel_id.as_str());
-        }
-
         // Normalize chapter URLs in the novel before storing
         let normalized_novel = self.normalize_novel_urls(novel);
 
-        // Create metadata
-        let source_id = self.extract_source_id(&normalized_url);
-        let metadata = NovelStorageMetadata {
-            source_id,
-            stored_at: Utc::now(),
-            content_index: ContentIndex::default(),
+        // Check if novel already exists and preserve existing metadata
+        let metadata = if novel_file.exists() {
+            tracing::info!(
+                "Novel manifest file already exists, preserving metadata: {}",
+                novel_id.as_str()
+            );
+            // Read existing metadata to preserve content index and other data
+            match self.read_novel_file_combined(&novel_id).await {
+                Ok((_, mut existing_metadata)) => {
+                    // Update timestamp but preserve everything else
+                    existing_metadata.stored_at = Utc::now();
+                    existing_metadata
+                }
+                Err(_) => {
+                    // Fallback if we can't read existing metadata
+                    tracing::warn!("Could not read existing metadata, creating new");
+                    let source_id = self.extract_source_id(&normalized_url);
+                    NovelStorageMetadata {
+                        source_id,
+                        stored_at: Utc::now(),
+                        content_index: crate::models::ContentIndex::default(),
+                    }
+                }
+            }
+        } else {
+            // Create new metadata for new novels
+            let source_id = self.extract_source_id(&normalized_url);
+            NovelStorageMetadata {
+                source_id,
+                stored_at: Utc::now(),
+                content_index: crate::models::ContentIndex::default(),
+            }
         };
 
         // Use helper method to write combined structure
