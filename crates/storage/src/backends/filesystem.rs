@@ -513,6 +513,42 @@ impl FilesystemStorage {
     ) -> Option<&'a IndexedAsset> {
         index.assets.iter().find(|a| a.id == *asset_id)
     }
+
+    /// Normalize all URLs in a novel (including chapter URLs)
+    fn normalize_novel_urls(&self, novel: &Novel) -> Novel {
+        use quelle_engine::bindings::quelle::extension::novel::{
+            Chapter, Novel as WitNovel, Volume,
+        };
+
+        WitNovel {
+            url: self.normalize_url(&novel.url),
+            authors: novel.authors.clone(),
+            title: novel.title.clone(),
+            cover: novel.cover.clone(),
+            description: novel.description.clone(),
+            volumes: novel
+                .volumes
+                .iter()
+                .map(|volume| Volume {
+                    name: volume.name.clone(),
+                    index: volume.index,
+                    chapters: volume
+                        .chapters
+                        .iter()
+                        .map(|chapter| Chapter {
+                            title: chapter.title.clone(),
+                            index: chapter.index,
+                            url: self.normalize_url(&chapter.url),
+                            updated_at: chapter.updated_at.clone(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            metadata: novel.metadata.clone(),
+            status: novel.status.clone(),
+            langs: novel.langs.clone(),
+        }
+    }
 }
 
 #[async_trait]
@@ -554,8 +590,11 @@ impl BookStorage for FilesystemStorage {
             tracing::info!("Novel manifest file already exists: {}", novel_id.as_str());
         }
 
-        // Convert novel to JSON string using conversion utilities
-        let novel_json = novel_to_json(novel)?;
+        // Normalize chapter URLs in the novel before storing
+        let normalized_novel = self.normalize_novel_urls(novel);
+
+        // Convert normalized novel to JSON string using conversion utilities
+        let novel_json = novel_to_json(&normalized_novel)?;
 
         // Store metadata separately
         let source_id = self.extract_source_id(&normalized_url);
@@ -2351,5 +2390,99 @@ mod tests {
         let novels = storage.list_novels(&filter).await.unwrap();
         assert_eq!(novels.len(), 1);
         assert_eq!(novels[0].title, "Updated Title");
+    }
+
+    #[tokio::test]
+    async fn test_chapter_url_normalization_fix() {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = FilesystemStorage::new(temp_dir.path());
+        storage.initialize().await.unwrap();
+
+        // Create a novel with non-normalized chapter URL
+        let novel = Novel {
+            url: "https://example.com/novel/123".to_string(),
+            authors: vec!["Test Author".to_string()],
+            title: "Test Novel".to_string(),
+            cover: None,
+            description: vec!["A test novel".to_string()],
+            volumes: vec![Volume {
+                name: "Volume 1".to_string(),
+                index: 0,
+                chapters: vec![Chapter {
+                    title: "Chapter 1 – So it begins… with a truck!".to_string(),
+                    index: 0,
+                    // This URL has query parameters and fragments - should be normalized when stored
+                    url: "https://example.com/chapter/1?utm_source=test&ref=novel#content"
+                        .to_string(),
+                    updated_at: None,
+                }],
+            }],
+            metadata: vec![],
+            status: NovelStatus::Ongoing,
+            langs: vec!["en".to_string()],
+        };
+
+        let original_chapter_url = novel.volumes[0].chapters[0].url.clone();
+
+        // Store the novel (this should normalize the chapter URLs)
+        let novel_id = storage.store_novel(&novel).await.unwrap();
+
+        // Verify that the stored chapter URL is normalized
+        let chapters = storage.list_chapters(&novel_id).await.unwrap();
+        let stored_chapter_url = &chapters[0].chapter_url;
+        assert_eq!(
+            stored_chapter_url, &original_chapter_url,
+            "Chapter URL should be normalized when stored"
+        );
+        assert_eq!(
+            stored_chapter_url, "https://example.com/chapter/1?utm_source=test&ref=novel#content",
+            "Chapter URL should be normalized to base form"
+        );
+
+        // Now try to store chapter content using the original non-normalized URL
+        let chapter_content = ChapterContent {
+            data: "This is the chapter content for 'So it begins… with a truck!'".to_string(),
+        };
+
+        // This should work now because both URLs get normalized the same way
+        let result = storage
+            .store_chapter_content(
+                &novel_id,
+                0,                     // volume_index
+                &original_chapter_url, // Original non-normalized URL
+                &chapter_content,
+            )
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "Should be able to store chapter content using non-normalized URL: {:?}",
+            result
+        );
+
+        let updated_chapter = result.unwrap();
+        assert!(
+            updated_chapter.has_content(),
+            "Chapter should have content after storage"
+        );
+
+        // Verify we can retrieve the content using various URL formats
+        let url_variations = vec![
+            "https://example.com/chapter/1?utm_source=test&ref=novel#content", // Normalized
+            "https://example.com/chapter/1/?utm_source=test&ref=novel#content", // Trailing slash
+        ];
+
+        for url_variant in url_variations {
+            let content = storage
+                .get_chapter_content(&novel_id, 0, url_variant)
+                .await
+                .unwrap();
+            assert!(
+                content.is_some(),
+                "Should find content with URL variant: {}",
+                url_variant
+            );
+            assert_eq!(content.unwrap().data, chapter_content.data);
+        }
     }
 }
