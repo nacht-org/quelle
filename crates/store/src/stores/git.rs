@@ -14,7 +14,6 @@ use crate::error::Result;
 use crate::stores::{
     locally_cached::LocallyCachedStore,
     providers::{GitAuth, GitProvider, GitReference},
-    traits::WritableStore,
 };
 
 /// Type alias for a git-based store
@@ -262,244 +261,26 @@ impl GitStore {
     }
 
     /// Check the git repository status
-    pub async fn check_git_status(&self) -> Result<crate::publish_git::GitStatus> {
+    pub async fn check_git_status(&self) -> Result<crate::stores::providers::git::GitStatus> {
         self.provider().check_repository_status().await
     }
 
-    /// Initialize the git repository with a basic store structure
-    pub async fn initialize_repository(
-        &self,
-        config: crate::publish_git::GitInitConfig,
-    ) -> Result<crate::publish_git::GitInitResult> {
-        self.provider().initialize_repository(config).await
-    }
-
-    /// Publish an extension to the git repository
+    /// Publish an extension with git workflow (commit and push)
     pub async fn publish_extension(
         &self,
-        package: &crate::ExtensionPackage,
-    ) -> Result<crate::publish_git::GitPublishResult> {
-        use crate::publish_git::GitPublishResult;
-        use std::path::PathBuf;
-
-        // Ensure we're synced first
-        self.ensure_synced().await?;
-
-        // Check repository status - must be clean before publishing
-        let status = self.check_git_status().await?;
-        if !status.is_publishable() {
-            if let Some(reason) = status.publish_blocking_reason() {
-                return Ok(GitPublishResult::failure(
-                    package.manifest.id.clone(),
-                    package.manifest.version.to_string(),
-                    format!("Cannot publish: {}", reason),
-                ));
-            }
-        }
-
-        // Publish to local store first
-        let _publish_result = self
-            .local_store()
-            .publish(package.clone(), crate::publish::PublishOptions::default())
-            .await?;
-
-        // Determine which files were affected
-        let extension_dir = self.sync_dir().join(&package.manifest.id);
-        let affected_files = vec![
-            PathBuf::from("store.json"), // Store manifest always updated
-            extension_dir
-                .strip_prefix(self.sync_dir())
-                .unwrap()
-                .to_path_buf(),
-        ];
-
-        // Note: PublishResult doesn't have modified_files field in current implementation
-        // This would need to be added if we want to track specific files
-
-        // Git operations
-        match self.git_publish_workflow(package, &affected_files).await {
-            Ok((commit_hash, branch)) => Ok(GitPublishResult::success(
-                commit_hash,
-                branch,
-                affected_files,
-                package.manifest.id.clone(),
-                package.manifest.version.to_string(),
-            )),
-            Err(e) => Ok(GitPublishResult::failure(
-                package.manifest.id.clone(),
-                package.manifest.version.to_string(),
-                format!("Git operation failed: {}", e),
-            )),
-        }
+        package: crate::ExtensionPackage,
+        options: crate::publish::PublishOptions,
+    ) -> Result<crate::publish::PublishResult> {
+        self.publish_with_git(package, options).await
     }
 
-    /// Unpublish an extension from the git repository
+    /// Unpublish an extension with git workflow (commit and push)
     pub async fn unpublish_extension(
         &self,
         extension_id: &str,
-        version: &str,
-    ) -> Result<crate::publish_git::GitPublishResult> {
-        use crate::publish_git::GitPublishResult;
-        use std::path::PathBuf;
-
-        // Ensure we're synced first
-        self.ensure_synced().await?;
-
-        // Check repository status - must be clean before unpublishing
-        let status = self.check_git_status().await?;
-        if !status.is_publishable() {
-            if let Some(reason) = status.publish_blocking_reason() {
-                return Ok(GitPublishResult::failure(
-                    extension_id.to_string(),
-                    version.to_string(),
-                    format!("Cannot unpublish: {}", reason),
-                ));
-            }
-        }
-
-        // Unpublish from local store first
-        let _unpublish_result = self
-            .local_store()
-            .unpublish(extension_id, crate::publish::UnpublishOptions::new())
-            .await?;
-
-        // Determine affected files
-        let affected_files = vec![
-            PathBuf::from("store.json"), // Store manifest always updated
-        ];
-
-        // Create a dummy manifest for commit message
-        let dummy_manifest = crate::manifest::ExtensionManifest {
-            id: extension_id.to_string(),
-            name: extension_id.to_string(),
-            version: version.to_string(),
-            author: String::new(),
-            langs: Vec::new(),
-            base_urls: Vec::new(),
-            rds: Vec::new(),
-            attrs: Vec::new(),
-            checksum: crate::manifest::Checksum {
-                algorithm: crate::manifest::ChecksumAlgorithm::Sha256,
-                value: String::new(),
-            },
-            signature: None,
-        };
-
-        let dummy_package =
-            crate::ExtensionPackage::new(dummy_manifest, Vec::new(), "git".to_string());
-
-        // Git operations
-        match self
-            .git_unpublish_workflow(&dummy_package, &affected_files)
-            .await
-        {
-            Ok((commit_hash, branch)) => Ok(GitPublishResult::success(
-                commit_hash,
-                branch,
-                affected_files,
-                extension_id.to_string(),
-                version.to_string(),
-            )),
-            Err(e) => Ok(GitPublishResult::failure(
-                extension_id.to_string(),
-                version.to_string(),
-                format!("Git operation failed: {}", e),
-            )),
-        }
-    }
-
-    /// Internal workflow for git publishing operations
-    async fn git_publish_workflow(
-        &self,
-        package: &crate::ExtensionPackage,
-        affected_files: &[PathBuf],
-    ) -> Result<(String, String)> {
-        let provider = self.provider();
-        let write_config = provider.write_config.as_ref().ok_or_else(|| {
-            crate::error::GitStoreError::NoWritePermission {
-                url: provider.url().to_string(),
-            }
-        })?;
-
-        // Convert relative paths to absolute paths for git operations
-        let absolute_files: Vec<PathBuf> = affected_files
-            .iter()
-            .map(|path| provider.cache_dir().join(path))
-            .collect();
-
-        // Stage changes
-        provider.git_add(&absolute_files).await?;
-
-        // Create commit message
-        let commit_message = write_config
-            .commit_message_template
-            .replace("{action}", "Add")
-            .replace("{extension_id}", &package.manifest.id)
-            .replace("{version}", &package.manifest.version.to_string());
-
-        // Commit changes
-        let commit_hash = provider.git_commit(&commit_message).await?;
-
-        // Get current branch
-        let current_branch = self
-            .check_git_status()
-            .await?
-            .current_branch
-            .unwrap_or_else(|| "main".to_string());
-
-        // Push if auto-push is enabled
-        if write_config.auto_push {
-            provider.git_push().await?;
-        }
-
-        Ok((commit_hash, current_branch))
-    }
-
-    /// Internal workflow for git unpublishing operations
-    async fn git_unpublish_workflow(
-        &self,
-        package: &crate::ExtensionPackage,
-        affected_files: &[PathBuf],
-    ) -> Result<(String, String)> {
-        let provider = self.provider();
-        let write_config = provider.write_config.as_ref().ok_or_else(|| {
-            crate::error::GitStoreError::NoWritePermission {
-                url: provider.url().to_string(),
-            }
-        })?;
-
-        // Convert relative paths to absolute paths for git operations
-        let absolute_files: Vec<PathBuf> = affected_files
-            .iter()
-            .map(|path| provider.cache_dir().join(path))
-            .collect();
-
-        // Stage changes
-        provider.git_add(&absolute_files).await?;
-
-        // Create commit message
-        let commit_message = write_config
-            .commit_message_template
-            .replace("{action}", "Remove")
-            .replace("{extension_id}", &package.manifest.id)
-            .replace("{version}", &package.manifest.version.to_string());
-
-        // Commit changes
-        let commit_hash = provider.git_commit(&commit_message).await?;
-
-        // Get current branch
-        let current_branch = self
-            .check_git_status()
-            .await?
-            .current_branch
-            .unwrap_or_else(|| "main".to_string());
-
-        // Push if auto-push is enabled
-        if write_config.auto_push {
-            provider.git_push().await?;
-        }
-
-        Ok((commit_hash, current_branch))
+        options: crate::publish::UnpublishOptions,
+    ) -> Result<crate::publish::UnpublishResult> {
+        self.unpublish_with_git(extension_id, options).await
     }
 }
 

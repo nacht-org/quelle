@@ -541,11 +541,113 @@ impl StoreProvider for GitProvider {
 }
 
 #[cfg(feature = "git")]
+/// Git repository status information
+#[derive(Debug, Clone)]
+pub struct GitStatus {
+    /// Whether the working directory is clean
+    pub is_clean: bool,
+    /// List of modified files
+    pub modified_files: Vec<PathBuf>,
+    /// List of untracked files
+    pub untracked_files: Vec<PathBuf>,
+    /// List of staged files
+    pub staged_files: Vec<PathBuf>,
+    /// Current branch name
+    pub current_branch: Option<String>,
+    /// Current commit hash
+    pub current_commit: Option<String>,
+    /// Whether the repository exists
+    pub repository_exists: bool,
+}
+
+impl GitStatus {
+    /// Create a clean git status
+    pub fn clean(branch: Option<String>, commit: Option<String>) -> Self {
+        Self {
+            is_clean: true,
+            modified_files: Vec::new(),
+            untracked_files: Vec::new(),
+            staged_files: Vec::new(),
+            current_branch: branch,
+            current_commit: commit,
+            repository_exists: true,
+        }
+    }
+
+    /// Create a dirty git status
+    pub fn dirty(
+        modified_files: Vec<PathBuf>,
+        untracked_files: Vec<PathBuf>,
+        staged_files: Vec<PathBuf>,
+        branch: Option<String>,
+        commit: Option<String>,
+    ) -> Self {
+        Self {
+            is_clean: false,
+            modified_files,
+            untracked_files,
+            staged_files,
+            current_branch: branch,
+            current_commit: commit,
+            repository_exists: true,
+        }
+    }
+
+    /// Create status for non-existent repository
+    pub fn not_exists() -> Self {
+        Self {
+            is_clean: false,
+            modified_files: Vec::new(),
+            untracked_files: Vec::new(),
+            staged_files: Vec::new(),
+            current_branch: None,
+            current_commit: None,
+            repository_exists: false,
+        }
+    }
+
+    /// Check if the repository is in a publishable state
+    pub fn is_publishable(&self) -> bool {
+        self.repository_exists && self.is_clean
+    }
+
+    /// Get a human-readable description of why publishing is not possible
+    pub fn publish_blocking_reason(&self) -> Option<String> {
+        if !self.repository_exists {
+            return Some("Repository does not exist".to_string());
+        }
+
+        if !self.is_clean {
+            let mut reasons = Vec::new();
+
+            if !self.modified_files.is_empty() {
+                reasons.push(format!("{} modified files", self.modified_files.len()));
+            }
+
+            if !self.untracked_files.is_empty() {
+                reasons.push(format!("{} untracked files", self.untracked_files.len()));
+            }
+
+            if !self.staged_files.is_empty() {
+                reasons.push(format!("{} staged files", self.staged_files.len()));
+            }
+
+            if !reasons.is_empty() {
+                return Some(format!(
+                    "Repository has uncommitted changes: {}",
+                    reasons.join(", ")
+                ));
+            }
+        }
+
+        None
+    }
+}
+
 impl GitProvider {
     /// Check if the repository is in a clean state (no uncommitted changes)
-    pub async fn check_repository_status(&self) -> Result<crate::publish_git::GitStatus> {
+    pub async fn check_repository_status(&self) -> Result<GitStatus> {
         use crate::error::GitStoreError;
-        use crate::publish_git::GitStatus;
         use git2::{Repository, Status, StatusOptions};
         use std::path::Path;
 
@@ -777,95 +879,6 @@ impl GitProvider {
             })?;
 
         Ok(())
-    }
-
-    /// Initialize a new git repository with store structure
-    pub async fn initialize_repository(
-        &self,
-        config: crate::publish_git::GitInitConfig,
-    ) -> Result<crate::publish_git::GitInitResult> {
-        use crate::error::GitStoreError;
-        use crate::publish_git::GitInitResult;
-        use crate::store_manifest::StoreManifest;
-        use git2::{Repository, Signature};
-        use tokio::fs;
-
-        let repo_path = &self.cache_dir;
-
-        // Check if repository already exists
-        let created_new = if repo_path.join(".git").exists() {
-            false
-        } else {
-            // Create directory if it doesn't exist
-            fs::create_dir_all(repo_path)
-                .await
-                .map_err(|e| GitStoreError::Io(e))?;
-
-            // Initialize git repository
-            Repository::init(repo_path).map_err(|e| GitStoreError::Git(e))?;
-
-            // Create store manifest
-            let store_manifest = StoreManifest::new(
-                config.store_name.clone(),
-                "git".to_string(),
-                config.store_version.clone(),
-            )
-            .with_description(config.store_description.unwrap_or_default());
-
-            let manifest_path = repo_path.join("store.json");
-            let manifest_content = serde_json::to_string_pretty(&store_manifest).map_err(|e| {
-                GitStoreError::Git(git2::Error::from_str(&format!(
-                    "JSON serialization error: {}",
-                    e
-                )))
-            })?;
-
-            fs::write(&manifest_path, manifest_content)
-                .await
-                .map_err(|e| GitStoreError::Io(e))?;
-
-            true
-        };
-
-        // Create initial commit if requested and repository was newly created
-        let initial_commit = if created_new && config.create_initial_commit {
-            let repo = Repository::open(repo_path).map_err(|e| GitStoreError::Git(e))?;
-
-            let mut index = repo.index().map_err(|e| GitStoreError::Git(e))?;
-
-            index
-                .add_path(std::path::Path::new("store.json"))
-                .map_err(|e| GitStoreError::Git(e))?;
-
-            index.write().map_err(|e| GitStoreError::Git(e))?;
-
-            let tree_id = index.write_tree().map_err(|e| GitStoreError::Git(e))?;
-            let tree = repo.find_tree(tree_id).map_err(|e| GitStoreError::Git(e))?;
-
-            let signature = Signature::now(&config.author.name, &config.author.email)
-                .map_err(|e| GitStoreError::Git(e))?;
-
-            let commit_id = repo
-                .commit(
-                    Some("HEAD"),
-                    &signature,
-                    &signature,
-                    &config.initial_commit_message,
-                    &tree,
-                    &[],
-                )
-                .map_err(|e| GitStoreError::Git(e))?;
-
-            Some(commit_id.to_string())
-        } else {
-            None
-        };
-
-        Ok(GitInitResult::success(
-            repo_path.clone(),
-            initial_commit,
-            created_new,
-        ))
     }
 }
 

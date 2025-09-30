@@ -11,4 +11,4 @@ pub mod git;
 pub use traits::{StoreProvider, SyncResult};
 
 #[cfg(feature = "git")]
-pub use git::{GitAuth, GitProvider, GitReference};
+pub use git::{GitAuth, GitProvider, GitReference, GitStatus};

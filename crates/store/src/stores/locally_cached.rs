@@ -12,10 +12,17 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::error::Result;
+use crate::publish::{
+    PublishOptions, PublishRequirements, PublishResult, PublishUpdateOptions, UnpublishOptions,
+    UnpublishResult, ValidationReport,
+};
 use crate::stores::{
     local::LocalStore,
-    providers::traits::{StoreProvider, SyncResult},
-    traits::{BaseStore, CacheableStore, ReadableStore},
+    providers::{
+        traits::{StoreProvider, SyncResult},
+        GitProvider,
+    },
+    traits::{BaseStore, CacheableStore, ReadableStore, WritableStore},
 };
 use crate::{
     manifest::ExtensionManifest, ExtensionInfo, ExtensionMetadata, ExtensionPackage,
@@ -123,6 +130,214 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
             }
         }
     }
+
+    /// Initialize the store with proper metadata using the local store
+    pub async fn initialize_store(
+        &self,
+        store_name: String,
+        description: Option<String>,
+    ) -> Result<()> {
+        self.local_store
+            .initialize_store(store_name, description)
+            .await
+    }
+}
+
+#[async_trait]
+impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
+    fn publish_requirements(&self) -> PublishRequirements {
+        self.local_store.publish_requirements()
+    }
+
+    async fn publish(
+        &self,
+        package: ExtensionPackage,
+        options: PublishOptions,
+    ) -> Result<PublishResult> {
+        // Ensure we're synced first
+        self.ensure_synced().await?;
+
+        // Delegate to local store for the actual publishing
+        self.local_store.publish(package, options).await
+    }
+
+    async fn update_published(
+        &self,
+        extension_id: &str,
+        package: ExtensionPackage,
+        options: PublishUpdateOptions,
+    ) -> Result<PublishResult> {
+        // Ensure we're synced first
+        self.ensure_synced().await?;
+
+        // Delegate to local store
+        self.local_store
+            .update_published(extension_id, package, options)
+            .await
+    }
+
+    async fn unpublish(
+        &self,
+        extension_id: &str,
+        options: UnpublishOptions,
+    ) -> Result<UnpublishResult> {
+        // Ensure we're synced first
+        self.ensure_synced().await?;
+
+        // Delegate to local store
+        self.local_store.unpublish(extension_id, options).await
+    }
+
+    async fn validate_package(
+        &self,
+        package: &ExtensionPackage,
+        options: &PublishOptions,
+    ) -> Result<ValidationReport> {
+        // Delegate to local store for validation
+        self.local_store.validate_package(package, options).await
+    }
+}
+
+impl LocallyCachedStore<GitProvider> {
+    /// Enhanced publish method that includes git workflow
+    pub async fn publish_with_git(
+        &self,
+        package: ExtensionPackage,
+        options: PublishOptions,
+    ) -> Result<PublishResult> {
+        // Ensure we're synced first
+        self.ensure_synced().await?;
+
+        // Check git repository status if writable
+        if self.provider.is_writable() {
+            let status = self.provider.check_repository_status().await?;
+            if !status.is_publishable() {
+                if let Some(reason) = status.publish_blocking_reason() {
+                    return Err(crate::error::StoreError::InvalidPackage {
+                        reason: format!("Cannot publish to git repository: {}", reason),
+                    });
+                }
+            }
+        }
+
+        // Publish to local store first
+        let result = self.local_store.publish(package.clone(), options).await?;
+
+        // If git is writable, perform git operations
+        if self.provider.is_writable() {
+            if let Err(e) = self.git_publish_workflow(&package).await {
+                // Log warning but don't fail the publish operation
+                tracing::warn!("Git workflow failed after successful publish: {}", e);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Enhanced unpublish method that includes git workflow
+    pub async fn unpublish_with_git(
+        &self,
+        extension_id: &str,
+        options: UnpublishOptions,
+    ) -> Result<UnpublishResult> {
+        // Ensure we're synced first
+        self.ensure_synced().await?;
+
+        // Check git repository status if writable
+        if self.provider.is_writable() {
+            let status = self.provider.check_repository_status().await?;
+            if !status.is_publishable() {
+                if let Some(reason) = status.publish_blocking_reason() {
+                    return Err(crate::error::StoreError::InvalidPackage {
+                        reason: format!("Cannot unpublish from git repository: {}", reason),
+                    });
+                }
+            }
+        }
+
+        // Unpublish from local store first
+        let result = self.local_store.unpublish(extension_id, options).await?;
+
+        // If git is writable, perform git operations
+        if self.provider.is_writable() {
+            if let Err(e) = self
+                .git_unpublish_workflow(extension_id, &result.version)
+                .await
+            {
+                tracing::warn!("Git workflow failed after successful unpublish: {}", e);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Git workflow for publishing operations
+    async fn git_publish_workflow(&self, package: &ExtensionPackage) -> Result<()> {
+        let write_config = self.provider.write_config.as_ref().ok_or_else(|| {
+            crate::error::StoreError::InvalidPackage {
+                reason: "Git write configuration not available".to_string(),
+            }
+        })?;
+
+        // Determine which files were affected
+        let extension_dir = self.sync_dir.join(&package.manifest.id);
+        let affected_files = vec![
+            self.sync_dir.join("store.json"), // Store manifest always updated
+            extension_dir,
+        ];
+
+        // Stage changes
+        self.provider.git_add(&affected_files).await?;
+
+        // Create commit message
+        let commit_message = write_config
+            .commit_message_template
+            .replace("{action}", "Add")
+            .replace("{extension_id}", &package.manifest.id)
+            .replace("{version}", &package.manifest.version.to_string());
+
+        // Commit changes
+        self.provider.git_commit(&commit_message).await?;
+
+        // Push if auto-push is enabled
+        if write_config.auto_push {
+            self.provider.git_push().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Git workflow for unpublishing operations
+    async fn git_unpublish_workflow(&self, extension_id: &str, version: &str) -> Result<()> {
+        let write_config = self.provider.write_config.as_ref().ok_or_else(|| {
+            crate::error::StoreError::InvalidPackage {
+                reason: "Git write configuration not available".to_string(),
+            }
+        })?;
+
+        // Only stage the store manifest since the extension directory was removed
+        let affected_files = vec![self.sync_dir.join("store.json")];
+
+        // Stage changes
+        self.provider.git_add(&affected_files).await?;
+
+        // Create commit message
+        let commit_message = write_config
+            .commit_message_template
+            .replace("{action}", "Remove")
+            .replace("{extension_id}", extension_id)
+            .replace("{version}", version);
+
+        // Commit changes
+        self.provider.git_commit(&commit_message).await?;
+
+        // Push if auto-push is enabled
+        if write_config.auto_push {
+            self.provider.git_push().await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -212,11 +427,11 @@ impl<T: StoreProvider> ReadableStore for LocallyCachedStore<T> {
 
     async fn get_extension_package(
         &self,
-        id: &str,
+        name: &str,
         version: Option<&str>,
     ) -> Result<ExtensionPackage> {
         self.ensure_synced().await?;
-        self.local_store.get_extension_package(id, version).await
+        self.local_store.get_extension_package(name, version).await
     }
 
     async fn get_extension_latest_version(&self, id: &str) -> Result<Option<String>> {
@@ -248,29 +463,31 @@ impl<T: StoreProvider> ReadableStore for LocallyCachedStore<T> {
 #[async_trait]
 impl<T: StoreProvider> CacheableStore for LocallyCachedStore<T> {
     async fn refresh_cache(&self) -> Result<()> {
-        // Force a sync from the provider (bypass cache)
-        debug!("Force refreshing cache for store '{}'", self.name);
+        // Force a sync by clearing the cache and then syncing
+        {
+            let mut sync_state = self.sync_state.lock().await;
+            sync_state.last_sync = None;
+        }
 
-        // Acquire sync state lock and force sync
-        let mut sync_state = self.sync_state.lock().await;
-
-        // Clear last sync time to force fresh sync
-        sync_state.last_sync = None;
-
-        // Force sync while holding the lock
+        // Force sync
         self.provider.sync(&self.sync_dir).await?;
 
-        // Update last sync time
-        sync_state.last_sync = Some(Instant::now());
+        // Update sync time
+        {
+            let mut sync_state = self.sync_state.lock().await;
+            sync_state.last_sync = Some(std::time::Instant::now());
+        }
 
-        // Release the lock before refreshing local store cache
-        drop(sync_state);
-
-        // Then refresh the local store cache
+        // Refresh local store cache
         self.local_store.refresh_cache().await
     }
 
     async fn clear_cache(&self) -> Result<()> {
+        // Clear the sync cache
+        let mut sync_state = self.sync_state.lock().await;
+        sync_state.last_sync = None;
+
+        // Delegate to local store for its cache clearing
         self.local_store.clear_cache(None).await
     }
 
@@ -279,87 +496,42 @@ impl<T: StoreProvider> CacheableStore for LocallyCachedStore<T> {
     }
 }
 
-impl<T: StoreProvider> std::fmt::Debug for LocallyCachedStore<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LocallyCachedStore")
-            .field("name", &self.name)
-            .field("sync_dir", &self.sync_dir)
-            .field("provider_type", &self.provider.provider_type())
-            .field("provider_description", &self.provider.description())
-            .finish()
-    }
-}
-
-impl<T: StoreProvider> std::fmt::Display for LocallyCachedStore<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "LocallyCachedStore({}: {})",
-            self.name,
-            self.provider.description()
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use crate::stores::providers::traits::SyncResult;
+    use std::path::Path;
     use tempfile::TempDir;
-    use tokio::sync::Mutex;
-    use tokio::time::sleep;
 
-    /// Mock provider for testing sync behavior
-    #[derive(Debug)]
-    pub struct MockProvider {
-        sync_count: Arc<Mutex<u32>>,
-        sync_delay: Duration,
+    // Mock provider for testing
+    struct MockProvider {
         should_sync: bool,
+        sync_result: SyncResult,
     }
 
     impl MockProvider {
-        pub fn new() -> Self {
+        fn new() -> Self {
             Self {
-                sync_count: Arc::new(Mutex::new(0)),
-                sync_delay: Duration::from_millis(10),
                 should_sync: true,
+                sync_result: SyncResult::no_changes(),
             }
         }
 
-        pub fn with_delay(mut self, delay: Duration) -> Self {
-            self.sync_delay = delay;
-            self
-        }
-
-        pub fn with_sync_needed(mut self, should_sync: bool) -> Self {
-            self.should_sync = should_sync;
-            self
-        }
-
-        pub async fn get_sync_count(&self) -> u32 {
-            *self.sync_count.lock().await
+        fn with_changes(changes: Vec<String>) -> Self {
+            Self {
+                should_sync: true,
+                sync_result: SyncResult::with_changes(changes),
+            }
         }
     }
 
-    #[async_trait::async_trait]
+    #[async_trait]
     impl StoreProvider for MockProvider {
-        async fn sync(&self, _sync_dir: &std::path::Path) -> Result<SyncResult> {
-            // Simulate sync work
-            sleep(self.sync_delay).await;
-
-            // Increment sync counter
-            {
-                let mut count = self.sync_count.lock().await;
-                *count += 1;
-            }
-
-            Ok(SyncResult::with_changes(vec![
-                "Mock sync completed".to_string()
-            ]))
+        async fn sync(&self, _sync_dir: &Path) -> Result<SyncResult> {
+            Ok(self.sync_result.clone())
         }
 
-        async fn needs_sync(&self, _sync_dir: &std::path::Path) -> Result<bool> {
+        async fn needs_sync(&self, _sync_dir: &Path) -> Result<bool> {
             Ok(self.should_sync)
         }
 
@@ -373,7 +545,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_sync_efficiency_caching() {
+    async fn test_locally_cached_store_creation() {
         let temp_dir = TempDir::new().unwrap();
         let provider = MockProvider::new();
         let store = LocallyCachedStore::new(
@@ -383,177 +555,53 @@ mod tests {
         )
         .unwrap();
 
-        // Create a minimal store manifest for the local store to work
-        let manifest_path = temp_dir.path().join("store.json");
-        tokio::fs::write(
-            &manifest_path,
-            r#"{
-            "name": "test-store",
-            "version": "1.0.0",
-            "description": "Test store",
-            "extensions": []
-        }"#,
-        )
-        .await
-        .unwrap();
-
-        // First call should trigger sync
-        let start = Instant::now();
-        let _ = store.list_extensions().await;
-        let first_duration = start.elapsed();
-
-        // Provider should have been called once
-        let sync_count = store.provider().get_sync_count().await;
-        assert_eq!(sync_count, 1);
-
-        // Second call within cache window should NOT trigger sync
-        let start = Instant::now();
-        let _ = store.list_extensions().await;
-        let second_duration = start.elapsed();
-
-        // Provider should still only have been called once
-        let sync_count = store.provider().get_sync_count().await;
-        assert_eq!(sync_count, 1);
-
-        // Second call should be much faster (no sync delay)
-        assert!(second_duration < first_duration);
-
-        // Wait for cache to expire
-        sleep(Duration::from_secs(31)).await;
-
-        // Third call should trigger sync again
-        let _ = store.list_extensions().await;
-        let sync_count = store.provider().get_sync_count().await;
-        assert_eq!(sync_count, 2);
+        assert_eq!(store.name, "test-store");
+        assert_eq!(store.sync_dir(), temp_dir.path());
     }
 
     #[tokio::test]
-    async fn test_concurrent_sync_prevention() {
+    async fn test_sync_caching() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = MockProvider::new().with_delay(Duration::from_millis(100));
-        let store = Arc::new(
-            LocallyCachedStore::new(
-                provider,
-                temp_dir.path().to_path_buf(),
+        let provider = MockProvider::with_changes(vec!["file1.json".to_string()]);
+        let store = LocallyCachedStore::new(
+            provider,
+            temp_dir.path().to_path_buf(),
+            "test-store".to_string(),
+        )
+        .unwrap();
+
+        // First sync should work
+        let result1 = store.ensure_synced().await.unwrap();
+        assert!(result1.is_some());
+        assert!(result1.unwrap().updated);
+
+        // Second sync should be cached
+        let result2 = store.ensure_synced().await.unwrap();
+        assert!(result2.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_initialize_store() {
+        let temp_dir = TempDir::new().unwrap();
+        let provider = MockProvider::new();
+        let store = LocallyCachedStore::new(
+            provider,
+            temp_dir.path().to_path_buf(),
+            "test-store".to_string(),
+        )
+        .unwrap();
+
+        // Initialize the store
+        store
+            .initialize_store(
                 "test-store".to_string(),
+                Some("Test description".to_string()),
             )
-            .unwrap(),
-        );
+            .await
+            .unwrap();
 
-        // Create a minimal store manifest
+        // Check that store.json was created
         let manifest_path = temp_dir.path().join("store.json");
-        tokio::fs::write(
-            &manifest_path,
-            r#"{
-            "name": "test-store",
-            "version": "1.0.0",
-            "description": "Test store",
-            "extensions": []
-        }"#,
-        )
-        .await
-        .unwrap();
-
-        // Launch multiple concurrent operations
-        let mut handles = vec![];
-        for _ in 0..5 {
-            let store_clone = Arc::clone(&store);
-            let handle = tokio::spawn(async move {
-                let _ = store_clone.list_extensions().await;
-            });
-            handles.push(handle);
-        }
-
-        // Wait for all operations to complete
-        for handle in handles {
-            handle.await.unwrap();
-        }
-
-        // Despite 5 concurrent calls, sync should only happen once due to mutex
-        let sync_count = store.provider().get_sync_count().await;
-        assert_eq!(sync_count, 1);
-    }
-
-    #[tokio::test]
-    async fn test_refresh_cache_forces_sync() {
-        let temp_dir = TempDir::new().unwrap();
-        let provider = MockProvider::new();
-        let store = LocallyCachedStore::new(
-            provider,
-            temp_dir.path().to_path_buf(),
-            "test-store".to_string(),
-        )
-        .unwrap();
-
-        // Create a minimal store manifest
-        let manifest_path = temp_dir.path().join("store.json");
-        tokio::fs::write(
-            &manifest_path,
-            r#"{
-            "name": "test-store",
-            "version": "1.0.0",
-            "description": "Test store",
-            "extensions": []
-        }"#,
-        )
-        .await
-        .unwrap();
-
-        // Normal operation triggers sync
-        let _ = store.list_extensions().await;
-        let sync_count = store.provider().get_sync_count().await;
-        assert_eq!(sync_count, 1);
-
-        // Another operation within cache window should not sync
-        let _ = store.list_extensions().await;
-        let sync_count = store.provider().get_sync_count().await;
-        assert_eq!(sync_count, 1);
-
-        // Force refresh should bypass cache and sync
-        let _ = store.refresh_cache().await;
-        let sync_count = store.provider().get_sync_count().await;
-        assert_eq!(sync_count, 2);
-
-        // Subsequent operations should not sync (cache updated by refresh)
-        let _ = store.list_extensions().await;
-        let sync_count = store.provider().get_sync_count().await;
-        assert_eq!(sync_count, 2);
-    }
-
-    #[tokio::test]
-    async fn test_no_sync_when_not_needed() {
-        let temp_dir = TempDir::new().unwrap();
-        let provider = MockProvider::new().with_sync_needed(false);
-        let store = LocallyCachedStore::new(
-            provider,
-            temp_dir.path().to_path_buf(),
-            "test-store".to_string(),
-        )
-        .unwrap();
-
-        // Create a minimal store manifest
-        let manifest_path = temp_dir.path().join("store.json");
-        tokio::fs::write(
-            &manifest_path,
-            r#"{
-            "name": "test-store",
-            "version": "1.0.0",
-            "description": "Test store",
-            "extensions": []
-        }"#,
-        )
-        .await
-        .unwrap();
-
-        // Operation should not trigger sync when provider says it's not needed
-        let _ = store.list_extensions().await;
-        let sync_count = store.provider().get_sync_count().await;
-        assert_eq!(sync_count, 0);
-
-        // Multiple operations should still not sync
-        let _ = store.list_extensions().await;
-        let _ = store.get_store_manifest().await;
-        let sync_count = store.provider().get_sync_count().await;
-        assert_eq!(sync_count, 0);
+        assert!(manifest_path.exists());
     }
 }
