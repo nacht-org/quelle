@@ -150,7 +150,10 @@ impl ExtensionPackage {
                 &wasm_content,
             ),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                &wasm_content,
+            ),
             assets: vec![],
         };
 
@@ -691,6 +694,7 @@ mod tests {
     #[tokio::test]
     async fn test_installed_extension_size_tracking() {
         // Create a test extension package
+        let wasm_data = b"fake wasm content for testing";
         let manifest = crate::manifest::ExtensionManifest {
             id: "test-ext".to_string(),
             name: "Test Extension".to_string(),
@@ -705,11 +709,13 @@ mod tests {
                 value: "test-checksum".to_string(),
             },
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                wasm_data,
+            ),
             assets: vec![],
         };
 
-        let wasm_data = b"fake wasm content for testing";
         let package = ExtensionPackage::new(manifest, wasm_data.to_vec(), "test-store".to_string());
 
         // Create InstalledExtension from package
@@ -744,7 +750,10 @@ mod tests {
                 value: crate::manifest::checksum::ChecksumAlgorithm::Sha256.calculate(wasm_data),
             },
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                wasm_data,
+            ),
             assets: vec![],
         };
 
@@ -787,7 +796,10 @@ mod tests {
                     value: "test".to_string(),
                 },
                 signature: None,
-                wasm_file: None,
+                wasm_file: crate::manifest::FileReference::new(
+                    "./extension.wasm".to_string(),
+                    b"fake wasm content",
+                ),
                 assets: vec![],
             },
             "test".to_string(),

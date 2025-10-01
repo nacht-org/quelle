@@ -724,7 +724,10 @@ mod tests {
                 value: "dummy_hash".to_string(),
             },
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                b"fake wasm content",
+            ),
             assets: vec![],
         };
 

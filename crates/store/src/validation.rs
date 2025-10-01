@@ -580,7 +580,10 @@ mod tests {
                 wasm_content,
             ),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                wasm_content,
+            ),
             assets: vec![],
         };
 

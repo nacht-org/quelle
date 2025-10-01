@@ -119,9 +119,8 @@ pub struct ExtensionManifest {
 
     // File References (for local stores)
     /// Reference to the WASM component file
-    pub wasm_file: Option<FileReference>,
+    pub wasm_file: FileReference,
     /// References to additional asset files
-    #[serde(default)]
     pub assets: Vec<AssetReference>,
 }
 

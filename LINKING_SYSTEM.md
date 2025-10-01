@@ -106,8 +106,8 @@ pub struct ExtensionSummary {
     pub name: String,
     pub version: String,
     // ... existing fields
-    pub manifest_path: Option<String>,
-    pub manifest_checksum: Option<String>,
+    pub manifest_path: String,
+    pub manifest_checksum: String,
 }
 
 // File reference with integrity information
@@ -129,7 +129,7 @@ pub struct AssetReference {
 // Extension manifest with file links
 pub struct ExtensionManifest {
     // ... existing fields
-    pub wasm_file: Option<FileReference>,
+    pub wasm_file: FileReference,
     pub assets: Vec<AssetReference>,
 }
 ```
@@ -144,7 +144,7 @@ Links are automatically generated during extension publishing:
    - Creates relative paths from store root
 
 2. **Extension Manifest Links**: Generated during `publish()` operation
-   - Creates `FileReference` for WASM component
+   - Creates required `FileReference` for WASM component
    - Creates `AssetReference` for each asset file
    - All paths are relative to manifest location
 
@@ -156,12 +156,12 @@ All checksums use Blake3 algorithm for security and performance:
 let checksum = format!("blake3:{}", blake3::hash(data).to_hex());
 ```
 
-### Backward Compatibility
+### Breaking Changes
 
-The linking system is designed for backward compatibility:
-- All new fields are `Option<T>` types
-- Existing manifests without links continue to work
-- Links are populated during normal operations (publish, refresh)
+The linking system intentionally breaks backward compatibility for data integrity:
+- All new fields are required (not `Option<T>` types)
+- Existing manifests without links will fail to deserialize
+- This enforces proper linking information in all manifests
 
 ## Usage Examples
 
@@ -169,13 +169,11 @@ The linking system is designed for backward compatibility:
 
 ```rust
 // Verify WASM file matches its reference
-if let Some(wasm_file) = &manifest.wasm_file {
-    let wasm_data = fs::read(&wasm_file.path).await?;
-    if wasm_file.verify(&wasm_data) {
-        println!("✅ WASM file integrity verified");
-    } else {
-        println!("❌ WASM file corrupted");
-    }
+let wasm_data = fs::read(&manifest.wasm_file.path).await?;
+if manifest.wasm_file.verify(&wasm_data) {
+    println!("✅ WASM file integrity verified");
+} else {
+    println!("❌ WASM file corrupted");
 }
 ```
 
@@ -195,16 +193,12 @@ for asset in &manifest.assets {
 // Navigate from store manifest to extension files
 let store_manifest = store.get_local_store_manifest().await?;
 for extension in &store_manifest.extensions {
-    if let Some(manifest_path) = &extension.manifest_path {
-        let full_path = store_root.join(manifest_path);
-        let ext_manifest = load_extension_manifest(&full_path).await?;
-        
-        // Now access extension files
-        if let Some(wasm_file) = &ext_manifest.wasm_file {
-            let wasm_path = full_path.parent().unwrap().join(&wasm_file.path);
-            // Process WASM file...
-        }
-    }
+    let full_path = store_root.join(&extension.manifest_path);
+    let ext_manifest = load_extension_manifest(&full_path).await?;
+    
+    // Now access extension files
+    let wasm_path = full_path.parent().unwrap().join(&ext_manifest.wasm_file.path);
+    // Process WASM file...
 }
 ```
 
@@ -234,13 +228,13 @@ for extension in &store_manifest.extensions {
 
 ### For Existing Stores
 
-1. **Automatic Migration**: Links are added during normal operations
-2. **Manual Regeneration**: Use the regeneration utility for immediate updates
-3. **Gradual Enhancement**: Extension manifests get links when republished
+1. **Breaking Change**: Old manifests without required fields will fail to load
+2. **Manual Migration Required**: All existing manifests must be republished
+3. **Data Integrity**: Ensures all manifests have proper linking information
 
 ### For Store Implementations
 
-1. **Optional Fields**: New linking fields are optional for compatibility
+1. **Required Fields**: New linking fields are mandatory for data integrity
 2. **Local Store Only**: Linking logic contained within `LocalStore`
 3. **No Trait Changes**: Generic store traits remain unchanged
 
@@ -250,7 +244,7 @@ The linking system includes comprehensive tests:
 
 - **Unit Tests**: Verify link generation and verification
 - **Integration Tests**: Test full publish → link → verify cycle  
-- **Compatibility Tests**: Ensure backward compatibility
+- **Breaking Change Tests**: Verify old manifests fail to deserialize
 - **Performance Tests**: Validate checksum calculation efficiency
 
 ## Future Enhancements

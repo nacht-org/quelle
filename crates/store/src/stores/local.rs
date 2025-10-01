@@ -1173,8 +1173,8 @@ impl LocalStore {
                         base_urls: ext_manifest.base_urls.clone(),
                         langs: ext_manifest.langs.clone(),
                         last_updated: ext_info.last_updated.unwrap_or_else(Utc::now),
-                        manifest_path: Some(manifest_path),
-                        manifest_checksum: Some(manifest_checksum),
+                        manifest_path,
+                        manifest_checksum,
                     };
                     local_manifest.add_extension(summary);
                 }
@@ -1383,10 +1383,10 @@ impl WritableStore for LocalStore {
         let mut enhanced_manifest = package.manifest.clone();
 
         // Add WASM file reference
-        enhanced_manifest.wasm_file = Some(crate::manifest::FileReference::new(
+        enhanced_manifest.wasm_file = crate::manifest::FileReference::new(
             "./extension.wasm".to_string(),
             &package.wasm_component,
-        ));
+        );
 
         // Add asset references
         enhanced_manifest.assets.clear();
@@ -1617,7 +1617,10 @@ mod tests {
                 value: "test_hash".to_string(),
             },
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                b"fake wasm content",
+            ),
             assets: vec![],
         };
 
@@ -1775,7 +1778,10 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                &valid_wasm,
+            ),
             assets: vec![],
         };
 
@@ -1823,7 +1829,10 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, b"test wasm content"),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                b"test wasm content",
+            ),
             assets: vec![],
         };
 
@@ -1874,7 +1883,10 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                &valid_wasm,
+            ),
             assets: vec![],
         };
 
@@ -1943,7 +1955,10 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                &valid_wasm,
+            ),
             assets: vec![],
         };
 
@@ -1975,7 +1990,10 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &invalid_wasm),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                &invalid_wasm,
+            ),
             assets: vec![],
         };
 
@@ -2010,7 +2028,10 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                &valid_wasm,
+            ),
             assets: vec![],
         };
 
@@ -2045,7 +2066,10 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &invalid_wasm),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                &invalid_wasm,
+            ),
             assets: vec![],
         };
 
@@ -2097,7 +2121,10 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                &valid_wasm,
+            ),
             assets: vec![],
         };
 
@@ -2165,7 +2192,10 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                &valid_wasm,
+            ),
             assets: vec![],
         };
 
@@ -2235,7 +2265,10 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
-            wasm_file: None,
+            wasm_file: crate::manifest::FileReference::new(
+                "./extension.wasm".to_string(),
+                &valid_wasm,
+            ),
             assets: vec![],
         };
 
@@ -2264,13 +2297,11 @@ mod tests {
 
         let extension_summary = &store_manifest.extensions[0];
         assert_eq!(extension_summary.id, "test-linking");
-        assert!(extension_summary.manifest_path.is_some());
-        assert!(extension_summary.manifest_checksum.is_some());
 
-        let manifest_path = extension_summary.manifest_path.as_ref().unwrap();
+        let manifest_path = &extension_summary.manifest_path;
         assert_eq!(manifest_path, "extensions/test-linking/1.0.0/manifest.json");
 
-        let manifest_checksum = extension_summary.manifest_checksum.as_ref().unwrap();
+        let manifest_checksum = &extension_summary.manifest_checksum;
         assert!(manifest_checksum.starts_with("blake3:"));
 
         // Verify the extension manifest has links to its files
@@ -2280,8 +2311,7 @@ mod tests {
             .unwrap();
 
         // Check WASM file link
-        assert!(ext_manifest.wasm_file.is_some());
-        let wasm_file = ext_manifest.wasm_file.unwrap();
+        let wasm_file = &ext_manifest.wasm_file;
         assert_eq!(wasm_file.path, "./extension.wasm");
         assert!(wasm_file.checksum.starts_with("blake3:"));
         assert_eq!(wasm_file.size, valid_wasm.len() as u64);
@@ -2334,7 +2364,66 @@ mod tests {
         let manifest_file_path = extension_dir.join("manifest.json");
         let manifest_file_content = tokio::fs::read(&manifest_file_path).await.unwrap();
         let expected_checksum = format!("blake3:{}", blake3::hash(&manifest_file_content).to_hex());
-        assert_eq!(manifest_checksum, &expected_checksum);
+        assert_eq!(*manifest_checksum, expected_checksum);
+    }
+
+    #[tokio::test]
+    async fn test_backwards_compatibility_broken() {
+        // This test demonstrates that backwards compatibility is intentionally broken
+        // Old manifests without required linking fields should fail to deserialize
+
+        // Test 1: Old store manifest without manifest_path and manifest_checksum (should fail)
+        let old_store_manifest_json = r#"{
+            "name": "old-store",
+            "store_type": "local",
+            "version": "1.0.0",
+            "url": "file:///path/to/store",
+            "description": "Old store without linking",
+            "last_updated": "2025-01-01T00:00:00Z",
+            "url_patterns": [],
+            "supported_domains": [],
+            "extension_count": 1,
+            "extensions": [
+                {
+                    "id": "old.extension",
+                    "name": "Old Extension",
+                    "version": "1.0.0",
+                    "base_urls": ["https://example.com"],
+                    "langs": ["en"],
+                    "last_updated": "2025-01-01T00:00:00Z"
+                }
+            ]
+        }"#;
+
+        let store_result: std::result::Result<LocalStoreManifest, serde_json::Error> =
+            serde_json::from_str(old_store_manifest_json);
+        assert!(
+            store_result.is_err(),
+            "Old store manifest should fail to deserialize due to missing required linking fields"
+        );
+
+        // Test 2: Old extension manifest without wasm_file and assets (should fail)
+        let old_extension_manifest_json = r#"{
+            "id": "old.extension",
+            "name": "Old Extension",
+            "version": "1.0.0",
+            "author": "old.author",
+            "langs": ["en"],
+            "base_urls": ["https://example.com"],
+            "rds": ["Ltr"],
+            "attrs": [],
+            "checksum": "blake3:abc123",
+            "signature": null
+        }"#;
+
+        let extension_result: std::result::Result<ExtensionManifest, serde_json::Error> =
+            serde_json::from_str(old_extension_manifest_json);
+        assert!(extension_result.is_err(), "Old extension manifest should fail to deserialize due to missing required linking fields");
+
+        println!("✅ Backwards compatibility is intentionally broken!");
+        println!("🔗 All manifests now require linking fields:");
+        println!("   • Store manifests need manifest_path and manifest_checksum");
+        println!("   • Extension manifests need wasm_file and assets");
     }
 
     #[tokio::test]
