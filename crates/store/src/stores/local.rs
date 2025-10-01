@@ -467,33 +467,22 @@ impl LocalStore {
                 .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))?,
         };
 
+        let manifest = self.get_extension_manifest(name, Some(&version)).await?;
+
         let version_path = self
             .extension_version_path(name, &version)
             .map_err(StoreError::from)?;
-        let manifest_path = version_path.join(&self.layout.manifest_file);
 
-        if !manifest_path.exists() {
-            return Err(StoreError::ExtensionNotFound(format!(
-                "{}@{}",
-                name, version
-            )));
-        }
-
-        let manifest_content = fs::read_to_string(&manifest_path).await?;
-        let manifest: ExtensionManifest = serde_json::from_str(&manifest_content)?;
-
-        // Get file sizes
-        let wasm_path = version_path.join(&self.layout.wasm_file);
+        // Get file sizes using linking system
+        let wasm_path = version_path.join(&manifest.wasm_file.path);
         let size = if wasm_path.exists() {
-            match fs::metadata(&wasm_path).await {
-                Ok(metadata) => Some(metadata.len()),
-                Err(_) => None,
-            }
+            Some(manifest.wasm_file.size)
         } else {
             None
         };
 
-        // Get last modified time
+        // Get last modified time from manifest file
+        let manifest_path = version_path.join(&self.layout.manifest_file);
         let last_updated = match fs::metadata(&manifest_path).await {
             Ok(metadata) => metadata
                 .modified()
@@ -721,24 +710,41 @@ impl LocalStore {
 
     /// Verify the integrity of an extension package
     async fn verify_extension_integrity(&self, name: &str, version: &str) -> Result<bool> {
+        // Get the manifest using the linking system
+        let manifest = match self.get_extension_manifest(name, Some(version)).await {
+            Ok(m) => m,
+            Err(_) => return Ok(false), // Can't verify if we can't load manifest
+        };
+
         let version_path = self
             .extension_version_path(name, version)
             .map_err(StoreError::from)?;
-        let manifest_path = version_path.join(&self.layout.manifest_file);
-        let wasm_path = version_path.join(&self.layout.wasm_file);
 
-        // Check if required files exist
-        if !manifest_path.exists() || !wasm_path.exists() {
+        // Verify WASM file using linking system
+        let wasm_path = version_path.join(&manifest.wasm_file.path);
+        if !wasm_path.exists() {
             return Ok(false);
         }
 
-        // Load manifest and verify checksum
-        let manifest_content = fs::read_to_string(&manifest_path).await?;
-        let manifest: ExtensionManifest = serde_json::from_str(&manifest_content)?;
-
         let wasm_content = fs::read(&wasm_path).await?;
+        if !manifest.wasm_file.verify(&wasm_content) {
+            return Ok(false);
+        }
 
-        // Verify checksum using enhanced system
+        // Verify all assets using linking system
+        for asset in &manifest.assets {
+            let asset_path = version_path.join(&asset.path);
+            if !asset_path.exists() {
+                return Ok(false);
+            }
+
+            let asset_content = fs::read(&asset_path).await?;
+            if !asset.verify(&asset_content) {
+                return Ok(false);
+            }
+        }
+
+        // Also verify using the main manifest checksum (for backwards compatibility)
         Ok(manifest.checksum.verify(&wasm_content))
     }
 }
@@ -890,13 +896,57 @@ impl ReadableStore for LocalStore {
                 .ok_or_else(|| StoreError::ExtensionNotFound(id.to_string()))?,
         };
 
+        // Try to use store manifest linking first for integrity verification
+        if let Ok(store_manifest) = self.get_local_store_manifest().await {
+            let extension_key = format!("{}@{}", id, version);
+
+            if let Some(extension_summary) = store_manifest
+                .extensions
+                .iter()
+                .find(|ext| format!("{}@{}", ext.id, ext.version) == extension_key)
+            {
+                let version_path = self
+                    .extension_version_path(id, &version)
+                    .map_err(StoreError::from)?;
+                let manifest_path = version_path.join(&extension_summary.manifest_path);
+
+                debug!(
+                    "Loading extension manifest from store manifest link: {}",
+                    manifest_path.display()
+                );
+
+                if !manifest_path.exists() {
+                    return Err(StoreError::ExtensionNotFound(format!("{}@{}", id, version)));
+                }
+
+                let manifest_content = fs::read_to_string(&manifest_path).await?;
+
+                // Verify manifest integrity using store manifest checksum
+                if let Some(hash) = extension_summary.manifest_checksum.strip_prefix("blake3:") {
+                    let calculated = blake3::hash(manifest_content.as_bytes())
+                        .to_hex()
+                        .to_string();
+                    if calculated != hash {
+                        return Err(StoreError::ChecksumMismatch(format!(
+                            "Extension manifest checksum mismatch for {}@{}",
+                            id, version
+                        )));
+                    }
+                }
+
+                let manifest: ExtensionManifest = serde_json::from_str(&manifest_content)?;
+                return Ok(manifest);
+            }
+        }
+
+        // Fallback to direct path if store manifest unavailable or extension not found
         let version_path = self
             .extension_version_path(id, &version)
             .map_err(StoreError::from)?;
         let manifest_path = version_path.join(&self.layout.manifest_file);
 
         debug!(
-            "Loading extension manifest from {}",
+            "Loading extension manifest from fallback path: {}",
             manifest_path.display()
         );
 
@@ -962,33 +1012,33 @@ impl ReadableStore for LocalStore {
             package = package.with_metadata(metadata);
         }
 
-        // Load additional assets if assets directory exists
-        let version_str = version.unwrap_or(&package.manifest.version);
+        // Load assets using linking system
+        let version_str = version.unwrap_or(&package.manifest.version).to_string();
         let version_path = self
-            .extension_version_path(id, version_str)
+            .extension_version_path(id, &version_str)
             .map_err(StoreError::from)?;
 
-        if let Some(assets_dir) = &self.layout.assets_dir {
-            let assets_path = version_path.join(assets_dir);
-            if assets_path.exists() {
-                for entry in WalkDir::new(&assets_path)
-                    .into_iter()
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.file_type().is_file())
-                {
-                    let asset_path = entry.path();
-                    if let Ok(relative_path) = asset_path.strip_prefix(&assets_path) {
-                        if let Some(asset_name) = relative_path.to_str() {
-                            match fs::read(asset_path).await {
-                                Ok(content) => {
-                                    package.add_asset(asset_name.to_string(), content);
-                                }
-                                Err(e) => {
-                                    warn!("Failed to read asset {}: {}", asset_name, e);
-                                }
-                            }
-                        }
+        // Clone asset references to avoid borrow checker issues
+        let asset_refs = package.manifest.assets.clone();
+        for asset_ref in &asset_refs {
+            let asset_path = version_path.join(&asset_ref.path);
+            match fs::read(&asset_path).await {
+                Ok(content) => {
+                    // Verify asset integrity using checksum from manifest
+                    if asset_ref.verify(&content) {
+                        package.add_asset(asset_ref.name.clone(), content);
+                    } else {
+                        warn!(
+                            "Asset '{}' failed integrity check for {}@{}",
+                            asset_ref.name, id, &version_str
+                        );
                     }
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to read asset '{}' for {}@{}: {}",
+                        asset_ref.name, id, &version_str, e
+                    );
                 }
             }
         }
@@ -1034,13 +1084,19 @@ impl ReadableStore for LocalStore {
     }
 
     async fn check_extension_version_exists(&self, id: &str, version: &str) -> Result<bool> {
-        let version_path = self
-            .extension_version_path(id, version)
-            .map_err(StoreError::from)?;
-        let manifest_path = version_path.join(&self.layout.manifest_file);
-        let wasm_path = version_path.join(&self.layout.wasm_file);
+        // Try to get the manifest using linking system
+        match self.get_extension_manifest(id, Some(version)).await {
+            Ok(manifest) => {
+                let version_path = self
+                    .extension_version_path(id, version)
+                    .map_err(StoreError::from)?;
 
-        Ok(manifest_path.exists() && wasm_path.exists())
+                // Check if WASM file exists using linking information
+                let wasm_path = version_path.join(&manifest.wasm_file.path);
+                Ok(wasm_path.exists())
+            }
+            Err(_) => Ok(false),
+        }
     }
 
     async fn check_extension_updates(
@@ -1149,11 +1205,11 @@ impl LocalStore {
             {
                 Ok(ext_manifest) => {
                     // Calculate manifest path and checksum
-                    let manifest_path = format!(
-                        "extensions/{}/{}/manifest.json",
-                        ext_info.id, ext_info.version
-                    );
-                    let manifest_file_path = self.root_path.join(&manifest_path);
+                    let manifest_path = "manifest.json".to_string();
+                    let manifest_file_path = self
+                        .extension_version_path(&ext_info.id, &ext_info.version)
+                        .map_err(StoreError::from)?
+                        .join(&manifest_path);
 
                     // Read manifest file to calculate checksum
                     let manifest_checksum = match fs::read(&manifest_file_path).await {
@@ -1227,17 +1283,29 @@ impl LocalStore {
                 .ok_or_else(|| StoreError::ExtensionNotFound(id.to_string()))?,
         };
 
+        // Get manifest to access wasm file link
+        let manifest = self.get_extension_manifest(id, Some(&version)).await?;
+
         let version_path = self.extension_version_path(id, &version)?;
-        let wasm_path = version_path.join(&self.layout.wasm_file);
+        let wasm_path = version_path.join(&manifest.wasm_file.path);
 
         if !wasm_path.exists() {
             return Err(StoreError::ExtensionNotFound(format!(
-                "WASM file not found for {}@{}",
-                id, version
+                "WASM file not found for {}@{} at path: {}",
+                id, version, manifest.wasm_file.path
             )));
         }
 
         let wasm_bytes = fs::read(&wasm_path).await?;
+
+        // Verify integrity using manifest checksum
+        if !manifest.wasm_file.verify(&wasm_bytes) {
+            return Err(StoreError::ChecksumMismatch(format!(
+                "WASM file checksum mismatch for {}@{}",
+                id, version
+            )));
+        }
+
         Ok(wasm_bytes)
     }
 
@@ -1259,27 +1327,179 @@ impl LocalStore {
                 })?,
         };
 
+        // Get manifest to access wasm file link
+        let manifest = self.get_extension_manifest(name, Some(&version)).await?;
+
         let version_path = self.extension_version_path(name, &version)?;
-        let wasm_path = version_path.join(&self.layout.wasm_file);
+        let wasm_path = version_path.join(&manifest.wasm_file.path);
 
         if !wasm_path.exists() {
             return Err(StoreError::ExtensionNotFound(format!(
-                "WASM file not found for {}@{}",
-                name, version
+                "WASM file not found for {}@{} at path: {}",
+                name, version, manifest.wasm_file.path
             )));
         }
 
         let wasm_bytes = fs::read(&wasm_path).await?;
 
-        // Verify checksum if available
-        if !self.verify_extension_integrity(name, &version).await? {
+        // Verify checksum using manifest's file reference
+        if !manifest.wasm_file.verify(&wasm_bytes) {
             return Err(StoreError::ChecksumMismatch(format!(
-                "{}@{}",
+                "WASM file checksum mismatch for {}@{}",
                 name, version
             )));
         }
 
         Ok(wasm_bytes)
+    }
+
+    /// Get an extension asset by name using the linking system (LocalStore specific)
+    pub async fn get_extension_asset(
+        &self,
+        id: &str,
+        version: Option<&str>,
+        asset_name: &str,
+    ) -> Result<Vec<u8>> {
+        self.validate_extension_id(id).map_err(StoreError::from)?;
+        if let Some(v) = version {
+            self.validate_version_string(v).map_err(StoreError::from)?;
+        }
+
+        let version = match version {
+            Some(v) => v.to_string(),
+            None => self
+                .get_latest_version_internal(id)
+                .await
+                .map_err(StoreError::from)?
+                .ok_or_else(|| {
+                    StoreError::ExtensionNotFound(format!("No versions found for {}", id))
+                })?,
+        };
+
+        // Get manifest to access asset links
+        let manifest = self.get_extension_manifest(id, Some(&version)).await?;
+
+        // Find the asset by name
+        let asset = manifest
+            .assets
+            .iter()
+            .find(|a| a.name == asset_name)
+            .ok_or_else(|| {
+                StoreError::ExtensionNotFound(format!(
+                    "Asset '{}' not found for {}@{}",
+                    asset_name, id, version
+                ))
+            })?;
+
+        let version_path = self.extension_version_path(id, &version)?;
+        let asset_path = version_path.join(&asset.path);
+
+        if !asset_path.exists() {
+            return Err(StoreError::ExtensionNotFound(format!(
+                "Asset file not found for {}@{} at path: {}",
+                id, version, asset.path
+            )));
+        }
+
+        let asset_bytes = fs::read(&asset_path).await?;
+
+        // Verify integrity using asset's checksum
+        if !asset.verify(&asset_bytes) {
+            return Err(StoreError::ChecksumMismatch(format!(
+                "Asset '{}' checksum mismatch for {}@{}",
+                asset_name, id, version
+            )));
+        }
+
+        Ok(asset_bytes)
+    }
+
+    /// List all available assets for an extension using the linking system (LocalStore specific)
+    pub async fn list_extension_assets(
+        &self,
+        id: &str,
+        version: Option<&str>,
+    ) -> Result<Vec<crate::manifest::AssetReference>> {
+        self.validate_extension_id(id).map_err(StoreError::from)?;
+        if let Some(v) = version {
+            self.validate_version_string(v).map_err(StoreError::from)?;
+        }
+
+        let version = match version {
+            Some(v) => v.to_string(),
+            None => self
+                .get_latest_version_internal(id)
+                .await
+                .map_err(StoreError::from)?
+                .ok_or_else(|| {
+                    StoreError::ExtensionNotFound(format!("No versions found for {}", id))
+                })?,
+        };
+
+        // Get manifest to access asset links
+        let manifest = self.get_extension_manifest(id, Some(&version)).await?;
+
+        Ok(manifest.assets)
+    }
+
+    /// Get assets by type using the linking system (LocalStore specific)
+    pub async fn get_extension_assets_by_type(
+        &self,
+        id: &str,
+        version: Option<&str>,
+        asset_type: &str,
+    ) -> Result<Vec<(String, Vec<u8>)>> {
+        self.validate_extension_id(id).map_err(StoreError::from)?;
+        if let Some(v) = version {
+            self.validate_version_string(v).map_err(StoreError::from)?;
+        }
+
+        let version = match version {
+            Some(v) => v.to_string(),
+            None => self
+                .get_latest_version_internal(id)
+                .await
+                .map_err(StoreError::from)?
+                .ok_or_else(|| {
+                    StoreError::ExtensionNotFound(format!("No versions found for {}", id))
+                })?,
+        };
+
+        // Get manifest to access asset links
+        let manifest = self.get_extension_manifest(id, Some(&version)).await?;
+
+        let version_path = self.extension_version_path(id, &version)?;
+        let mut assets = Vec::new();
+
+        // Filter assets by type and load them
+        for asset in manifest
+            .assets
+            .iter()
+            .filter(|a| a.asset_type == asset_type)
+        {
+            let asset_path = version_path.join(&asset.path);
+
+            if !asset_path.exists() {
+                return Err(StoreError::ExtensionNotFound(format!(
+                    "Asset file not found for {}@{} at path: {}",
+                    id, version, asset.path
+                )));
+            }
+
+            let asset_bytes = fs::read(&asset_path).await?;
+
+            // Verify integrity using asset's checksum
+            if !asset.verify(&asset_bytes) {
+                return Err(StoreError::ChecksumMismatch(format!(
+                    "Asset '{}' checksum mismatch for {}@{}",
+                    asset.name, id, version
+                )));
+            }
+
+            assets.push((asset.name.clone(), asset_bytes));
+        }
+
+        Ok(assets)
     }
 
     /// Download and cache an extension package for faster access (LocalStore specific)
@@ -1375,29 +1595,23 @@ impl WritableStore for LocalStore {
 
         fs::create_dir_all(&version_dir).await?;
 
-        // Write WASM component
-        let wasm_path = version_dir.join("extension.wasm");
+        // Use the existing manifest (which should already have linking information)
+        let enhanced_manifest = package.manifest.clone();
+
+        // Write WASM component using path from manifest
+        let wasm_path =
+            version_dir.join(&enhanced_manifest.wasm_file.path.trim_start_matches("./"));
+        if let Some(parent) = wasm_path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
         fs::write(&wasm_path, &package.wasm_component).await?;
 
-        // Create enhanced manifest with file references
-        let mut enhanced_manifest = package.manifest.clone();
-
-        // Add WASM file reference
-        enhanced_manifest.wasm_file = crate::manifest::FileReference::new(
-            "./extension.wasm".to_string(),
-            &package.wasm_component,
-        );
-
-        // Add asset references
-        enhanced_manifest.assets.clear();
-        for (name, content) in &package.assets {
-            let asset_ref = crate::manifest::AssetReference::new(
-                name.clone(),
-                format!("./{}", name),
-                "asset".to_string(), // Default type, could be enhanced later
-                content,
-            );
-            enhanced_manifest.assets.push(asset_ref);
+        // Verify WASM file integrity
+        if !enhanced_manifest.wasm_file.verify(&package.wasm_component) {
+            return Err(StoreError::ChecksumMismatch(format!(
+                "WASM file checksum mismatch for {}@{}",
+                package.manifest.id, package.manifest.version
+            )));
         }
 
         // Write enhanced manifest
@@ -1405,13 +1619,23 @@ impl WritableStore for LocalStore {
         let manifest_content = serde_json::to_string_pretty(&enhanced_manifest)?;
         fs::write(&manifest_path, manifest_content).await?;
 
-        // Write assets
-        for (name, content) in &package.assets {
-            let asset_path = version_dir.join(name);
-            if let Some(parent) = asset_path.parent() {
-                fs::create_dir_all(parent).await?;
+        // Write assets using paths from manifest
+        for asset_ref in &enhanced_manifest.assets {
+            if let Some(content) = package.assets.get(&asset_ref.name) {
+                let asset_path = version_dir.join(&asset_ref.path.trim_start_matches("./"));
+                if let Some(parent) = asset_path.parent() {
+                    fs::create_dir_all(parent).await?;
+                }
+                fs::write(&asset_path, content).await?;
+
+                // Verify asset integrity
+                if !asset_ref.verify(content) {
+                    return Err(StoreError::ChecksumMismatch(format!(
+                        "Asset '{}' checksum mismatch for {}@{}",
+                        asset_ref.name, package.manifest.id, package.manifest.version
+                    )));
+                }
             }
-            fs::write(asset_path, content).await?;
         }
 
         // Clear cache to force refresh
@@ -2269,7 +2493,20 @@ mod tests {
                 "./extension.wasm".to_string(),
                 &valid_wasm,
             ),
-            assets: vec![],
+            assets: vec![
+                crate::manifest::AssetReference::new(
+                    "README.md".to_string(),
+                    "./README.md".to_string(),
+                    "asset".to_string(),
+                    b"# Test Extension\nThis is a test.",
+                ),
+                crate::manifest::AssetReference::new(
+                    "icon.png".to_string(),
+                    "./icon.png".to_string(),
+                    "asset".to_string(),
+                    b"\x89PNG\r\n\x1a\n",
+                ),
+            ],
         };
 
         let mut package = ExtensionPackage::new(
@@ -2299,7 +2536,7 @@ mod tests {
         assert_eq!(extension_summary.id, "test-linking");
 
         let manifest_path = &extension_summary.manifest_path;
-        assert_eq!(manifest_path, "extensions/test-linking/1.0.0/manifest.json");
+        assert_eq!(manifest_path, "manifest.json");
 
         let manifest_checksum = &extension_summary.manifest_checksum;
         assert!(manifest_checksum.starts_with("blake3:"));
@@ -2454,5 +2691,173 @@ mod tests {
             println!("📄 Updated store manifest:");
             println!("{}", content);
         }
+    }
+
+    #[tokio::test]
+    async fn test_linking_system_navigation() {
+        // This test verifies that the store properly uses the linking system for navigation
+        // instead of hardcoded paths
+
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::new(temp_dir.path()).unwrap();
+
+        // Initialize the store
+        store
+            .initialize_store("test-store".to_string(), None)
+            .await
+            .unwrap();
+
+        // Create test data
+        let wasm_data = [
+            0x00, 0x61, 0x73, 0x6d, // WASM magic number
+            0x01, 0x00, 0x00, 0x00, // WASM version 1
+            0x00, // Minimal content
+        ];
+        let readme_data = b"# Test Extension\nThis is a test.";
+        let icon_data = b"\x89PNG\r\n\x1a\n"; // PNG magic number
+
+        // Create extension manifest with custom file paths (not default layout)
+        let manifest = ExtensionManifest {
+            id: "test-navigation".to_string(),
+            name: "Test Navigation".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &wasm_data),
+            signature: None,
+            // Use custom paths to verify linking system is working
+            wasm_file: crate::manifest::FileReference::new(
+                "./custom_wasm.wasm".to_string(),
+                &wasm_data,
+            ),
+            assets: vec![
+                crate::manifest::AssetReference::new(
+                    "readme".to_string(),
+                    "./docs/README.md".to_string(),
+                    "documentation".to_string(),
+                    readme_data,
+                ),
+                crate::manifest::AssetReference::new(
+                    "icon".to_string(),
+                    "./images/icon.png".to_string(),
+                    "icon".to_string(),
+                    icon_data,
+                ),
+            ],
+        };
+
+        // Create package
+        let mut package =
+            ExtensionPackage::new(manifest, wasm_data.to_vec(), "test-store".to_string());
+
+        // Add assets to package
+        package.add_asset("readme".to_string(), readme_data.to_vec());
+        package.add_asset("icon".to_string(), icon_data.to_vec());
+
+        // Publish the extension
+        let options = PublishOptions::default();
+        store.publish(package, options).await.unwrap();
+
+        // Test 1: Verify WASM file is loaded using linking system path
+        let wasm_result = store
+            .get_extension_wasm("test-navigation", Some("1.0.0"))
+            .await;
+
+        if let Err(e) = &wasm_result {
+            // Debug: Check if extension exists and what files are present
+            println!("Error getting WASM: {:?}", e);
+
+            let extension_dir = temp_dir.path().join("extensions/test-navigation/1.0.0");
+            println!("Extension directory exists: {}", extension_dir.exists());
+
+            if extension_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(&extension_dir) {
+                    println!("Files in extension directory:");
+                    for entry in entries {
+                        if let Ok(entry) = entry {
+                            println!("  - {:?}", entry.file_name());
+                        }
+                    }
+                }
+            }
+
+            // Check store manifest
+            let store_manifest = store.get_local_store_manifest().await;
+            println!("Store manifest result: {:?}", store_manifest.is_ok());
+            if let Ok(manifest) = store_manifest {
+                println!("Extensions in store: {}", manifest.extensions.len());
+                for ext in &manifest.extensions {
+                    println!("  - {}@{}", ext.id, ext.version);
+                }
+            }
+        }
+
+        let wasm_result = wasm_result.unwrap();
+        assert_eq!(wasm_result, wasm_data);
+
+        // Test 2: Verify asset access using linking system
+        let readme_result = store
+            .get_extension_asset("test-navigation", Some("1.0.0"), "readme")
+            .await
+            .unwrap();
+        assert_eq!(readme_result, readme_data);
+
+        let icon_result = store
+            .get_extension_asset("test-navigation", Some("1.0.0"), "icon")
+            .await
+            .unwrap();
+        assert_eq!(icon_result, icon_data);
+
+        // Test 3: Verify list assets works
+        let assets = store
+            .list_extension_assets("test-navigation", Some("1.0.0"))
+            .await
+            .unwrap();
+        assert_eq!(assets.len(), 2);
+        assert!(assets.iter().any(|a| a.name == "readme"));
+        assert!(assets.iter().any(|a| a.name == "icon"));
+
+        // Test 4: Verify get assets by type
+        let docs = store
+            .get_extension_assets_by_type("test-navigation", Some("1.0.0"), "documentation")
+            .await
+            .unwrap();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].0, "readme");
+        assert_eq!(docs[0].1, readme_data);
+
+        let icons = store
+            .get_extension_assets_by_type("test-navigation", Some("1.0.0"), "icon")
+            .await
+            .unwrap();
+        assert_eq!(icons.len(), 1);
+        assert_eq!(icons[0].0, "icon");
+        assert_eq!(icons[0].1, icon_data);
+
+        // Test 5: Verify integrity checking works
+        // Manually corrupt a file and verify it's detected
+        let extension_dir = temp_dir.path().join("extensions/test-navigation/1.0.0");
+        let wasm_file_path = extension_dir.join("custom_wasm.wasm");
+        tokio::fs::write(&wasm_file_path, b"corrupted")
+            .await
+            .unwrap();
+
+        // Should fail due to checksum mismatch
+        let corrupt_result = store
+            .get_extension_wasm("test-navigation", Some("1.0.0"))
+            .await;
+        assert!(corrupt_result.is_err());
+        if let Err(StoreError::ChecksumMismatch(_)) = corrupt_result {
+            // Expected
+        } else {
+            panic!("Expected ChecksumMismatch error, got {:?}", corrupt_result);
+        }
+
+        println!("✅ Linking system navigation test passed!");
+        println!("🔗 Verified that store uses manifest links instead of hardcoded paths");
+        println!("🔒 Verified that integrity checking works for all file types");
     }
 }
