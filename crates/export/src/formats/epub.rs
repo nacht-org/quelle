@@ -54,15 +54,16 @@ impl Exporter for EpubExporter {
         let mut epub_builder = EpubBuilder::new(ZipLibrary::new()?)?;
 
         // Set metadata
-        epub_builder.metadata("title", &novel.title)?;
-        for author in &novel.authors {
-            epub_builder.metadata("creator", author)?;
+        epub_builder.set_title(novel.title);
+        epub_builder.set_authors(novel.authors);
+        if let Some(lang) = novel.langs.get(0) {
+            epub_builder.set_lang(lang);
         }
         if !novel.langs.is_empty() {
-            epub_builder.metadata("language", &novel.langs[0])?;
+            epub_builder.metadata("lang", &novel.langs[0])?;
         }
         if !novel.description.is_empty() {
-            epub_builder.metadata("description", novel.description.join(" "))?;
+            epub_builder.set_description(novel.description);
         }
 
         // Add cover image if available and requested
