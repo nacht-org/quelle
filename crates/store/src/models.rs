@@ -33,7 +33,6 @@ pub struct ExtensionPackage {
     pub wasm_component: Vec<u8>,
     pub metadata: Option<ExtensionMetadata>,
     pub assets: HashMap<String, Vec<u8>>, // Additional files (docs, examples, etc.)
-    pub package_layout: PackageLayout,
     pub source_store: String,
 }
 
@@ -44,18 +43,12 @@ impl ExtensionPackage {
             wasm_component,
             metadata: None,
             assets: HashMap::new(),
-            package_layout: PackageLayout::default(),
             source_store,
         }
     }
 
     pub fn with_metadata(mut self, metadata: ExtensionMetadata) -> Self {
         self.metadata = Some(metadata);
-        self
-    }
-
-    pub fn with_layout(mut self, layout: PackageLayout) -> Self {
-        self.package_layout = layout;
         self
     }
 
@@ -380,7 +373,6 @@ impl InstalledExtension {
             wasm_component: Vec::new(), // Would need to load from disk
             metadata: self.metadata.clone(),
             assets: HashMap::new(), // Would need to load from disk
-            package_layout: PackageLayout::default(),
             source_store: self.source_store.clone(),
         }
     }
@@ -498,45 +490,6 @@ pub enum SearchSortBy {
 }
 
 /// Package file layout configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageLayout {
-    pub wasm_file: String,
-    pub manifest_file: String,
-    pub metadata_file: Option<String>,
-    pub assets_dir: Option<String>,
-}
-
-impl Default for PackageLayout {
-    fn default() -> Self {
-        Self {
-            wasm_file: "extension.wasm".to_string(),
-            manifest_file: "manifest.json".to_string(),
-            metadata_file: Some("metadata.json".to_string()),
-            assets_dir: Some("assets".to_string()),
-        }
-    }
-}
-
-impl PackageLayout {
-    pub fn new(wasm_file: String, manifest_file: String) -> Self {
-        Self {
-            wasm_file,
-            manifest_file,
-            metadata_file: None,
-            assets_dir: None,
-        }
-    }
-
-    pub fn with_metadata_file(mut self, metadata_file: String) -> Self {
-        self.metadata_file = Some(metadata_file);
-        self
-    }
-
-    pub fn with_assets_dir(mut self, assets_dir: String) -> Self {
-        self.assets_dir = Some(assets_dir);
-        self
-    }
-}
 
 /// Store information and metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]

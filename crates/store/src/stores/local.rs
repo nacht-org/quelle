@@ -15,8 +15,8 @@ use walkdir::WalkDir;
 use crate::error::{LocalStoreError, Result, StoreError};
 use crate::manifest::ExtensionManifest;
 use crate::models::{
-    ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstalledExtension, PackageLayout,
-    SearchQuery, StoreHealth, UpdateInfo,
+    ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstalledExtension, SearchQuery,
+    StoreHealth, UpdateInfo,
 };
 use crate::publish::{
     ExtensionVisibility, PublishOptions, PublishRequirements, PublishResult, PublishUpdateOptions,
@@ -167,7 +167,6 @@ impl LocalStoreManifest {
 /// Local filesystem-based extension store
 pub struct LocalStore {
     root_path: PathBuf,
-    layout: PackageLayout,
     cache: RwLock<HashMap<String, Vec<ExtensionInfo>>>,
     cache_timestamp: RwLock<Option<Instant>>,
     validator: ValidationEngine,
@@ -188,7 +187,6 @@ impl LocalStore {
 
         Ok(Self {
             root_path,
-            layout: PackageLayout::default(),
             cache: RwLock::new(HashMap::new()),
             cache_timestamp: RwLock::new(None),
             validator: create_default_validator(),
@@ -204,7 +202,6 @@ impl LocalStore {
 
         Ok(Self {
             root_path,
-            layout: PackageLayout::default(),
             cache: RwLock::new(HashMap::new()),
             cache_timestamp: RwLock::new(None),
             validator: create_default_validator(),
@@ -223,12 +220,6 @@ impl LocalStore {
     /// Set readonly mode
     pub fn with_readonly(mut self, readonly: bool) -> Self {
         self.readonly = readonly;
-        self
-    }
-
-    /// Create a LocalStore with custom package layout
-    pub fn with_layout(mut self, layout: PackageLayout) -> Self {
-        self.layout = layout;
         self
     }
 
@@ -482,7 +473,7 @@ impl LocalStore {
         };
 
         // Get last modified time from manifest file
-        let manifest_path = version_path.join(&self.layout.manifest_file);
+        let manifest_path = version_path.join("manifest.json");
         let last_updated = match fs::metadata(&manifest_path).await {
             Ok(metadata) => metadata
                 .modified()
@@ -838,50 +829,6 @@ impl BaseStore for LocalStore {
 
 #[async_trait]
 impl ReadableStore for LocalStore {
-    async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<(String, String)>> {
-        let local_manifest = self.get_local_store_manifest().await?;
-        Ok(local_manifest.find_extensions_for_url(url))
-    }
-
-    async fn find_extensions_for_domain(&self, domain: &str) -> Result<Vec<String>> {
-        let local_manifest = self.get_local_store_manifest().await?;
-        Ok(local_manifest.find_extensions_for_domain(domain))
-    }
-
-    async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
-        let extensions = self.get_cached_extensions().await?;
-        let mut all_extensions = Vec::new();
-
-        for versions in extensions.values() {
-            if let Some(latest) = versions.first() {
-                all_extensions.push(latest.clone());
-            }
-        }
-
-        Ok(all_extensions)
-    }
-
-    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionInfo>> {
-        let _ = self.get_cached_extensions().await?; // Ensure cache is fresh
-        Ok(self.search_cached_extensions(query))
-    }
-
-    async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>> {
-        let extensions = self.get_cached_extensions().await?;
-        extensions
-            .get(name)
-            .cloned()
-            .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))
-    }
-
-    async fn get_extension_version_info(
-        &self,
-        name: &str,
-        version: Option<&str>,
-    ) -> Result<ExtensionInfo> {
-        self.load_extension_info(name, version).await
-    }
-
     async fn get_extension_manifest(
         &self,
         id: &str,
@@ -943,7 +890,7 @@ impl ReadableStore for LocalStore {
         let version_path = self
             .extension_version_path(id, &version)
             .map_err(StoreError::from)?;
-        let manifest_path = version_path.join(&self.layout.manifest_file);
+        let manifest_path = version_path.join("manifest.json");
 
         debug!(
             "Loading extension manifest from fallback path: {}",
@@ -958,6 +905,49 @@ impl ReadableStore for LocalStore {
         let manifest: ExtensionManifest = serde_json::from_str(&manifest_content)?;
 
         Ok(manifest)
+    }
+    async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<(String, String)>> {
+        let local_manifest = self.get_local_store_manifest().await?;
+        Ok(local_manifest.find_extensions_for_url(url))
+    }
+
+    async fn find_extensions_for_domain(&self, domain: &str) -> Result<Vec<String>> {
+        let local_manifest = self.get_local_store_manifest().await?;
+        Ok(local_manifest.find_extensions_for_domain(domain))
+    }
+
+    async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
+        let extensions = self.get_cached_extensions().await?;
+        let mut all_extensions = Vec::new();
+
+        for versions in extensions.values() {
+            if let Some(latest) = versions.first() {
+                all_extensions.push(latest.clone());
+            }
+        }
+
+        Ok(all_extensions)
+    }
+
+    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionInfo>> {
+        let _ = self.get_cached_extensions().await?; // Ensure cache is fresh
+        Ok(self.search_cached_extensions(query))
+    }
+
+    async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>> {
+        let extensions = self.get_cached_extensions().await?;
+        extensions
+            .get(name)
+            .cloned()
+            .ok_or_else(|| StoreError::ExtensionNotFound(name.to_string()))
+    }
+
+    async fn get_extension_version_info(
+        &self,
+        name: &str,
+        version: Option<&str>,
+    ) -> Result<ExtensionInfo> {
+        self.load_extension_info(name, version).await
     }
 
     async fn get_extension_metadata(
@@ -981,16 +971,13 @@ impl ReadableStore for LocalStore {
             .extension_version_path(id, &version)
             .map_err(StoreError::from)?;
 
-        if let Some(metadata_file) = &self.layout.metadata_file {
-            let metadata_path = version_path.join(metadata_file);
+        let metadata_file = "metadata.json";
+        let metadata_path = version_path.join(metadata_file);
 
-            if metadata_path.exists() {
-                let metadata_content = fs::read_to_string(&metadata_path).await?;
-                let metadata: ExtensionMetadata = serde_json::from_str(&metadata_content)?;
-                Ok(Some(metadata))
-            } else {
-                Ok(None)
-            }
+        if metadata_path.exists() {
+            let metadata_content = fs::read_to_string(&metadata_path).await?;
+            let metadata: ExtensionMetadata = serde_json::from_str(&metadata_content)?;
+            Ok(Some(metadata))
         } else {
             Ok(None)
         }
@@ -1005,8 +992,7 @@ impl ReadableStore for LocalStore {
         let wasm_component = self.get_extension_wasm_internal(id, version).await?;
         let metadata = self.get_extension_metadata(id, version).await?;
 
-        let mut package = ExtensionPackage::new(manifest, wasm_component, "local".to_string())
-            .with_layout(self.layout.clone());
+        let mut package = ExtensionPackage::new(manifest, wasm_component, "local".to_string());
 
         if let Some(metadata) = metadata {
             package = package.with_metadata(metadata);
@@ -1262,11 +1248,6 @@ impl LocalStore {
             })?;
 
         Ok(())
-    }
-
-    /// Get the package layout used by this store (LocalStore specific)
-    pub fn package_layout(&self) -> &PackageLayout {
-        &self.layout
     }
 
     /// Internal method to get WASM bytes

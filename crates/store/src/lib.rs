@@ -77,8 +77,8 @@ pub use error::{Result, StoreError};
 pub use manager::StoreManager;
 pub use models::{
     CompatibilityInfo, ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions,
-    InstalledExtension, PackageLayout, SearchQuery, SearchSortBy, StoreConfig, StoreHealth,
-    StoreInfo, UpdateInfo, UpdateOptions,
+    InstalledExtension, SearchQuery, SearchSortBy, StoreConfig, StoreHealth, StoreInfo, UpdateInfo,
+    UpdateOptions,
 };
 pub use publish::{
     ExtensionVisibility, PublishError, PublishOptions, PublishPermissions, PublishRequirements,
