@@ -1,6 +1,8 @@
-use eyre::Result;
+use eyre::{Context, Result};
 use quelle_store::stores::local::LocalStore;
-use quelle_store::{BaseStore, ExtensionSource, RegistryConfig, StoreManager, StoreType};
+use quelle_store::{
+    BaseStore, ExtensionSource, GitProvider, GitStore, RegistryConfig, StoreManager, StoreType,
+};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -303,6 +305,63 @@ async fn handle_add_git_store(
                 e
             )
         })?;
+    }
+
+    let provider = GitProvider::new(url.clone(), &cache_path, reference.clone(), auth.clone());
+    let git_store = GitStore::new(provider, cache_path.clone(), name.clone())?;
+    git_store
+        .ensure_synced()
+        .await
+        .map_err(|e| eyre::eyre!("Failed to sync git store: {}", e))?;
+
+    let is_empty = cache_path
+        .read_dir()?
+        .filter_map(|r| r.ok())
+        .filter(|e| {
+            let file_name = e.file_name();
+            let file_name_str = file_name.to_string_lossy();
+            file_name_str != ".git" // Ignore .git directory
+        })
+        .next()
+        .is_none();
+
+    if is_empty {
+        println!(
+            "📂 Initializing empty directory as a git store: {}",
+            cache_path.display()
+        );
+
+        git_store
+            .initialize_store(name.clone(), None)
+            .await
+            .map_err(|e| eyre::eyre!(e))
+            .wrap_err("Failed to initialize git store")?;
+    } else {
+        println!(
+            "📂 Using existing directory as git store cache: {}",
+            cache_path.display()
+        );
+
+        // Validate existing store - don't write anything to it
+        match git_store.health_check().await {
+            Ok(health) => {
+                if !health.healthy {
+                    let error_msg = health.error.unwrap_or_default();
+                    tracing::error!("Existing store validation failed: {}", error_msg);
+                    return Err(eyre::eyre!("Store validation failed: {}", error_msg));
+                }
+
+                if let Some(count) = health.extension_count {
+                    tracing::info!("Validated existing store with {} extensions", count);
+                } else {
+                    tracing::info!("Validated existing store structure");
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to validate existing store: {}", e);
+                return Err(eyre::eyre!("Store validation failed: {}", e));
+            }
+        }
     }
 
     println!("  Type: Git");
