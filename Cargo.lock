@@ -2953,6 +2953,7 @@ dependencies = [
  "chrono",
  "epub-builder",
  "eyre",
+ "quelle_engine",
  "quelle_storage",
  "tempfile",
  "thiserror 1.0.69",
