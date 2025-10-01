@@ -724,6 +724,8 @@ mod tests {
                 value: "dummy_hash".to_string(),
             },
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         ExtensionPackage::new(

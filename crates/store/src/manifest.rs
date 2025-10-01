@@ -1,5 +1,104 @@
 use serde::{Deserialize, Serialize};
 
+/// Reference to a file with integrity information
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FileReference {
+    /// Relative path to the file
+    pub path: String,
+    /// Checksum for integrity verification
+    pub checksum: String,
+    /// File size in bytes
+    pub size: u64,
+}
+
+/// Reference to an asset file with additional metadata
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AssetReference {
+    /// Asset name/identifier
+    pub name: String,
+    /// Relative path to the asset
+    pub path: String,
+    /// Checksum for integrity verification
+    pub checksum: String,
+    /// File size in bytes
+    pub size: u64,
+    /// Type of asset (icon, documentation, example, etc.)
+    #[serde(rename = "type")]
+    pub asset_type: String,
+}
+
+impl FileReference {
+    /// Create a new file reference with checksum calculated from data
+    pub fn new(path: String, data: &[u8]) -> Self {
+        let checksum = format!("blake3:{}", blake3::hash(data).to_hex());
+        Self {
+            path,
+            checksum,
+            size: data.len() as u64,
+        }
+    }
+
+    /// Create a file reference from components
+    pub fn from_components(path: String, checksum: String, size: u64) -> Self {
+        Self {
+            path,
+            checksum,
+            size,
+        }
+    }
+
+    /// Verify the checksum against provided data
+    pub fn verify(&self, data: &[u8]) -> bool {
+        if let Some(hash) = self.checksum.strip_prefix("blake3:") {
+            let calculated = blake3::hash(data).to_hex().to_string();
+            calculated == hash
+        } else {
+            false
+        }
+    }
+}
+
+impl AssetReference {
+    /// Create a new asset reference with checksum calculated from data
+    pub fn new(name: String, path: String, asset_type: String, data: &[u8]) -> Self {
+        let checksum = format!("blake3:{}", blake3::hash(data).to_hex());
+        Self {
+            name,
+            path,
+            checksum,
+            size: data.len() as u64,
+            asset_type,
+        }
+    }
+
+    /// Create an asset reference from components
+    pub fn from_components(
+        name: String,
+        path: String,
+        checksum: String,
+        size: u64,
+        asset_type: String,
+    ) -> Self {
+        Self {
+            name,
+            path,
+            checksum,
+            size,
+            asset_type,
+        }
+    }
+
+    /// Verify the checksum against provided data
+    pub fn verify(&self, data: &[u8]) -> bool {
+        if let Some(hash) = self.checksum.strip_prefix("blake3:") {
+            let calculated = blake3::hash(data).to_hex().to_string();
+            calculated == hash
+        } else {
+            false
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExtensionManifest {
     // Common Fields
@@ -17,6 +116,13 @@ pub struct ExtensionManifest {
 
     // Optional signature for package authenticity
     pub signature: Option<checksum::SignatureInfo>,
+
+    // File References (for local stores)
+    /// Reference to the WASM component file
+    pub wasm_file: Option<FileReference>,
+    /// References to additional asset files
+    #[serde(default)]
+    pub assets: Vec<AssetReference>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

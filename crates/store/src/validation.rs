@@ -580,6 +580,8 @@ mod tests {
                 wasm_content,
             ),
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         ExtensionPackage::new(manifest, wasm_content.to_vec(), "test-store".to_string())

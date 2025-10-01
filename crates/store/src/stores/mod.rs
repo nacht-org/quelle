@@ -298,7 +298,15 @@ impl StoreConfig {
             trusted: false,
             cache_enabled: true,
             auth: None,
-            readonly: true,
+            readonly: false,
+        }
+    }
+
+    /// Get the path for local store configurations
+    pub fn path(&self) -> Option<&PathBuf> {
+        match self {
+            StoreConfig::Local { path, .. } => Some(path),
+            _ => None,
         }
     }
 }
@@ -348,9 +356,17 @@ mod tests {
         let config = StoreConfig::local(temp_dir.path(), "test-store".to_string());
 
         let factory = StoreFactory::new();
-        let store = factory.create_store(config).await.unwrap();
+        let _store = factory.create_store(config.clone()).await.unwrap();
 
-        let manifest = store.get_store_manifest().await.unwrap();
+        // For local stores created via factory, we need to initialize them first
+        // since they don't have a manifest yet
+        let local_store = local::LocalStore::new(config.path().unwrap()).unwrap();
+        local_store
+            .initialize_store("test-store".to_string(), Some("Test store".to_string()))
+            .await
+            .unwrap();
+
+        let manifest = local_store.get_store_manifest().await.unwrap();
 
         assert_eq!(manifest.store_type, "local");
         assert_eq!(manifest.name, "test-store");

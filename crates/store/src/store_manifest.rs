@@ -41,6 +41,10 @@ pub struct ExtensionSummary {
     pub base_urls: Vec<String>,
     pub langs: Vec<String>,
     pub last_updated: chrono::DateTime<chrono::Utc>,
+    /// Path to the extension's manifest file
+    pub manifest_path: Option<String>,
+    /// Checksum of the manifest file for integrity verification
+    pub manifest_checksum: Option<String>,
 }
 
 impl StoreManifest {

@@ -1148,6 +1148,24 @@ impl LocalStore {
                 .await
             {
                 Ok(ext_manifest) => {
+                    // Calculate manifest path and checksum
+                    let manifest_path = format!(
+                        "extensions/{}/{}/manifest.json",
+                        ext_info.id, ext_info.version
+                    );
+                    let manifest_file_path = self.root_path.join(&manifest_path);
+
+                    // Read manifest file to calculate checksum
+                    let manifest_checksum = match fs::read(&manifest_file_path).await {
+                        Ok(manifest_data) => {
+                            format!("blake3:{}", blake3::hash(&manifest_data).to_hex())
+                        }
+                        Err(_) => {
+                            // Fallback if we can't read the file
+                            "blake3:unknown".to_string()
+                        }
+                    };
+
                     let summary = ExtensionSummary {
                         id: ext_manifest.id.clone(),
                         name: ext_info.name.clone(),
@@ -1155,6 +1173,8 @@ impl LocalStore {
                         base_urls: ext_manifest.base_urls.clone(),
                         langs: ext_manifest.langs.clone(),
                         last_updated: ext_info.last_updated.unwrap_or_else(Utc::now),
+                        manifest_path: Some(manifest_path),
+                        manifest_checksum: Some(manifest_checksum),
                     };
                     local_manifest.add_extension(summary);
                 }
@@ -1359,9 +1379,30 @@ impl WritableStore for LocalStore {
         let wasm_path = version_dir.join("extension.wasm");
         fs::write(&wasm_path, &package.wasm_component).await?;
 
-        // Write manifest
+        // Create enhanced manifest with file references
+        let mut enhanced_manifest = package.manifest.clone();
+
+        // Add WASM file reference
+        enhanced_manifest.wasm_file = Some(crate::manifest::FileReference::new(
+            "./extension.wasm".to_string(),
+            &package.wasm_component,
+        ));
+
+        // Add asset references
+        enhanced_manifest.assets.clear();
+        for (name, content) in &package.assets {
+            let asset_ref = crate::manifest::AssetReference::new(
+                name.clone(),
+                format!("./{}", name),
+                "asset".to_string(), // Default type, could be enhanced later
+                content,
+            );
+            enhanced_manifest.assets.push(asset_ref);
+        }
+
+        // Write enhanced manifest
         let manifest_path = version_dir.join("manifest.json");
-        let manifest_content = serde_json::to_string_pretty(&package.manifest)?;
+        let manifest_content = serde_json::to_string_pretty(&enhanced_manifest)?;
         fs::write(&manifest_path, manifest_content).await?;
 
         // Write assets
@@ -1576,6 +1617,8 @@ mod tests {
                 value: "test_hash".to_string(),
             },
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         let manifest_content = serde_json::to_string_pretty(&manifest)?;
@@ -1589,6 +1632,13 @@ mod tests {
     async fn test_local_store_creation() {
         let temp_dir = TempDir::new().unwrap();
         let store = LocalStore::new(temp_dir.path()).unwrap();
+
+        // Initialize the store first
+        store
+            .initialize_store("test-store".to_string(), Some("Test store".to_string()))
+            .await
+            .unwrap();
+
         let manifest = store.get_store_manifest().await.unwrap();
         assert_eq!(manifest.store_type, "local");
     }
@@ -1725,6 +1775,8 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         let package =
@@ -1771,6 +1823,8 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, b"test wasm content"),
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         // Invalid WASM content (empty)
@@ -1820,6 +1874,8 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         let package =
@@ -1887,6 +1943,8 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         let valid_package = ExtensionPackage::new(
@@ -1917,6 +1975,8 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &invalid_wasm),
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         let invalid_package = ExtensionPackage::new(
@@ -1950,6 +2010,8 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         let mut forbidden_package = ExtensionPackage::new(
@@ -1983,6 +2045,8 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &invalid_wasm),
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         let invalid_package_skip = ExtensionPackage::new(
@@ -2033,6 +2097,8 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         let package =
@@ -2099,6 +2165,8 @@ mod tests {
             attrs: vec![],
             checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         let package =
@@ -2134,5 +2202,168 @@ mod tests {
         let store_json_path = temp_dir.path().join("store.json");
         let store_json_content = std::fs::read_to_string(&store_json_path).unwrap();
         assert!(!store_json_content.contains("test-extension"));
+    }
+
+    #[tokio::test]
+    async fn test_linking_system_implementation() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::new(temp_dir.path().to_path_buf()).unwrap();
+
+        // Initialize the store
+        store
+            .initialize_store(
+                "test-linking-store".to_string(),
+                Some("Test store for linking system".to_string()),
+            )
+            .await
+            .unwrap();
+
+        // Create a test extension with assets
+        let valid_wasm = [
+            0x00, 0x61, 0x73, 0x6d, // WASM magic number
+            0x01, 0x00, 0x00, 0x00, // WASM version
+        ];
+
+        let manifest = ExtensionManifest {
+            id: "test-linking".to_string(),
+            name: "Test Linking Extension".to_string(),
+            version: "1.0.0".to_string(),
+            author: "Test Author".to_string(),
+            langs: vec!["en".to_string()],
+            base_urls: vec!["https://example.com".to_string()],
+            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            attrs: vec![],
+            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
+            signature: None,
+            wasm_file: None,
+            assets: vec![],
+        };
+
+        let mut package = ExtensionPackage::new(
+            manifest,
+            valid_wasm.to_vec(),
+            "test-linking-store".to_string(),
+        );
+
+        // Add test assets
+        package.add_asset(
+            "README.md".to_string(),
+            b"# Test Extension\nThis is a test.".to_vec(),
+        );
+        package.add_asset("icon.png".to_string(), b"\x89PNG\r\n\x1a\n".to_vec());
+
+        let options = PublishOptions::default();
+        let result = store.publish(package, options).await.unwrap();
+
+        assert_eq!(result.extension_id, "test-linking");
+        assert_eq!(result.version, "1.0.0");
+
+        // Verify the store manifest has links to extension manifest
+        let store_manifest = store.get_local_store_manifest().await.unwrap();
+        assert_eq!(store_manifest.extensions.len(), 1);
+
+        let extension_summary = &store_manifest.extensions[0];
+        assert_eq!(extension_summary.id, "test-linking");
+        assert!(extension_summary.manifest_path.is_some());
+        assert!(extension_summary.manifest_checksum.is_some());
+
+        let manifest_path = extension_summary.manifest_path.as_ref().unwrap();
+        assert_eq!(manifest_path, "extensions/test-linking/1.0.0/manifest.json");
+
+        let manifest_checksum = extension_summary.manifest_checksum.as_ref().unwrap();
+        assert!(manifest_checksum.starts_with("blake3:"));
+
+        // Verify the extension manifest has links to its files
+        let ext_manifest = store
+            .get_extension_manifest("test-linking", Some("1.0.0"))
+            .await
+            .unwrap();
+
+        // Check WASM file link
+        assert!(ext_manifest.wasm_file.is_some());
+        let wasm_file = ext_manifest.wasm_file.unwrap();
+        assert_eq!(wasm_file.path, "./extension.wasm");
+        assert!(wasm_file.checksum.starts_with("blake3:"));
+        assert_eq!(wasm_file.size, valid_wasm.len() as u64);
+
+        // Check asset links
+        assert_eq!(ext_manifest.assets.len(), 2);
+
+        let readme_asset = ext_manifest
+            .assets
+            .iter()
+            .find(|a| a.name == "README.md")
+            .expect("README.md asset not found");
+        assert_eq!(readme_asset.path, "./README.md");
+        assert!(readme_asset.checksum.starts_with("blake3:"));
+        assert_eq!(
+            readme_asset.size,
+            b"# Test Extension\nThis is a test.".len() as u64
+        );
+        assert_eq!(readme_asset.asset_type, "asset");
+
+        let icon_asset = ext_manifest
+            .assets
+            .iter()
+            .find(|a| a.name == "icon.png")
+            .expect("icon.png asset not found");
+        assert_eq!(icon_asset.path, "./icon.png");
+        assert!(icon_asset.checksum.starts_with("blake3:"));
+        assert_eq!(icon_asset.size, b"\x89PNG\r\n\x1a\n".len() as u64);
+        assert_eq!(icon_asset.asset_type, "asset");
+
+        // Verify actual files exist and checksums are correct
+        let extension_dir = temp_dir.path().join("extensions/test-linking/1.0.0");
+
+        let wasm_file_path = extension_dir.join("extension.wasm");
+        assert!(wasm_file_path.exists());
+        let wasm_content = tokio::fs::read(&wasm_file_path).await.unwrap();
+        assert!(wasm_file.verify(&wasm_content));
+
+        let readme_path = extension_dir.join("README.md");
+        assert!(readme_path.exists());
+        let readme_content = tokio::fs::read(&readme_path).await.unwrap();
+        assert!(readme_asset.verify(&readme_content));
+
+        let icon_path = extension_dir.join("icon.png");
+        assert!(icon_path.exists());
+        let icon_content = tokio::fs::read(&icon_path).await.unwrap();
+        assert!(icon_asset.verify(&icon_content));
+
+        // Verify manifest file checksum in store manifest is correct
+        let manifest_file_path = extension_dir.join("manifest.json");
+        let manifest_file_content = tokio::fs::read(&manifest_file_path).await.unwrap();
+        let expected_checksum = format!("blake3:{}", blake3::hash(&manifest_file_content).to_hex());
+        assert_eq!(manifest_checksum, &expected_checksum);
+    }
+
+    #[tokio::test]
+    #[ignore] // Only run when specifically requested
+    async fn regenerate_existing_store_manifest() {
+        // This is a utility test to regenerate the store manifest for existing data
+        // Run with: cargo test regenerate_existing_store_manifest -- --ignored
+
+        let store_path = std::path::PathBuf::from("../../../data/stores/local");
+        if !store_path.exists() {
+            println!("Store path does not exist: {}", store_path.display());
+            return;
+        }
+
+        let store = LocalStore::new(store_path.clone()).unwrap();
+
+        println!("Regenerating store manifest at: {}", store_path.display());
+
+        // This will regenerate the manifest with the new linking fields
+        match store.save_store_manifest().await {
+            Ok(()) => println!("✅ Successfully regenerated store manifest with linking fields"),
+            Err(e) => println!("❌ Failed to regenerate store manifest: {}", e),
+        }
+
+        // Read and display the updated manifest
+        let manifest_path = store_path.join("store.json");
+        if let Ok(content) = tokio::fs::read_to_string(&manifest_path).await {
+            println!("📄 Updated store manifest:");
+            println!("{}", content);
+        }
     }
 }

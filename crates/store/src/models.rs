@@ -150,6 +150,8 @@ impl ExtensionPackage {
                 &wasm_content,
             ),
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         // Create the package with only the WASM file - no automatic asset collection for security
@@ -703,6 +705,8 @@ mod tests {
                 value: "test-checksum".to_string(),
             },
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         let wasm_data = b"fake wasm content for testing";
@@ -740,6 +744,8 @@ mod tests {
                 value: crate::manifest::checksum::ChecksumAlgorithm::Sha256.calculate(wasm_data),
             },
             signature: None,
+            wasm_file: None,
+            assets: vec![],
         };
 
         let package = ExtensionPackage::new(manifest, wasm_data.to_vec(), "test".to_string());
@@ -781,6 +787,8 @@ mod tests {
                     value: "test".to_string(),
                 },
                 signature: None,
+                wasm_file: None,
+                assets: vec![],
             },
             "test".to_string(),
         );
