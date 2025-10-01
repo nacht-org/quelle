@@ -28,7 +28,7 @@ use crate::validation::{create_default_validator, ValidationEngine};
 
 /// Local store manifest that extends the base StoreManifest with URL routing
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub(crate) struct LocalStoreManifest {
+pub struct LocalStoreManifest {
     /// Base store manifest
     #[serde(flatten)]
     pub base: StoreManifest,
@@ -223,12 +223,13 @@ impl LocalStore {
         self
     }
 
-    /// Initialize the store with proper metadata
-    pub async fn initialize_store(
-        &self,
-        store_name: String,
-        description: Option<String>,
-    ) -> Result<()> {
+    /// Get the root path of this store
+    pub fn root_path(&self) -> &PathBuf {
+        &self.root_path
+    }
+
+    /// Write a store manifest to disk
+    pub async fn write_store_manifest(&self, manifest: LocalStoreManifest) -> Result<()> {
         let manifest_path = self.root_path.join("store.json");
 
         // Don't overwrite existing manifest
@@ -241,6 +242,33 @@ impl LocalStore {
             });
         }
 
+        let content =
+            serde_json::to_string_pretty(&manifest).map_err(StoreError::SerializationError)?;
+
+        // Ensure directory exists
+        if let Some(parent) = manifest_path.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .map_err(StoreError::IoError)?;
+        }
+
+        fs::write(&manifest_path, content)
+            .await
+            .map_err(|e| StoreError::IoOperation {
+                operation: "write initial store manifest".to_string(),
+                path: manifest_path,
+                source: e,
+            })?;
+
+        Ok(())
+    }
+
+    /// Initialize the store with proper metadata
+    pub async fn initialize_store(
+        &self,
+        store_name: String,
+        description: Option<String>,
+    ) -> Result<()> {
         let canonical_root_path =
             fs::canonicalize(&self.root_path)
                 .await
@@ -259,26 +287,7 @@ impl LocalStore {
                 );
 
         let local_manifest = LocalStoreManifest::new(base_manifest);
-
-        let content = serde_json::to_string_pretty(&local_manifest)
-            .map_err(StoreError::SerializationError)?;
-
-        // Ensure directory exists
-        if let Some(parent) = manifest_path.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .map_err(StoreError::IoError)?;
-        }
-
-        fs::write(&manifest_path, content)
-            .await
-            .map_err(|e| StoreError::IoOperation {
-                operation: "write initial store manifest".to_string(),
-                path: manifest_path,
-                source: e,
-            })?;
-
-        Ok(())
+        self.write_store_manifest(local_manifest).await
     }
 
     /// Validate extension id to prevent path traversal attacks

@@ -130,17 +130,6 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
             }
         }
     }
-
-    /// Initialize the store with proper metadata using the local store
-    pub async fn initialize_store(
-        &self,
-        store_name: String,
-        description: Option<String>,
-    ) -> Result<()> {
-        self.local_store
-            .initialize_store(store_name, description)
-            .await
-    }
 }
 
 #[async_trait]
@@ -337,6 +326,33 @@ impl LocallyCachedStore<GitProvider> {
         }
 
         Ok(())
+    }
+
+    /// Initialize a git store with proper metadata that includes git repository information
+    pub async fn initialize_store(
+        &self,
+        store_name: String,
+        description: Option<String>,
+    ) -> Result<()> {
+        use crate::store_manifest::StoreManifest;
+        use crate::stores::local::LocalStoreManifest;
+
+        // Get git-specific information
+        let git_url = self.provider.url().to_string();
+        let git_description = self.provider.description();
+
+        // Use provided description or fall back to git description
+        let final_description = description.unwrap_or_else(|| git_description);
+
+        // Create git-specific manifest with repository URL
+        let base_manifest = StoreManifest::new(store_name, "git".to_string(), "1.0.0".to_string())
+            .with_url(git_url)
+            .with_description(final_description);
+
+        let local_manifest = LocalStoreManifest::new(base_manifest);
+
+        // Use the shared write function from local store
+        self.local_store.write_store_manifest(local_manifest).await
     }
 }
 
@@ -592,7 +608,9 @@ mod tests {
         .unwrap();
 
         // Initialize the store
-        store
+        // Test that we can call initialize_store on MockProvider (it will delegate to local store)
+        let local_store = store.local_store();
+        local_store
             .initialize_store(
                 "test-store".to_string(),
                 Some("Test description".to_string()),
@@ -603,5 +621,50 @@ mod tests {
         // Check that store.json was created
         let manifest_path = temp_dir.path().join("store.json");
         assert!(manifest_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_git_initialize_store() {
+        use crate::stores::providers::git::{GitAuth, GitProvider, GitReference};
+        use std::fs;
+
+        let temp_dir = TempDir::new().unwrap();
+        let git_url = "https://github.com/example/store.git";
+
+        let provider = GitProvider::new(
+            git_url.to_string(),
+            temp_dir.path().to_path_buf(),
+            GitReference::Default,
+            GitAuth::None,
+        );
+
+        let store = LocallyCachedStore::new(
+            provider,
+            temp_dir.path().to_path_buf(),
+            "git-test-store".to_string(),
+        )
+        .unwrap();
+
+        // Initialize the git store with specific metadata
+        store
+            .initialize_store(
+                "My Git Store".to_string(),
+                Some("A store backed by Git repository".to_string()),
+            )
+            .await
+            .unwrap();
+
+        // Check that store.json was created with git-specific information
+        let manifest_path = temp_dir.path().join("store.json");
+        assert!(manifest_path.exists());
+
+        // Read and verify the manifest content
+        let content = fs::read_to_string(&manifest_path).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        assert_eq!(manifest["name"], "My Git Store");
+        assert_eq!(manifest["store_type"], "git");
+        assert_eq!(manifest["url"], git_url);
+        assert_eq!(manifest["description"], "A store backed by Git repository");
     }
 }
