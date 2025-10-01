@@ -735,8 +735,8 @@ impl LocalStore {
             }
         }
 
-        // Also verify using the main manifest checksum (for backwards compatibility)
-        Ok(manifest.checksum.verify(&wasm_content))
+        // All files verified successfully
+        Ok(true)
     }
 }
 
@@ -852,10 +852,7 @@ impl ReadableStore for LocalStore {
                 .iter()
                 .find(|ext| format!("{}@{}", ext.id, ext.version) == extension_key)
             {
-                let version_path = self
-                    .extension_version_path(id, &version)
-                    .map_err(StoreError::from)?;
-                let manifest_path = version_path.join(&extension_summary.manifest_path);
+                let manifest_path = self.root_path.join(&extension_summary.manifest_path);
 
                 debug!(
                     "Loading extension manifest from store manifest link: {}",
@@ -1191,11 +1188,11 @@ impl LocalStore {
             {
                 Ok(ext_manifest) => {
                     // Calculate manifest path and checksum
-                    let manifest_path = "manifest.json".to_string();
-                    let manifest_file_path = self
-                        .extension_version_path(&ext_info.id, &ext_info.version)
-                        .map_err(StoreError::from)?
-                        .join(&manifest_path);
+                    let manifest_path = format!(
+                        "extensions/{}/{}/manifest.json",
+                        ext_info.id, ext_info.version
+                    );
+                    let manifest_file_path = self.root_path.join(&manifest_path);
 
                     // Read manifest file to calculate checksum
                     let manifest_checksum = match fs::read(&manifest_file_path).await {
@@ -1801,7 +1798,6 @@ impl CacheableStore for LocalStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::checksum::{Checksum, ChecksumAlgorithm};
     use tempfile::TempDir;
 
     fn create_test_extension(dir: &Path, name: &str, version: &str) -> std::io::Result<()> {
@@ -1817,10 +1813,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![],
             attrs: vec![],
-            checksum: crate::manifest::Checksum {
-                algorithm: crate::manifest::ChecksumAlgorithm::Sha256,
-                value: "test_hash".to_string(),
-            },
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -1981,7 +1973,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -2032,7 +2023,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, b"test wasm content"),
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -2086,7 +2076,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -2158,7 +2147,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -2193,7 +2181,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &invalid_wasm),
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -2231,7 +2218,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -2269,7 +2255,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &invalid_wasm),
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -2324,7 +2309,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -2395,7 +2379,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -2468,7 +2451,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &valid_wasm),
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -2517,7 +2499,7 @@ mod tests {
         assert_eq!(extension_summary.id, "test-linking");
 
         let manifest_path = &extension_summary.manifest_path;
-        assert_eq!(manifest_path, "manifest.json");
+        assert_eq!(manifest_path, "extensions/test-linking/1.0.0/manifest.json");
 
         let manifest_checksum = &extension_summary.manifest_checksum;
         assert!(manifest_checksum.starts_with("blake3:"));
@@ -2707,7 +2689,6 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(ChecksumAlgorithm::Sha256, &wasm_data),
             signature: None,
             // Use custom paths to verify linking system is working
             wasm_file: crate::manifest::FileReference::new(

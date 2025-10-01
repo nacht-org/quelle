@@ -562,7 +562,7 @@ pub fn create_strict_validator() -> ValidationEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{checksum::Checksum, ExtensionManifest, ReadingDirection};
+    use crate::manifest::{ExtensionManifest, ReadingDirection};
     use crate::models::ExtensionPackage;
 
     fn create_test_package(name: &str, wasm_content: &[u8]) -> ExtensionPackage {
@@ -575,10 +575,7 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: Checksum::from_data(
-                crate::manifest::checksum::ChecksumAlgorithm::Sha256,
-                wasm_content,
-            ),
+
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),

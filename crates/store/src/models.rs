@@ -138,10 +138,7 @@ impl ExtensionPackage {
                     }
                 })
                 .collect(),
-            checksum: crate::manifest::Checksum::from_data(
-                crate::manifest::ChecksumAlgorithm::Blake3,
-                &wasm_content,
-            ),
+
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -657,10 +654,7 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: crate::manifest::Checksum {
-                algorithm: crate::manifest::checksum::ChecksumAlgorithm::Sha256,
-                value: "test-checksum".to_string(),
-            },
+
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -698,10 +692,7 @@ mod tests {
             base_urls: vec!["https://test.com".to_string()],
             rds: vec![crate::manifest::ReadingDirection::Ltr],
             attrs: vec![],
-            checksum: crate::manifest::Checksum {
-                algorithm: crate::manifest::checksum::ChecksumAlgorithm::Sha256,
-                value: crate::manifest::checksum::ChecksumAlgorithm::Sha256.calculate(wasm_data),
-            },
+
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
@@ -712,7 +703,10 @@ mod tests {
 
         let package = ExtensionPackage::new(manifest, wasm_data.to_vec(), "test".to_string());
         let mut installed = InstalledExtension::from_package(package.clone());
-        installed.checksum = Some(installed.manifest.checksum.clone());
+        installed.checksum = Some(crate::manifest::Checksum {
+            algorithm: crate::manifest::checksum::ChecksumAlgorithm::Sha256,
+            value: crate::manifest::checksum::ChecksumAlgorithm::Sha256.calculate(wasm_data),
+        });
 
         // Test integrity verification without files (should return false)
         let integrity_result = installed.verify_integrity(&registry).await;
@@ -744,10 +738,7 @@ mod tests {
                 base_urls: vec!["https://test.com".to_string()],
                 rds: vec![crate::manifest::ReadingDirection::Ltr],
                 attrs: vec![],
-                checksum: crate::manifest::Checksum {
-                    algorithm: crate::manifest::checksum::ChecksumAlgorithm::Sha256,
-                    value: "test".to_string(),
-                },
+
                 signature: None,
                 wasm_file: crate::manifest::FileReference::new(
                     "./extension.wasm".to_string(),

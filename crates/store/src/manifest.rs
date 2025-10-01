@@ -111,9 +111,6 @@ pub struct ExtensionManifest {
     pub rds: Vec<ReadingDirection>,
     pub attrs: Vec<Attribute>,
 
-    // Manifest Only Fields
-    pub checksum: checksum::Checksum,
-
     // Optional signature for package authenticity
     pub signature: Option<checksum::SignatureInfo>,
 

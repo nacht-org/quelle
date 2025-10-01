@@ -494,9 +494,13 @@ impl RegistryStore for LocalRegistryStore {
         }
 
         // Create installation record with in-memory data
-        let mut installed = InstalledExtension::from_package(package);
+        let mut installed = InstalledExtension::from_package(package.clone());
         installed.auto_update = options.auto_update;
-        installed.checksum = Some(installed.manifest.checksum.clone());
+        installed.checksum = Some(crate::manifest::Checksum {
+            algorithm: crate::manifest::checksum::ChecksumAlgorithm::Blake3,
+            value: crate::manifest::checksum::ChecksumAlgorithm::Blake3
+                .calculate(&package.wasm_component),
+        });
 
         // Calculate actual size from written files
         if let Ok(actual_size) = installed.calculate_actual_size(self).await {
@@ -706,7 +710,7 @@ impl RegistryStore for LocalRegistryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{Checksum, ChecksumAlgorithm, ExtensionManifest};
+    use crate::manifest::ExtensionManifest;
     use tempfile::TempDir;
 
     fn create_test_extension_package(name: &str, version: &str) -> ExtensionPackage {
@@ -719,10 +723,7 @@ mod tests {
             base_urls: vec!["https://example.com".to_string()],
             rds: vec![],
             attrs: vec![],
-            checksum: Checksum {
-                algorithm: ChecksumAlgorithm::Sha256,
-                value: "dummy_hash".to_string(),
-            },
+
             signature: None,
             wasm_file: crate::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
