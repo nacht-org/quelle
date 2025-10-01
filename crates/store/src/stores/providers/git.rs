@@ -544,6 +544,110 @@ impl StoreProvider for GitProvider {
     fn provider_type(&self) -> &'static str {
         "git"
     }
+
+    fn is_writable(&self) -> bool {
+        self.write_config.is_some()
+    }
+
+    async fn post_publish(&self, extension_id: &str, version: &str, sync_dir: &Path) -> Result<()> {
+        if !self.is_writable() {
+            return Ok(());
+        }
+
+        let write_config =
+            self.write_config
+                .as_ref()
+                .ok_or_else(|| crate::error::StoreError::InvalidPackage {
+                    reason: "Git write configuration not available".to_string(),
+                })?;
+
+        // Determine which files were affected
+        let extension_dir = sync_dir.join(extension_id);
+        let affected_files = vec![
+            sync_dir.join("store.json"), // Store manifest always updated
+            extension_dir,
+        ];
+
+        // Stage changes
+        self.git_add(&affected_files).await?;
+
+        // Create commit message
+        let commit_message = write_config
+            .commit_message_template
+            .replace("{action}", "Add")
+            .replace("{extension_id}", extension_id)
+            .replace("{version}", version);
+
+        // Commit changes
+        self.git_commit(&commit_message).await?;
+
+        // Push if auto-push is enabled
+        if write_config.auto_push {
+            self.git_push().await?;
+        }
+
+        Ok(())
+    }
+
+    async fn post_unpublish(
+        &self,
+        extension_id: &str,
+        version: &str,
+        sync_dir: &Path,
+    ) -> Result<()> {
+        if !self.is_writable() {
+            return Ok(());
+        }
+
+        let write_config =
+            self.write_config
+                .as_ref()
+                .ok_or_else(|| crate::error::StoreError::InvalidPackage {
+                    reason: "Git write configuration not available".to_string(),
+                })?;
+
+        // Only stage the store manifest since the extension directory was removed
+        let affected_files = vec![sync_dir.join("store.json")];
+
+        // Stage changes
+        self.git_add(&affected_files).await?;
+
+        // Create commit message
+        let commit_message = write_config
+            .commit_message_template
+            .replace("{action}", "Remove")
+            .replace("{extension_id}", extension_id)
+            .replace("{version}", version);
+
+        // Commit changes
+        self.git_commit(&commit_message).await?;
+
+        // Push if auto-push is enabled
+        if write_config.auto_push {
+            self.git_push().await?;
+        }
+
+        Ok(())
+    }
+
+    async fn check_write_status(&self, _sync_dir: &Path) -> Result<()> {
+        if !self.is_writable() {
+            return Err(crate::error::StoreError::InvalidPackage {
+                reason: "Git provider is read-only".to_string(),
+            });
+        }
+
+        let status = self.check_repository_status().await?;
+        if !status.is_publishable() {
+            if let Some(reason) = status.publish_blocking_reason() {
+                return Err(crate::error::StoreError::InvalidPackage {
+                    reason: format!("Cannot write to git repository: {}", reason),
+                });
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(feature = "git")]

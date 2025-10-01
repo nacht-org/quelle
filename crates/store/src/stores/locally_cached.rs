@@ -146,8 +146,29 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         // Ensure we're synced first
         self.ensure_synced().await?;
 
+        // Check if provider supports writing and is in valid state
+        self.provider.check_write_status(&self.sync_dir).await?;
+
         // Delegate to local store for the actual publishing
-        self.local_store.publish(package, options).await
+        let result = self.local_store.publish(package.clone(), options).await?;
+
+        // Post-publish hook for provider-specific operations (git commit/push, etc.)
+        if let Err(e) = self
+            .provider
+            .post_publish(
+                &package.manifest.id,
+                &package.manifest.version.to_string(),
+                &self.sync_dir,
+            )
+            .await
+        {
+            tracing::warn!(
+                "Post-publish workflow failed after successful publish: {}",
+                e
+            );
+        }
+
+        Ok(result)
     }
 
     async fn update_published(
@@ -159,10 +180,32 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         // Ensure we're synced first
         self.ensure_synced().await?;
 
+        // Check if provider supports writing and is in valid state
+        self.provider.check_write_status(&self.sync_dir).await?;
+
         // Delegate to local store
-        self.local_store
-            .update_published(extension_id, package, options)
+        let result = self
+            .local_store
+            .update_published(extension_id, package.clone(), options)
+            .await?;
+
+        // Post-publish hook for provider-specific operations (git commit/push, etc.)
+        if let Err(e) = self
+            .provider
+            .post_publish(
+                extension_id,
+                &package.manifest.version.to_string(),
+                &self.sync_dir,
+            )
             .await
+        {
+            tracing::warn!(
+                "Post-publish workflow failed after successful update: {}",
+                e
+            );
+        }
+
+        Ok(result)
     }
 
     async fn unpublish(
@@ -173,8 +216,25 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         // Ensure we're synced first
         self.ensure_synced().await?;
 
+        // Check if provider supports writing and is in valid state
+        self.provider.check_write_status(&self.sync_dir).await?;
+
         // Delegate to local store
-        self.local_store.unpublish(extension_id, options).await
+        let result = self.local_store.unpublish(extension_id, options).await?;
+
+        // Post-unpublish hook for provider-specific operations (git commit/push, etc.)
+        if let Err(e) = self
+            .provider
+            .post_unpublish(extension_id, &result.version, &self.sync_dir)
+            .await
+        {
+            tracing::warn!(
+                "Post-unpublish workflow failed after successful unpublish: {}",
+                e
+            );
+        }
+
+        Ok(result)
     }
 
     async fn validate_package(
@@ -666,5 +726,40 @@ mod tests {
         assert_eq!(manifest["store_type"], "git");
         assert_eq!(manifest["url"], git_url);
         assert_eq!(manifest["description"], "A store backed by Git repository");
+    }
+
+    #[tokio::test]
+    async fn test_provider_write_methods_available() {
+        use crate::stores::providers::git::{GitAuth, GitProvider, GitReference};
+        use crate::stores::providers::traits::StoreProvider;
+
+        let temp_dir = TempDir::new().unwrap();
+        let git_url = "https://github.com/example/store.git";
+
+        let provider = GitProvider::new(
+            git_url.to_string(),
+            temp_dir.path().to_path_buf(),
+            GitReference::Default,
+            GitAuth::None,
+        );
+
+        // Test that the provider implements the required write methods
+        assert!(!provider.is_writable()); // No write config, so read-only
+
+        // Test that check_write_status works (should fail for read-only provider)
+        let result = provider.check_write_status(&temp_dir.path()).await;
+        assert!(result.is_err());
+
+        // Test that post_publish and post_unpublish methods exist and can be called
+        // (they should do nothing for read-only providers)
+        let post_pub_result = provider
+            .post_publish("test-ext", "1.0.0", &temp_dir.path())
+            .await;
+        assert!(post_pub_result.is_ok());
+
+        let post_unpub_result = provider
+            .post_unpublish("test-ext", "1.0.0", &temp_dir.path())
+            .await;
+        assert!(post_unpub_result.is_ok());
     }
 }

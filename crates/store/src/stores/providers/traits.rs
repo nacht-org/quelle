@@ -85,4 +85,42 @@ pub trait StoreProvider: Send + Sync {
 
     /// Get the provider type identifier
     fn provider_type(&self) -> &'static str;
+
+    /// Check if this provider supports write operations
+    fn is_writable(&self) -> bool {
+        false // Default to read-only
+    }
+
+    /// Post-publish hook: called after a successful publish operation
+    /// Providers can use this to commit changes, push to remotes, etc.
+    async fn post_publish(&self, extension_id: &str, version: &str, sync_dir: &Path) -> Result<()> {
+        // Default implementation does nothing
+        let _ = (extension_id, version, sync_dir);
+        Ok(())
+    }
+
+    /// Post-unpublish hook: called after a successful unpublish operation
+    /// Providers can use this to commit changes, push to remotes, etc.
+    async fn post_unpublish(
+        &self,
+        extension_id: &str,
+        version: &str,
+        sync_dir: &Path,
+    ) -> Result<()> {
+        // Default implementation does nothing
+        let _ = (extension_id, version, sync_dir);
+        Ok(())
+    }
+
+    /// Check if the provider is in a state that allows publishing
+    /// Returns an error if publishing should be blocked
+    async fn check_write_status(&self, _sync_dir: &Path) -> Result<()> {
+        // Default implementation allows writing if writable
+        if !self.is_writable() {
+            return Err(crate::error::StoreError::InvalidPackage {
+                reason: "Provider does not support write operations".to_string(),
+            });
+        }
+        Ok(())
+    }
 }
