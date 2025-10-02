@@ -145,7 +145,7 @@ pub enum Commands {
     /// Extension development tools
     Dev {
         #[command(subcommand)]
-        command: crate::commands::dev::DevCommands,
+        command: quelle_dev::DevCommands,
     },
 }
 

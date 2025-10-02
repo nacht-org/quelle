@@ -11,16 +11,21 @@ mod utils;
 
 use cli::{Cli, Commands};
 use commands::{
-    handle_add_command, handle_config_command, handle_dev_command, handle_export_command,
-    handle_extension_command, handle_fetch_command, handle_library_command, handle_publish_command,
-    handle_read_command, handle_remove_command, handle_search_command, handle_status_command,
-    handle_store_command, handle_update_command,
+    handle_add_command, handle_config_command, handle_export_command, handle_extension_command,
+    handle_fetch_command, handle_library_command, handle_publish_command, handle_read_command,
+    handle_remove_command, handle_search_command, handle_status_command, handle_store_command,
+    handle_update_command,
 };
 use config::Config;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Handle dev commands early to avoid store initialization
+    if let Commands::Dev { command } = &cli.command {
+        return quelle_dev::handle_dev_command(command.clone()).await;
+    }
 
     // Initialize tracing
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
@@ -142,6 +147,9 @@ async fn main() -> Result<()> {
         Commands::Fetch { command } => {
             handle_fetch_command(command, &mut store_manager, &storage, cli.dry_run).await
         }
-        Commands::Dev { command } => handle_dev_command(command, &config).await,
+        Commands::Dev { .. } => {
+            // This case is handled early in main() to avoid store initialization
+            unreachable!("Dev commands should be handled before reaching this point")
+        }
     }
 }

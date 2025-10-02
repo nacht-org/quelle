@@ -21,17 +21,21 @@ setup:
     just reset-store
     just publish scribblehub
 
-# === Extension Development Commands ===
+# === Extension Development Commands (quelle_dev crate) ===
 
 # Start development server with hot reload for an extension
 dev-server NAME:
+    cargo run -p quelle_cli -- dev server {{NAME}} --watch
+
+# Start development server with verbose logging (shows engine tracing)
+dev-server-verbose NAME:
     cargo run -p quelle_cli -- dev server {{NAME}} --watch --verbose
 
 # Quick interactive test for extension functionality
 dev-test NAME *ARGS:
-    cargo run -p quelle_cli -- dev test {{NAME}} {{ARGS}} --verbose
+    cargo run -p quelle_cli -- dev test {{NAME}} {{ARGS}}
 
-# Validate extension structure and build
+# Validate extension structure and build (no store dependencies)
 dev-validate NAME:
     cargo run -p quelle_cli -- dev validate {{NAME}} --extended
 
@@ -43,9 +47,13 @@ dev-test-novel NAME URL:
 dev-test-search NAME QUERY:
     cargo run -p quelle_cli -- dev test {{NAME}} --query "{{QUERY}}"
 
-# Build and hot-reload development cycle
+# Build and quick test development cycle
 dev-quick NAME:
     just build-extension {{NAME}} && just dev-test {{NAME}}
+
+# Build extension directly (no CLI overhead)
+dev-build NAME:
+    cargo component build -r -p extension_{{NAME}} --target wasm32-unknown-unknown
 
 # === Legacy Publishing Commands ===
 
@@ -81,9 +89,10 @@ run *ARGS:
 example-dev-scribblehub:
     @echo "🚀 Starting development server for scribblehub extension..."
     @echo "💡 This will:"
-    @echo "   1. Build the extension"
+    @echo "   1. Build the extension (no store dependencies)"
     @echo "   2. Start file watching for auto-rebuild"
     @echo "   3. Provide interactive testing commands"
+    @echo "   4. Use clean output (no timestamps)"
     @echo ""
     @echo "Available commands in dev server:"
     @echo "  test <url>     - Test novel info fetching"
@@ -91,6 +100,7 @@ example-dev-scribblehub:
     @echo "  chapter <url>  - Test chapter content fetching"
     @echo "  meta          - Show extension metadata"
     @echo "  rebuild       - Force rebuild extension"
+    @echo "  help          - Show available commands"
     @echo "  quit          - Exit development server"
     @echo ""
     just dev-server scribblehub
@@ -104,3 +114,15 @@ example-test-novel:
 example-test-search:
     @echo "🔍 Testing search functionality..."
     just dev-test-search scribblehub "fantasy adventure"
+
+# Example: Complete validation workflow
+example-validate:
+    @echo "✅ Running complete extension validation..."
+    just dev-validate scribblehub
+
+# Example: Development cycle - build, validate, test
+example-dev-cycle NAME:
+    @echo "🔄 Running complete development cycle for {{NAME}}..."
+    just dev-build {{NAME}}
+    just dev-validate {{NAME}}
+    @echo "🎉 Ready for testing! Use: just dev-server {{NAME}}"

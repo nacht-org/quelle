@@ -3013,7 +3013,7 @@ dependencies = [
  "clap",
  "directories 5.0.1",
  "eyre",
- "notify",
+ "quelle_dev",
  "quelle_engine",
  "quelle_export",
  "quelle_storage",
@@ -3027,6 +3027,24 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "quelle_dev"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "eyre",
+ "notify",
+ "quelle_engine",
+ "reqwest 0.12.20",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
