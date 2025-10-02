@@ -3,7 +3,7 @@
 //! This crate provides development commands and utilities for building,
 //! testing, and debugging Quelle extensions.
 
-use clap::Subcommand;
+use clap::{Parser, Subcommand};
 use eyre::{Result, eyre};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use quelle_engine::bindings::quelle::extension::{
@@ -58,6 +58,33 @@ pub enum DevCommands {
         #[arg(long)]
         extended: bool,
     },
+}
+
+/// Internal dev server commands
+#[derive(Parser, Debug)]
+pub enum DevServerCommand {
+    /// Test novel info fetching
+    Test {
+        /// URL to test
+        url: String,
+    },
+    /// Test search functionality
+    Search {
+        /// Search query (multiple words allowed)
+        #[arg(trailing_var_arg = true)]
+        query: Vec<String>,
+    },
+    /// Test chapter content fetching
+    Chapter {
+        /// Chapter URL to test
+        url: String,
+    },
+    /// Show extension metadata
+    Meta,
+    /// Force rebuild extension
+    Rebuild,
+    /// Exit development server
+    Quit,
 }
 
 pub async fn handle_dev_command(cmd: DevCommands) -> Result<()> {
@@ -170,9 +197,51 @@ async fn start_dev_server(extension_name: String, watch: bool) -> Result<()> {
                 continue;
             }
 
-            if let Ok(mut server) = dev_server.lock() {
-                if let Err(e) = server.handle_command(command_line).await {
-                    println!("❌ Command failed: {}", e);
+            // Parse command using clap
+            let args: Vec<&str> = command_line.split_whitespace().collect();
+            if args.is_empty() {
+                continue;
+            }
+
+            // Create a proper command line for clap parsing
+            let full_args = vec!["dev-server"]
+                .into_iter()
+                .chain(args.iter().copied())
+                .collect::<Vec<_>>();
+
+            match DevServerCommand::try_parse_from(full_args) {
+                Ok(cmd) => {
+                    if let Ok(mut server) = dev_server.lock() {
+                        if let Err(e) = server.handle_parsed_command(cmd).await {
+                            println!("❌ Command failed: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Check if this is a help request
+                    let is_help = command_line == "help"
+                        || command_line == "--help"
+                        || args.contains(&"--help")
+                        || args.contains(&"-h");
+
+                    if is_help {
+                        // Use clap's built-in help
+                        if let Err(help_err) =
+                            DevServerCommand::try_parse_from(vec!["dev-server", "--help"])
+                        {
+                            println!("{}", help_err);
+                        }
+                    } else {
+                        // Check if it's a subcommand help request
+                        if args.len() >= 2 && (args[1] == "--help" || args[1] == "-h") {
+                            println!("{}", e);
+                        } else {
+                            println!("❌ Invalid command. Type 'help' for available commands.");
+                            if !e.to_string().contains("clap") {
+                                println!("   Error: {}", e);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -378,62 +447,28 @@ impl DevServer {
         Ok(())
     }
 
-    async fn handle_command(&mut self, command: &str) -> Result<()> {
-        let parts: Vec<&str> = command.split_whitespace().collect();
-        if parts.is_empty() {
-            return Ok(());
-        }
-
-        match parts[0] {
-            "test" => {
-                if parts.len() < 2 {
-                    println!("Usage: test <url>");
-                    return Ok(());
-                }
-                let url = parts[1].to_string();
+    async fn handle_parsed_command(&mut self, command: DevServerCommand) -> Result<()> {
+        match command {
+            DevServerCommand::Test { url } => {
                 self.test_novel_info(url).await?;
             }
-            "search" => {
-                if parts.len() < 2 {
-                    println!("Usage: search <query>");
-                    return Ok(());
-                }
-                let query = parts[1..].join(" ");
-                self.test_search(query).await?;
+            DevServerCommand::Search { query } => {
+                let query_string = query.join(" ");
+                self.test_search(query_string).await?;
             }
-            "chapter" => {
-                if parts.len() < 2 {
-                    println!("Usage: chapter <url>");
-                    return Ok(());
-                }
-                let url = parts[1].to_string();
+            DevServerCommand::Chapter { url } => {
                 self.test_chapter_content(url).await?;
             }
-            "meta" => {
+            DevServerCommand::Meta => {
                 self.show_metadata().await?;
             }
-            "rebuild" => {
+            DevServerCommand::Rebuild => {
                 println!("🔄 Force rebuilding extension...");
                 self.build_extension().await?;
                 self.load_extension().await?;
             }
-            "help" => {
-                println!("Available commands:");
-                println!("  test <url>     - Test novel info fetching");
-                println!("  search <query> - Test search functionality");
-                println!("  chapter <url>  - Test chapter content fetching");
-                println!("  meta          - Show extension metadata");
-                println!("  rebuild       - Force rebuild extension");
-                println!("  quit          - Exit development server");
-            }
-            "quit" => {
+            DevServerCommand::Quit => {
                 println!("👋 Goodbye!");
-            }
-            _ => {
-                println!(
-                    "❌ Unknown command: '{}'. Type 'help' for available commands.",
-                    parts[0]
-                );
             }
         }
 
