@@ -1,143 +1,218 @@
 # Quelle
 
-This project provides an open-source, extensible and portable application that enables users to scrape e-books from multiple online sources. With its flexibility and support for multiple online sources, this e-book scraper provides a valuable tool for e-book enthusiasts who want to easily search and download e-books from the internet.
+Quelle is a powerful, extensible novel scraper and library manager that enables you to search, download, and manage e-books from multiple online sources. Built with a modular WebAssembly architecture, it provides high performance and cross-platform compatibility.
 
-The repository holds both the Rust source code for the extensions and the runtime built using Wasmtime. This architecture allows for high-performance execution and cross-platform compatibility, making the application efficient and versatile.
+## 🚀 Quick Start
 
-## Project Architecture
+### Installation
+
+```bash
+# Clone and build
+git clone https://github.com/nacht-org/quelle
+cd quelle
+cargo build --release
+
+# Set up extension system and install ScribbleHub extension
+just setup
+
+# Or manually:
+# just reset-store
+# just publish scribblehub
+# cargo run -p quelle_cli -- extensions install en.scribblehub
+```
+
+### Basic Usage
+
+```bash
+# Search for novels
+quelle search "fantasy adventure" --limit 5
+
+# Add a novel to your library (downloads all chapters)
+quelle add https://www.scribblehub.com/series/123456/novel-name/
+
+# List your library
+quelle library list
+
+# Read a chapter
+quelle read "Novel Title" 1
+
+# Update all novels with new chapters
+quelle update
+
+# Export to EPUB
+quelle export "Novel Title" --format epub
+```
+
+## ✨ Features
+
+### Core Functionality
+- 🔍 **Multi-source search** - Search across different novel platforms simultaneously
+- 📚 **Library management** - Organize and track your novel collection
+- 📖 **Chapter reading** - Read chapters directly in your terminal
+- 📤 **Multiple export formats** - Export to EPUB, PDF, and more
+- 🔄 **Auto-updates** - Keep your novels updated with new chapters
+- 🎯 **Flexible filtering** - Search by author, tags, categories
+
+### Extension System
+- 🧩 **WebAssembly extensions** - High-performance, sandboxed scrapers
+- 🏪 **Extension stores** - Install extensions from local or remote repositories
+- 🛠️ **Easy development** - Simple API for creating new source extensions
+- 📦 **Package management** - Version control and dependency management
+
+### Current Sources
+- **ScribbleHub** - Original novels and translations
+- **DragonTea** - Light novels and web novels
+- *More sources coming soon...*
+
+## 📋 Project Status
+
+**Current Status**: ✅ **MVP Ready**
+
+Quelle has reached MVP status with a fully functional CLI, working extension system, and reliable core features.
+
+### What Works
+- ✅ Complete CLI interface with all major commands
+- ✅ Extension system (build, install, manage extensions)
+- ✅ Store management (local and Git-based stores)
+- ✅ Novel search and discovery
+- ✅ Library management (add, update, remove novels)
+- ✅ Chapter reading and export
+- ✅ Working extensions for ScribbleHub and DragonTea
+
+### In Development
+- 🔄 Additional output formats (PDF improvements)
+- 🔄 More extension sources
+- 🔄 Enhanced search capabilities
+- 🔄 Cross-platform binary distribution
+
+## 📖 CLI Reference
+
+### Core Commands
+
+```bash
+# Library Management
+quelle add <url>                    # Add novel to library
+quelle update [novel]               # Update novels with new chapters
+quelle remove <novel> --force       # Remove novel from library
+quelle library list                 # List all novels
+quelle library show <novel>         # Show novel details
+
+# Reading and Export
+quelle read <novel> [chapter]       # Read a chapter
+quelle export <novel> --format epub # Export novel
+
+# Discovery
+quelle search <query>               # Search for novels
+quelle search <query> --author "Name" --tags "fantasy,adventure"
+
+# Extension Management
+quelle extensions list              # List installed extensions
+quelle extensions install <id>     # Install an extension
+quelle extensions search <query>   # Search available extensions
+
+# System Management
+quelle status                       # Show system status
+quelle config show                  # Show configuration
+quelle store list                   # List configured stores
+```
+
+### Example Workflow
+
+```bash
+# 1. Set up Quelle
+just setup
+
+# 2. Search for a novel
+quelle search "overlord light novel" --limit 5
+
+# 3. Add a novel to your library
+quelle add https://www.scribblehub.com/series/123456/overlord/
+
+# 4. Read the first chapter
+quelle read "Overlord" 1
+
+# 5. Export to EPUB for your e-reader
+quelle export "Overlord" --format epub --output ./books/
+
+# 6. Keep your library updated
+quelle update
+```
+
+## 🏗️ Architecture
 
 Quelle uses a modular WebAssembly-based architecture:
 
-- **Engine (`crates/engine`)**: Core runtime built with Wasmtime that loads and manages extensions
-- **Extension Framework (`crates/extension`)**: Shared library for building WASM extensions
-- **Extensions (`extensions/`)**: Individual scrapers for different e-book sources (dragontea, scribblehub)
-- **WIT Interfaces (`wit/`)**: WebAssembly Interface Types defining the contract between engine and extensions
+- **CLI (`crates/cli`)**: User interface and command handling
+- **Engine (`crates/engine`)**: Core runtime built with Wasmtime
+- **Extension Framework (`crates/extension`)**: Shared library for WASM extensions  
+- **Storage (`crates/storage`)**: Data persistence and library management
+- **Store System (`crates/store`)**: Extension package management
+- **Extensions (`extensions/`)**: Individual scrapers (dragontea, scribblehub)
+- **WIT Interfaces (`wit/`)**: WebAssembly Interface Types definitions
 
-## Current Status
+## 🛠️ Development
 
-🚧 **Project Status**: Pre-MVP Development
-
-This project is currently under active development. The core architecture is in place, but the MVP is not yet complete.
-
-## Documentation
-
-📚 **Comprehensive documentation is available in the [Quelle Book](./book/)**
-
-The book contains detailed guides for users, developers, and contributors:
-
-- **User Guide**: Installation, getting started, and basic usage
-- **Store System**: Extension package management and CLI reference  
-- **Development**: Architecture, extension development, and API reference
-- **Reference**: Quick reference, troubleshooting, and technical details
-
-Since Quelle is under active development, the documentation reflects current capabilities while noting planned features.
-
-### What Works
-- ✅ Core WASM runtime engine
-- ✅ Extension loading system
-- ✅ Basic WIT interface definitions
-- ✅ Sample extensions (dragontea, scribblehub)
-
-### What's Coming
-- 🔄 Complete CLI interface
-- 🔄 Multiple output formats (EPUB, PDF, etc.)
-- 🔄 Extension management system
-- 🔄 Cross-platform binaries
-- 🔄 Comprehensive documentation
-
-## MVP Development Plan
-
-### Phase 1: Core Infrastructure
-- **CLI Interface Enhancement**
-  - Comprehensive command-line interface with `search`, `download`, `list-sources`, `install-extension` commands
-  - Configuration file support and progress indicators
-- **Extension System Refinement**
-  - Dynamic extension discovery and management
-  - Extension metadata and validation system
-- **WIT Interface Completion**
-  - Review and enhance interface definitions
-  - Comprehensive error handling
-
-### Phase 2: Extension Development
-- **Expand Existing Extensions**
-  - Complete DragonTea and ScribbleHub implementations
-  - Add search, metadata extraction, and chapter downloading
-- **Add New Extensions** (3-4 popular sources from):
-  - NovelFull, ReadLightNovel, Wuxiaworld, Royal Road, Archive.org, Project Gutenberg
-- **Quality Assurance**
-  - Test suites, integration tests, and performance optimization
-
-### Phase 3: User Experience
-- **Multiple Export Formats**: EPUB, PDF, plain text, Markdown
-- **Enhanced Search**: Multi-source aggregation, filtering, caching
-- **Download Management**: Batch downloads, resume capability, queue management
-
-### Phase 4: Documentation & Distribution
-- **Comprehensive Documentation**: Installation guides, tutorials, troubleshooting
-- **Build Pipeline**: CI/CD with cross-platform binaries
-- **Extension Ecosystem**: Registry, packaging standards, contribution guidelines
-
-### MVP Success Criteria
-- ✅ Successfully download complete e-books from 5+ sources
-
-## Quick Start (Development)
+### Prerequisites
 
 ```bash
-# Clone the repository
-git clone https://github.com/nacht-org/quelle
-cd quelle
-
-# Build an extension
-just build-extension dragontea
-
-# Run the engine (when CLI is complete)
-cargo run -p quelle_engine -- --help
+# Install Rust and required tools
+rustup target add wasm32-unknown-unknown
+cargo install just cargo-component
 ```
-
-## Contributing
-
-We welcome contributions! Here are ways you can help:
-
-### Priority Areas for MVP
-1. **Extension Development**: Add support for new e-book sources
-2. **CLI Enhancement**: Improve user interface and experience
-3. **Output Formats**: Implement EPUB, PDF generation
-4. **Testing**: Add tests for existing functionality
-5. **Documentation**: Improve guides and examples
-
-### Development Setup
-1. Install Rust (latest stable)
-2. Install `just` command runner: `cargo install just`
-3. Install WASM target: `rustup target add wasm32-unknown-unknown`
-4. Install `cargo-component`: `cargo install cargo-component`
 
 ### Building Extensions
+
 ```bash
 # Build a specific extension
-just build-extension <extension-name>
+just build-extension scribblehub
 
-# Example
-just build-extension dragontea
+# Publish to local store
+just publish scribblehub
+
+# Build and run CLI
+cargo run -p quelle_cli -- --help
 ```
 
+### Creating New Extensions
+
+1. Copy an existing extension as template
+2. Implement the required WIT interfaces
+3. Build and test: `just build-extension <name>`
+4. Publish: `just publish <name>`
+
+See existing extensions in `extensions/` for reference implementations.
+
+## 📚 Documentation
+
+📖 **Comprehensive documentation is available in the [Quelle Book](./book/)**
+
+The book contains detailed guides for:
+- **User Guide**: Installation and usage
+- **Store System**: Extension management
+- **Development**: Architecture and extension development
+- **API Reference**: Technical documentation
+
+## 🤝 Contributing
+
+We welcome contributions! Priority areas:
+
+1. **New Extensions**: Add support for more novel sources
+2. **Export Formats**: Improve PDF generation, add new formats
+3. **Search Enhancement**: Better filtering and aggregation
+4. **Testing**: Improve test coverage
+5. **Documentation**: User guides and tutorials
+
 ### Contribution Guidelines
-- Follow Rust coding standards and run `cargo fmt`
+
+- Follow Rust coding standards (`cargo fmt`)
 - Add tests for new functionality
 - Update documentation for user-facing changes
-- Extensions should handle rate limiting and respect robots.txt
-- Ensure legal compliance with targeted sites' terms of service
+- Respect websites' terms of service and robots.txt
+- Handle rate limiting appropriately
 
-### Extension Development
-To create a new extension:
-1. Copy an existing extension as a template
-2. Implement the required WIT interfaces
-3. Add appropriate error handling and logging
-4. Test thoroughly with the target site
-5. Add documentation and examples
+## ⚖️ Legal
 
-See the [Extension Development Guide](./book/src/development/extension-development.md) and existing extensions in `extensions/` for reference implementations.
-
-## License
+### License
 
 ```text
 Copyright 2025 Mohamed Haisham
@@ -155,6 +230,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-## Disclaimer
+### Disclaimer
 
-The developer of this application does not have any affiliation with the content providers available.
+This application is not affiliated with any content providers. Users are responsible for ensuring their usage complies with the terms of service of the websites they access. The developers do not endorse or encourage any violation of copyright or terms of service.
+
+## 🔗 Links
+
+- **Documentation**: [Quelle Book](./book/)
+- **Issues**: [GitHub Issues](https://github.com/nacht-org/quelle/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/nacht-org/quelle/discussions)
