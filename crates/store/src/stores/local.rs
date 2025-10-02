@@ -175,52 +175,121 @@ pub struct LocalStore {
     readonly: bool,
 }
 
-impl LocalStore {
-    /// Create a new local store
-    pub fn new<P: AsRef<Path>>(root_path: P) -> Result<Self> {
-        let root_path = root_path.as_ref().to_path_buf();
-        let name = root_path
-            .file_name()
-            .unwrap_or_else(|| root_path.as_os_str())
-            .to_string_lossy()
-            .to_string();
+/// Builder for creating local stores with a fluent API
+pub struct LocalStoreBuilder {
+    root_path: PathBuf,
+    name: Option<String>,
+    cache_enabled: bool,
+    readonly: bool,
+    validator: Option<ValidationEngine>,
+}
 
-        Ok(Self {
-            root_path,
-            cache: RwLock::new(HashMap::new()),
-            cache_timestamp: RwLock::new(None),
-            validator: create_default_validator(),
-            name,
+impl LocalStoreBuilder {
+    /// Create a new builder for the given root path
+    pub fn new<P: AsRef<Path>>(root_path: P) -> Self {
+        Self {
+            root_path: root_path.as_ref().to_path_buf(),
+            name: None,
             cache_enabled: true,
             readonly: false,
-        })
+            validator: None,
+        }
     }
 
-    /// Create store with custom name
-    pub fn with_name<P: AsRef<Path>>(root_path: P, name: String) -> Result<Self> {
-        let root_path = root_path.as_ref().to_path_buf();
-
-        Ok(Self {
-            root_path,
-            cache: RwLock::new(HashMap::new()),
-            cache_timestamp: RwLock::new(None),
-            validator: create_default_validator(),
-            name,
-            cache_enabled: true,
-            readonly: false,
-        })
+    /// Set a custom name for the store
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
     }
 
-    /// Disable caching for this store
-    pub fn with_cache_disabled(mut self) -> Self {
+    /// Disable caching
+    pub fn no_cache(mut self) -> Self {
         self.cache_enabled = false;
         self
     }
 
-    /// Set readonly mode
-    pub fn with_readonly(mut self, readonly: bool) -> Self {
-        self.readonly = readonly;
+    /// Enable or disable caching
+    pub fn cache(mut self, enabled: bool) -> Self {
+        self.cache_enabled = enabled;
         self
+    }
+
+    /// Set readonly mode
+    pub fn readonly(mut self) -> Self {
+        self.readonly = true;
+        self
+    }
+
+    /// Set writable mode (default)
+    pub fn writable(mut self) -> Self {
+        self.readonly = false;
+        self
+    }
+
+    /// Set a custom validator
+    pub fn validator(mut self, validator: ValidationEngine) -> Self {
+        self.validator = Some(validator);
+        self
+    }
+
+    /// Build the LocalStore
+    pub fn build(self) -> Result<LocalStore> {
+        let name = self.name.unwrap_or_else(|| {
+            self.root_path
+                .file_name()
+                .unwrap_or_else(|| self.root_path.as_os_str())
+                .to_string_lossy()
+                .to_string()
+        });
+
+        Ok(LocalStore {
+            root_path: self.root_path,
+            cache: RwLock::new(HashMap::new()),
+            cache_timestamp: RwLock::new(None),
+            validator: self.validator.unwrap_or_else(create_default_validator),
+            name,
+            cache_enabled: self.cache_enabled,
+            readonly: self.readonly,
+        })
+    }
+}
+
+impl LocalStore {
+    /// Create a new builder for a local store
+    ///
+    /// # Examples
+    /// ```rust
+    /// use quelle_store::stores::local::LocalStore;
+    /// use tempfile::TempDir;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let temp_dir = TempDir::new()?;
+    /// let store = LocalStore::builder(temp_dir.path())
+    ///     .name("my-store")
+    ///     .readonly()
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn builder<P: AsRef<Path>>(root_path: P) -> LocalStoreBuilder {
+        LocalStoreBuilder::new(root_path)
+    }
+
+    /// Create a new local store with default settings
+    ///
+    /// # Examples
+    /// ```rust
+    /// use quelle_store::stores::local::LocalStore;
+    /// use tempfile::TempDir;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let temp_dir = TempDir::new()?;
+    /// let store = LocalStore::new(temp_dir.path())?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn new<P: AsRef<Path>>(root_path: P) -> Result<Self> {
+        LocalStoreBuilder::new(root_path).build()
     }
 
     /// Get the root path of this store
@@ -1863,6 +1932,93 @@ mod tests {
         let store = LocalStore::new(temp_dir.path()).unwrap();
         let health = store.health_check().await.unwrap();
         assert!(health.healthy);
+    }
+
+    #[test]
+    fn test_local_store_builder_basic() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::builder(temp_dir.path()).build().unwrap();
+
+        assert!(store.root_path().starts_with(temp_dir.path()));
+        assert!(store.cache_enabled);
+        assert!(!store.readonly);
+    }
+
+    #[test]
+    fn test_local_store_builder_with_name() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::builder(temp_dir.path())
+            .name("custom-store")
+            .build()
+            .unwrap();
+
+        assert_eq!(store.name, "custom-store");
+    }
+
+    #[test]
+    fn test_local_store_builder_readonly() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::builder(temp_dir.path())
+            .readonly()
+            .build()
+            .unwrap();
+
+        assert!(store.readonly);
+    }
+
+    #[test]
+    fn test_local_store_builder_no_cache() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::builder(temp_dir.path())
+            .no_cache()
+            .build()
+            .unwrap();
+
+        assert!(!store.cache_enabled);
+    }
+
+    #[test]
+    fn test_local_store_builder_full_config() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::builder(temp_dir.path())
+            .name("my-store")
+            .readonly()
+            .no_cache()
+            .build()
+            .unwrap();
+
+        assert_eq!(store.name, "my-store");
+        assert!(store.readonly);
+        assert!(!store.cache_enabled);
+    }
+
+    #[test]
+    fn test_local_store_builder_writable_explicit() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::builder(temp_dir.path())
+            .writable()
+            .build()
+            .unwrap();
+
+        assert!(!store.readonly);
+    }
+
+    #[test]
+    fn test_local_store_builder_cache_explicit() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = LocalStore::builder(temp_dir.path())
+            .cache(true)
+            .build()
+            .unwrap();
+
+        assert!(store.cache_enabled);
+
+        let store2 = LocalStore::builder(temp_dir.path())
+            .cache(false)
+            .build()
+            .unwrap();
+
+        assert!(!store2.cache_enabled);
     }
 
     #[tokio::test]

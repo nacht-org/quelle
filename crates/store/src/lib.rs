@@ -93,6 +93,7 @@ pub use registry::{
 pub use registry_config::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts};
 pub use source::{create_readable_store_from_source, ExtensionSource, RegistryConfig, StoreType};
 pub use store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
+pub use stores::local::LocalStoreBuilder;
 pub use stores::traits::{BaseStore, ReadableStore, WritableStore};
 pub use stores::{LocallyCachedStore, StoreProvider, SyncResult};
 

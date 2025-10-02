@@ -19,7 +19,7 @@ pub mod git;
 // pub mod s3;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -188,17 +188,18 @@ impl StoreCreator for LocalStoreCreator {
                 cache_enabled,
                 readonly,
             } => {
-                let mut store = local::LocalStore::new(&path)?;
+                let mut builder = local::LocalStore::builder(&path);
 
-                // Configure the store based on options
+                // Configure based on options
                 if !cache_enabled {
-                    store = store.with_cache_disabled();
+                    builder = builder.no_cache();
                 }
 
                 if readonly {
-                    store = store.with_readonly(true);
+                    builder = builder.readonly();
                 }
 
+                let store = builder.build()?;
                 Ok(Box::new(store))
             }
             _ => Err(StoreError::InvalidConfiguration(
@@ -312,31 +313,33 @@ impl StoreConfig {
 }
 
 /// Convenience functions for creating stores
-pub async fn create_local_store<P: Into<PathBuf>>(
+pub async fn create_local_store<P: AsRef<Path>>(
     path: P,
     name: String,
 ) -> Result<Box<dyn BaseStore>> {
-    let factory = StoreFactory::new();
-    let config = StoreConfig::local(path, name);
-    factory.create_store(config).await
+    let store = local::LocalStore::builder(path).name(name).build()?;
+    Ok(Box::new(store))
 }
 
-pub async fn create_local_store_trusted<P: Into<PathBuf>>(
+pub async fn create_local_store_trusted<P: AsRef<Path>>(
     path: P,
     name: String,
 ) -> Result<Box<dyn BaseStore>> {
-    let factory = StoreFactory::new();
-    let config = StoreConfig::local_trusted(path, name);
-    factory.create_store(config).await
+    // For trusted stores, we just create a normal store
+    // The "trusted" concept is handled at the manager level
+    let store = local::LocalStore::builder(path).name(name).build()?;
+    Ok(Box::new(store))
 }
 
-pub async fn create_local_store_readonly<P: Into<PathBuf>>(
+pub async fn create_local_store_readonly<P: AsRef<Path>>(
     path: P,
     name: String,
 ) -> Result<Box<dyn BaseStore>> {
-    let factory = StoreFactory::new();
-    let config = StoreConfig::local_readonly(path, name);
-    factory.create_store(config).await
+    let store = local::LocalStore::builder(path)
+        .name(name)
+        .readonly()
+        .build()?;
+    Ok(Box::new(store))
 }
 
 #[cfg(test)]
