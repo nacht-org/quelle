@@ -56,13 +56,14 @@ quelle export "Novel Title" --format epub
 ### Extension System
 - 🧩 **WebAssembly extensions** - High-performance, sandboxed scrapers
 - 🏪 **Extension stores** - Install extensions from local or remote repositories
+- 🌐 **Official registry** - Pre-configured with [nacht-org/extensions](https://github.com/nacht-org/extensions)
 - 🛠️ **Easy development** - Simple API for creating new source extensions
 - 📦 **Package management** - Version control and dependency management
 
-### Current Sources
+### Available Extensions
 - **ScribbleHub** - Original novels and translations
 - **DragonTea** - Light novels and web novels
-- *More sources coming soon...*
+- *Additional extensions available at [github.com/nacht-org/extensions](https://github.com/nacht-org/extensions)*
 
 ## 📋 Project Status
 
@@ -107,13 +108,18 @@ quelle search <query> --author "Name" --tags "fantasy,adventure"
 
 # Extension Management
 quelle extensions list              # List installed extensions
-quelle extensions install <id>     # Install an extension
+quelle extensions install <id>     # Install extension from official registry
 quelle extensions search <query>   # Search available extensions
 
 # System Management
 quelle status                       # Show system status
 quelle config show                  # Show configuration
+
+# Extension Store Management
 quelle store list                   # List configured stores
+quelle store add git <name> <url>   # Add a git-based extension store
+quelle store update <name>          # Update store data
+quelle store info <name>            # Show store information
 ```
 
 ### Example Workflow
@@ -136,11 +142,15 @@ quelle export "Overlord" --format epub --output ./books/
 
 # 6. Keep your library updated
 quelle update
+
+# 7. Manage extension stores (optional)
+quelle store list                   # See available stores
+quelle extensions search "royal"    # Search for more extensions
 ```
 
 ## 🏗️ Architecture
 
-Quelle uses a modular WebAssembly-based architecture:
+Quelle uses a modular WebAssembly-based architecture with a distributed extension system:
 
 - **CLI (`crates/cli`)**: User interface and command handling
 - **Engine (`crates/engine`)**: Core runtime built with Wasmtime
@@ -149,6 +159,25 @@ Quelle uses a modular WebAssembly-based architecture:
 - **Store System (`crates/store`)**: Extension package management
 - **Extensions (`extensions/`)**: Individual scrapers (dragontea, scribblehub)
 - **WIT Interfaces (`wit/`)**: WebAssembly Interface Types definitions
+
+### Extension Distribution
+- **Official Registry**: [github.com/nacht-org/extensions](https://github.com/nacht-org/extensions) (configured by default)
+- **Local Development**: Build and publish extensions locally for testing  
+- **Custom Stores**: Add additional Git repositories or local directories
+
+```bash
+# View configured stores (official registry included by default)
+quelle store list
+
+# Add a custom extension store
+quelle store add git custom-store https://github.com/user/my-extensions
+
+# Search across all stores
+quelle extensions search "light novel"
+
+# Install from any configured store  
+quelle extensions install custom.extension
+```
 
 ## 🛠️ Development
 
