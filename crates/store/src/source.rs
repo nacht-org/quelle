@@ -260,20 +260,16 @@ impl ExtensionSource {
                 reference,
                 auth,
             } => {
-                let git_store = GitStore::with_config(
-                    self.name.clone(),
-                    url.clone(),
-                    cache_dir.clone(),
-                    reference.clone(),
-                    auth.clone(),
-                    std::time::Duration::from_secs(300), // 5 minutes default
-                    true,                                // shallow by default
-                    None,
-                )
-                .map_err(|e| StoreError::StoreCreationError {
-                    store_type: "git".to_string(),
-                    source: Box::new(e),
-                })?;
+                let git_store = GitStore::builder(url.clone())
+                    .auth(auth.clone())
+                    .reference(reference.clone())
+                    .fetch_interval(std::time::Duration::from_secs(300))
+                    .shallow(true)
+                    .build(cache_dir.clone(), self.name.clone())
+                    .map_err(|e| StoreError::StoreCreationError {
+                        store_type: "git".to_string(),
+                        source: Box::new(e),
+                    })?;
                 Ok(Box::new(git_store))
             }
         }
@@ -296,22 +292,17 @@ impl ExtensionSource {
                 reference,
                 auth,
             } => {
-                use crate::GitWriteConfig;
-
-                let git_store = GitStore::with_config(
-                    self.name.clone(),
-                    url.clone(),
-                    cache_dir.clone(),
-                    reference.clone(),
-                    auth.clone(),
-                    std::time::Duration::from_secs(300), // 5 minutes default
-                    true,                                // shallow by default
-                    Some(GitWriteConfig::default()),
-                )
-                .map_err(|e| StoreError::StoreCreationError {
-                    store_type: "git".to_string(),
-                    source: Box::new(e),
-                })?;
+                let git_store = GitStore::builder(url.clone())
+                    .auth(auth.clone())
+                    .reference(reference.clone())
+                    .fetch_interval(std::time::Duration::from_secs(300))
+                    .shallow(true)
+                    .writable()
+                    .build(cache_dir.clone(), self.name.clone())
+                    .map_err(|e| StoreError::StoreCreationError {
+                        store_type: "git".to_string(),
+                        source: Box::new(e),
+                    })?;
                 // Git stores can be writable if properly configured
                 Ok(Some(Box::new(git_store)))
             }
@@ -335,20 +326,16 @@ impl ExtensionSource {
                 reference,
                 auth,
             } => {
-                let git_store = GitStore::with_config(
-                    self.name.clone(),
-                    url.clone(),
-                    cache_dir.clone(),
-                    reference.clone(),
-                    auth.clone(),
-                    std::time::Duration::from_secs(300), // 5 minutes default
-                    true,                                // shallow by default
-                    None, // No need for writable in cacheable context
-                )
-                .map_err(|e| StoreError::StoreCreationError {
-                    store_type: "git".to_string(),
-                    source: Box::new(e),
-                })?;
+                let git_store = GitStore::builder(url.clone())
+                    .auth(auth.clone())
+                    .reference(reference.clone())
+                    .fetch_interval(std::time::Duration::from_secs(300))
+                    .shallow(true)
+                    .build(cache_dir.clone(), self.name.clone())
+                    .map_err(|e| StoreError::StoreCreationError {
+                        store_type: "git".to_string(),
+                        source: Box::new(e),
+                    })?;
                 Ok(Some(Box::new(git_store)))
             }
         }
@@ -376,20 +363,16 @@ pub async fn create_readable_store_from_source(
             reference,
             auth,
         } => {
-            let git_store = GitStore::with_config(
-                source.name.clone(),
-                url.clone(),
-                cache_dir.clone(),
-                reference.clone(),
-                auth.clone(),
-                std::time::Duration::from_secs(300), // 5 minutes default
-                true,                                // shallow by default
-                None,
-            )
-            .map_err(|e| StoreError::StoreCreationError {
-                store_type: "git".to_string(),
-                source: Box::new(e),
-            })?;
+            let git_store = GitStore::builder(url.clone())
+                .auth(auth.clone())
+                .reference(reference.clone())
+                .fetch_interval(std::time::Duration::from_secs(300))
+                .shallow(true)
+                .build(cache_dir.clone(), source.name.clone())
+                .map_err(|e| StoreError::StoreCreationError {
+                    store_type: "git".to_string(),
+                    source: Box::new(e),
+                })?;
 
             Ok(Box::new(git_store))
         }

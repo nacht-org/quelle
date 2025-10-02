@@ -308,16 +308,13 @@ async fn handle_add_git_store(
         })?;
     }
 
-    let git_store = GitStore::with_config(
-        name.clone(),
-        url.clone(),
-        cache_path.clone(),
-        reference.clone(),
-        auth.clone(),
-        std::time::Duration::from_secs(300), // 5 minutes default
-        true,
-        Some(GitWriteConfig::default()),
-    )?;
+    let git_store = GitStore::builder(url.clone())
+        .auth(auth.clone())
+        .reference(reference.clone())
+        .fetch_interval(std::time::Duration::from_secs(300))
+        .shallow(true)
+        .writable()
+        .build(cache_path.clone(), name.clone())?;
 
     git_store
         .ensure_synced()

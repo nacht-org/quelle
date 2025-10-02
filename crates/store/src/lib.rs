@@ -18,7 +18,8 @@
 //! ## Basic Usage
 //!
 /// ```rust
-/// use quelle_store::{StoreManager, LocalRegistryStore, local::LocalStore};
+/// use quelle_store::{StoreManager, LocalRegistryStore};
+/// use quelle_store::stores::local::LocalStore;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// // Option 1: Use OS-specific defaults
@@ -96,9 +97,9 @@ pub use stores::traits::{BaseStore, ReadableStore, WritableStore};
 pub use stores::{LocallyCachedStore, StoreProvider, SyncResult};
 
 #[cfg(feature = "git")]
-pub use stores::providers::git::{GitAuthor, GitStatus, GitWriteConfig};
+pub use stores::providers::git::{CommitStyle, GitAuthor, GitStatus, GitWriteConfig};
 #[cfg(feature = "git")]
-pub use stores::{GitAuth, GitProvider, GitReference, GitStore};
+pub use stores::{GitAuth, GitProvider, GitReference, GitStore, GitStoreBuilder};
 pub use validation::{
     create_default_validator, create_strict_validator, ExtensionValidationReport, RuleResult,
     SecurityRuleConfig, SecurityValidationRule, ValidationConfig, ValidationEngine, ValidationRule,

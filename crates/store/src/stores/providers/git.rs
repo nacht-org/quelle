@@ -18,7 +18,7 @@ use crate::stores::providers::traits::{StoreProvider, SyncResult};
 /// Git authentication configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum GitAuth {
-    /// No authentication (public repos)
+    /// No authentication - uses system credentials (SSH agent, git credential manager, etc.)
     None,
     /// Token-based authentication (GitHub/GitLab personal access tokens)
     Token { token: String },
@@ -35,6 +35,13 @@ pub enum GitAuth {
 impl Default for GitAuth {
     fn default() -> Self {
         Self::None
+    }
+}
+
+impl GitAuth {
+    /// Check if this is using system credentials
+    pub fn is_system_auth(&self) -> bool {
+        matches!(self, GitAuth::None)
     }
 }
 
@@ -73,30 +80,132 @@ impl Default for GitAuthor {
     }
 }
 
+impl GitAuthor {
+    /// Create a new GitAuthor
+    pub fn new(name: impl Into<String>, email: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            email: email.into(),
+        }
+    }
+
+    /// Try to load author from git config
+    pub fn from_git_config() -> Option<Self> {
+        // Try to read from git config
+        let name = std::process::Command::new("git")
+            .args(["config", "--get", "user.name"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        let email = std::process::Command::new("git")
+            .args(["config", "--get", "user.email"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        match (name, email) {
+            (Some(name), Some(email)) => Some(Self { name, email }),
+            _ => None,
+        }
+    }
+
+    /// Get author with fallback to git config or default
+    pub fn or_from_git_config(self) -> Self {
+        if self.name == "Quelle" && self.email == "quelle@localhost" {
+            Self::from_git_config().unwrap_or(self)
+        } else {
+            self
+        }
+    }
+}
+
+/// Commit message style for git operations
+#[derive(Debug, Clone)]
+pub enum CommitStyle {
+    /// Default style: "Publish ext_id v1.0.0"
+    Default,
+    /// Detailed style: "Publish extension ext_id version 1.0.0"
+    Detailed,
+    /// Minimal style: "Add ext_id@1.0.0"
+    Minimal,
+    /// Custom function for generating commit messages
+    Custom(fn(action: &str, extension_id: &str, version: &str) -> String),
+}
+
+impl Default for CommitStyle {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+impl CommitStyle {
+    /// Generate a commit message for the given action
+    pub fn format(&self, action: &str, extension_id: &str, version: &str) -> String {
+        match self {
+            CommitStyle::Default => format!("{} {} v{}", action, extension_id, version),
+            CommitStyle::Detailed => {
+                format!("{} extension {} version {}", action, extension_id, version)
+            }
+            CommitStyle::Minimal => format!("{} {}@{}", action, extension_id, version),
+            CommitStyle::Custom(f) => f(action, extension_id, version),
+        }
+    }
+}
+
 /// Configuration for git write operations
 #[derive(Debug, Clone)]
 pub struct GitWriteConfig {
-    /// Authentication for write operations (can be different from read auth)
-    pub write_auth: Option<GitAuth>,
-    /// Author information for commits
-    pub author: GitAuthor,
-    /// Target branch for writes (None = use current branch)
-    pub write_branch: Option<String>,
-    /// Whether to automatically push after commit
+    /// Author information for commits (None = use git config or default)
+    pub author: Option<GitAuthor>,
+    /// Commit message style
+    pub commit_style: CommitStyle,
+    /// Whether to automatically push after commit (default: true)
     pub auto_push: bool,
-    /// Commit message template
-    pub commit_message_template: String,
 }
 
 impl Default for GitWriteConfig {
     fn default() -> Self {
         Self {
-            write_auth: None,
-            author: GitAuthor::default(),
-            write_branch: None,
+            author: None,
+            commit_style: CommitStyle::Default,
             auto_push: true,
-            commit_message_template: "{action}: {extension_id} v{version}".to_string(),
         }
+    }
+}
+
+impl GitWriteConfig {
+    /// Create a new write configuration with the given author
+    pub fn new(author: GitAuthor) -> Self {
+        Self {
+            author: Some(author),
+            commit_style: CommitStyle::Default,
+            auto_push: true,
+        }
+    }
+
+    /// Set the commit style
+    pub fn with_commit_style(mut self, style: CommitStyle) -> Self {
+        self.commit_style = style;
+        self
+    }
+
+    /// Set whether to auto-push
+    pub fn with_auto_push(mut self, auto_push: bool) -> Self {
+        self.auto_push = auto_push;
+        self
+    }
+
+    /// Get the author, falling back to git config or default
+    pub fn effective_author(&self) -> GitAuthor {
+        self.author
+            .clone()
+            .or_else(|| GitAuthor::from_git_config())
+            .unwrap_or_default()
     }
 }
 
@@ -165,18 +274,26 @@ impl GitProvider {
         self
     }
 
-    /// Set write authentication (convenience method)
-    pub fn with_write_auth(mut self, auth: GitAuth) -> Self {
+    /// Set author for commits (convenience method)
+    pub fn with_author(mut self, name: impl Into<String>, email: impl Into<String>) -> Self {
         let mut config = self.write_config.unwrap_or_default();
-        config.write_auth = Some(auth);
+        config.author = Some(GitAuthor::new(name, email));
         self.write_config = Some(config);
         self
     }
 
-    /// Set author for commits (convenience method)
-    pub fn with_author(mut self, name: String, email: String) -> Self {
+    /// Set commit style (convenience method)
+    pub fn with_commit_style(mut self, style: CommitStyle) -> Self {
         let mut config = self.write_config.unwrap_or_default();
-        config.author = GitAuthor { name, email };
+        config.commit_style = style;
+        self.write_config = Some(config);
+        self
+    }
+
+    /// Disable auto-push (commits will be local only)
+    pub fn no_auto_push(mut self) -> Self {
+        let mut config = self.write_config.unwrap_or_default();
+        config.auto_push = false;
         self.write_config = Some(config);
         self
     }
@@ -570,12 +687,10 @@ impl StoreProvider for GitProvider {
         // This is more robust than trying to specify exact paths that might not exist
         self.git_add_all().await?;
 
-        // Create commit message
+        // Create commit message using the configured style
         let commit_message = write_config
-            .commit_message_template
-            .replace("{action}", "Add")
-            .replace("{extension_id}", extension_id)
-            .replace("{version}", version);
+            .commit_style
+            .format("Publish", extension_id, version);
 
         // Commit changes
         self.git_commit(&commit_message).await?;
@@ -611,12 +726,10 @@ impl StoreProvider for GitProvider {
         // This handles removed files and directories properly
         self.git_add_all().await?;
 
-        // Create commit message
+        // Create commit message using the configured style
         let commit_message = write_config
-            .commit_message_template
-            .replace("{action}", "Remove")
-            .replace("{extension_id}", extension_id)
-            .replace("{version}", version);
+            .commit_style
+            .format("Unpublish", extension_id, version);
 
         // Commit changes
         self.git_commit(&commit_message).await?;
@@ -641,8 +754,7 @@ impl StoreProvider for GitProvider {
         // Check if authentication is configured for push operations
         if let Some(write_config) = &self.write_config {
             if write_config.auto_push {
-                let write_auth = write_config.write_auth.as_ref().unwrap_or(&self.auth);
-                if matches!(write_auth, GitAuth::None) {
+                if matches!(self.auth, GitAuth::None) {
                     tracing::debug!(
                         "Auto-push is enabled with GitAuth::None for repository '{}'. \
                          Will attempt to use system git credentials (SSH agent, credential manager, etc.)",
@@ -915,8 +1027,9 @@ impl GitProvider {
 
         let repo = Repository::open(&self.cache_dir).map_err(|e| GitStoreError::Git(e))?;
 
-        let signature = Signature::now(&config.author.name, &config.author.email)
-            .map_err(|e| GitStoreError::Git(e))?;
+        let author = config.effective_author();
+        let signature =
+            Signature::now(&author.name, &author.email).map_err(|e| GitStoreError::Git(e))?;
 
         let mut index = repo.index().map_err(|e| GitStoreError::Git(e))?;
         let tree_id = index.write_tree().map_err(|e| GitStoreError::Git(e))?;
@@ -952,12 +1065,12 @@ impl GitProvider {
         use crate::error::GitStoreError;
         use git2::{Cred, CredentialType, PushOptions, RemoteCallbacks, Repository};
 
-        let config =
-            self.write_config
-                .as_ref()
-                .ok_or_else(|| GitStoreError::NoWritePermission {
-                    url: self.url.clone(),
-                })?;
+        // Verify we have write config
+        self.write_config
+            .as_ref()
+            .ok_or_else(|| GitStoreError::NoWritePermission {
+                url: self.url.clone(),
+            })?;
 
         let repo = Repository::open(&self.cache_dir).map_err(|e| GitStoreError::Git(e))?;
 
@@ -967,9 +1080,8 @@ impl GitProvider {
 
         let mut callbacks = RemoteCallbacks::new();
 
-        // Set up authentication
-        let write_auth = config.write_auth.as_ref().unwrap_or(&self.auth);
-        match write_auth {
+        // Set up authentication using provider's auth
+        match &self.auth {
             GitAuth::Token { token } => {
                 callbacks.credentials(|_url, username_from_url, _allowed_types| {
                     Cred::userpass_plaintext(username_from_url.unwrap_or("git"), token)

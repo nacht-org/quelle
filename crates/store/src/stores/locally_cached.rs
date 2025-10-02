@@ -248,146 +248,6 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
 }
 
 impl LocallyCachedStore<GitProvider> {
-    /// Enhanced publish method that includes git workflow
-    pub async fn publish_with_git(
-        &self,
-        package: ExtensionPackage,
-        options: PublishOptions,
-    ) -> Result<PublishResult> {
-        // Ensure we're synced first
-        self.ensure_synced().await?;
-
-        // Check git repository status if writable
-        if self.provider.is_writable() {
-            let status = self.provider.check_repository_status().await?;
-            if !status.is_publishable() {
-                if let Some(reason) = status.publish_blocking_reason() {
-                    return Err(crate::error::StoreError::InvalidPackage {
-                        reason: format!("Cannot publish to git repository: {}", reason),
-                    });
-                }
-            }
-        }
-
-        // Publish to local store first
-        let result = self.local_store.publish(package.clone(), options).await?;
-
-        // If git is writable, perform git operations
-        if self.provider.is_writable() {
-            if let Err(e) = self.git_publish_workflow(&package).await {
-                // Log warning but don't fail the publish operation
-                tracing::warn!("Git workflow failed after successful publish: {}", e);
-            }
-        }
-
-        Ok(result)
-    }
-
-    /// Enhanced unpublish method that includes git workflow
-    pub async fn unpublish_with_git(
-        &self,
-        extension_id: &str,
-        options: UnpublishOptions,
-    ) -> Result<UnpublishResult> {
-        // Ensure we're synced first
-        self.ensure_synced().await?;
-
-        // Check git repository status if writable
-        if self.provider.is_writable() {
-            let status = self.provider.check_repository_status().await?;
-            if !status.is_publishable() {
-                if let Some(reason) = status.publish_blocking_reason() {
-                    return Err(crate::error::StoreError::InvalidPackage {
-                        reason: format!("Cannot unpublish from git repository: {}", reason),
-                    });
-                }
-            }
-        }
-
-        // Unpublish from local store first
-        let result = self.local_store.unpublish(extension_id, options).await?;
-
-        // If git is writable, perform git operations
-        if self.provider.is_writable() {
-            if let Err(e) = self
-                .git_unpublish_workflow(extension_id, &result.version)
-                .await
-            {
-                tracing::warn!("Git workflow failed after successful unpublish: {}", e);
-            }
-        }
-
-        Ok(result)
-    }
-
-    /// Git workflow for publishing operations
-    async fn git_publish_workflow(&self, package: &ExtensionPackage) -> Result<()> {
-        let write_config = self.provider.write_config.as_ref().ok_or_else(|| {
-            crate::error::StoreError::InvalidPackage {
-                reason: "Git write configuration not available".to_string(),
-            }
-        })?;
-
-        // Determine which files were affected
-        let extension_dir = self.sync_dir.join(&package.manifest.id);
-        let affected_files = vec![
-            self.sync_dir.join("store.json"), // Store manifest always updated
-            extension_dir,
-        ];
-
-        // Stage changes
-        self.provider.git_add(&affected_files).await?;
-
-        // Create commit message
-        let commit_message = write_config
-            .commit_message_template
-            .replace("{action}", "Add")
-            .replace("{extension_id}", &package.manifest.id)
-            .replace("{version}", &package.manifest.version.to_string());
-
-        // Commit changes
-        self.provider.git_commit(&commit_message).await?;
-
-        // Push if auto-push is enabled
-        if write_config.auto_push {
-            self.provider.git_push().await?;
-        }
-
-        Ok(())
-    }
-
-    /// Git workflow for unpublishing operations
-    async fn git_unpublish_workflow(&self, extension_id: &str, version: &str) -> Result<()> {
-        let write_config = self.provider.write_config.as_ref().ok_or_else(|| {
-            crate::error::StoreError::InvalidPackage {
-                reason: "Git write configuration not available".to_string(),
-            }
-        })?;
-
-        // Only stage the store manifest since the extension directory was removed
-        let affected_files = vec![self.sync_dir.join("store.json")];
-
-        // Stage changes
-        self.provider.git_add(&affected_files).await?;
-
-        // Create commit message
-        let commit_message = write_config
-            .commit_message_template
-            .replace("{action}", "Remove")
-            .replace("{extension_id}", extension_id)
-            .replace("{version}", version);
-
-        // Commit changes
-        self.provider.git_commit(&commit_message).await?;
-
-        // Push if auto-push is enabled
-        if write_config.auto_push {
-            self.provider.git_push().await?;
-        }
-
-        Ok(())
-    }
-
     /// Initialize a git store with proper metadata that includes git repository information
     pub async fn initialize_store(
         &self,
@@ -455,16 +315,7 @@ impl LocallyCachedStore<GitProvider> {
         tracing::debug!("Successfully added changes to git staging area");
 
         // Create commit message for initialization
-        let commit_message = if write_config
-            .commit_message_template
-            .contains("{extension_id}")
-        {
-            // If template uses extension placeholders, create a more appropriate message
-            format!("Initialize git store: {}", store_name)
-        } else {
-            // Use the template as-is if it doesn't rely on extension-specific placeholders
-            write_config.commit_message_template.clone()
-        };
+        let commit_message = format!("Initialize git store: {}", store_name);
 
         // Commit changes
         tracing::debug!("Committing changes with message: {}", commit_message);
@@ -962,14 +813,12 @@ mod tests {
 
         // But if we add write config, it would be writable and use system auth
         let write_config = crate::stores::providers::git::GitWriteConfig {
-            author: crate::stores::providers::git::GitAuthor {
+            author: Some(crate::stores::providers::git::GitAuthor {
                 name: "Test Author".to_string(),
                 email: "test@example.com".to_string(),
-            },
-            commit_message_template: "Test commit".to_string(),
+            }),
+            commit_style: crate::stores::providers::git::CommitStyle::Default,
             auto_push: true,
-            write_auth: None, // This means it will use the provider's auth (which is None = system)
-            write_branch: None, // Use default branch
         };
 
         let provider_with_write = GitProvider::new(
@@ -994,14 +843,12 @@ mod tests {
         let git_url = "https://github.com/example/test-store.git";
 
         let write_config = GitWriteConfig {
-            author: GitAuthor {
+            author: Some(GitAuthor {
                 name: "Test Author".to_string(),
                 email: "test@example.com".to_string(),
-            },
-            commit_message_template: "{action} extension {extension_id} v{version}".to_string(),
+            }),
+            commit_style: crate::stores::providers::git::CommitStyle::Default,
             auto_push: true,
-            write_auth: None,
-            write_branch: None,
         };
 
         let provider = GitProvider::new(
@@ -1118,7 +965,6 @@ mod tests {
     #[tokio::test]
     async fn test_git_initialization_without_write_config() {
         use crate::stores::providers::git::{GitAuth, GitProvider, GitReference};
-        use std::fs;
 
         let temp_dir = TempDir::new().unwrap();
         let git_url = "https://github.com/example/test-store.git";
@@ -1194,14 +1040,12 @@ mod tests {
 
         // Test 2: Store with write config (writable)
         let write_config = GitWriteConfig {
-            author: GitAuthor {
+            author: Some(GitAuthor {
                 name: "Test Author".to_string(),
                 email: "test@example.com".to_string(),
-            },
-            commit_message_template: "{action} extension {extension_id} v{version}".to_string(),
+            }),
+            commit_style: crate::stores::providers::git::CommitStyle::Default,
             auto_push: true,
-            write_auth: None,
-            write_branch: None,
         };
 
         let provider_with_write = GitProvider::new(

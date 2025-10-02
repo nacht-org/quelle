@@ -40,7 +40,7 @@ pub use providers::{StoreProvider, SyncResult};
 pub use providers::{GitAuth, GitProvider, GitReference};
 
 #[cfg(feature = "git")]
-pub use git::GitStore;
+pub use git::{GitStore, GitStoreBuilder};
 
 /// Configuration for creating different types of stores
 #[derive(Debug, Clone, Serialize, Deserialize)]

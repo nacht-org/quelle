@@ -1,6 +1,6 @@
-//! Git store type alias and convenience functions
+//! Git store type alias and builder
 //!
-//! This module provides type aliases and convenience functions for creating
+//! This module provides a type alias and builder pattern for creating
 //! git-based stores using LocallyCachedStore with GitProvider.
 
 #[cfg(feature = "git")]
@@ -11,12 +11,11 @@ use std::time::Duration;
 #[cfg(feature = "git")]
 use crate::error::Result;
 #[cfg(feature = "git")]
-use crate::stores::{
-    locally_cached::LocallyCachedStore,
-    providers::{GitAuth, GitProvider, GitReference},
-};
+use crate::stores::locally_cached::LocallyCachedStore;
 #[cfg(feature = "git")]
-use crate::GitWriteConfig;
+use crate::stores::providers::git::{
+    CommitStyle, GitAuth, GitAuthor, GitProvider, GitReference, GitWriteConfig,
+};
 
 /// Type alias for a git-based store
 ///
@@ -25,232 +24,145 @@ use crate::GitWriteConfig;
 #[cfg(feature = "git")]
 pub type GitStore = LocallyCachedStore<GitProvider>;
 
-/// Convenience functions for creating git stores
+/// Builder for creating git stores with a fluent API
 #[cfg(feature = "git")]
-impl GitStore {
-    /// Create a new git store with default settings
-    ///
-    /// # Arguments
-    /// * `name` - Human-readable name for the store
-    /// * `url` - Git repository URL
-    /// * `cache_dir` - Local directory where the repository will be cached
-    ///
-    /// # Examples
-    /// ```rust
-    /// use quelle_store::GitStore;
-    /// use tempfile::TempDir;
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let temp_dir = TempDir::new()?;
-    /// let store = GitStore::from_url(
-    ///     "example-store".to_string(),
-    ///     "https://github.com/user/extensions-repo.git".to_string(),
-    ///     temp_dir.path().to_path_buf(),
-    /// )?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn from_url(name: String, url: String, cache_dir: PathBuf) -> Result<Self> {
-        let provider =
-            GitProvider::new(url, cache_dir.clone(), GitReference::Default, GitAuth::None);
-        LocallyCachedStore::new(provider, cache_dir, name)
+pub struct GitStoreBuilder {
+    url: String,
+    reference: GitReference,
+    auth: GitAuth,
+    fetch_interval: Duration,
+    shallow: bool,
+    write_config: Option<GitWriteConfig>,
+}
+
+#[cfg(feature = "git")]
+impl GitStoreBuilder {
+    /// Create a new builder for the given git repository URL
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            reference: GitReference::Default,
+            auth: GitAuth::None,
+            fetch_interval: Duration::from_secs(300), // 5 minutes
+            shallow: true,
+            write_config: None,
+        }
     }
 
-    /// Create a new git store with authentication
-    ///
-    /// # Arguments
-    /// * `name` - Human-readable name for the store
-    /// * `url` - Git repository URL
-    /// * `cache_dir` - Local directory where the repository will be cached
-    /// * `auth` - Authentication configuration
-    ///
-    /// # Examples
-    /// ```rust
-    /// use quelle_store::{GitStore, GitAuth};
-    /// use tempfile::TempDir;
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let temp_dir = TempDir::new()?;
-    /// let auth = GitAuth::Token { token: "ghp_xxxx".to_string() };
-    /// let store = GitStore::with_auth(
-    ///     "private-store".to_string(),
-    ///     "https://github.com/user/private-repo.git".to_string(),
-    ///     temp_dir.path().to_path_buf(),
-    ///     auth,
-    /// )?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn with_auth(name: String, url: String, cache_dir: PathBuf, auth: GitAuth) -> Result<Self> {
-        let provider = GitProvider::new(url, cache_dir.clone(), GitReference::Default, auth);
-        LocallyCachedStore::new(provider, cache_dir, name)
+    /// Set authentication for the git repository
+    pub fn auth(mut self, auth: GitAuth) -> Self {
+        self.auth = auth;
+        self
     }
 
-    /// Create a new git store with a specific branch
-    ///
-    /// # Arguments
-    /// * `name` - Human-readable name for the store
-    /// * `url` - Git repository URL
-    /// * `cache_dir` - Local directory where the repository will be cached
-    /// * `branch` - Branch name to checkout
-    ///
-    /// # Examples
-    /// ```rust
-    /// use quelle_store::GitStore;
-    /// use tempfile::TempDir;
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let temp_dir = TempDir::new()?;
-    /// let store = GitStore::with_branch(
-    ///     "dev-store".to_string(),
-    ///     "https://github.com/user/repo.git".to_string(),
-    ///     temp_dir.path().to_path_buf(),
-    ///     "develop".to_string(),
-    /// )?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn with_branch(
-        name: String,
-        url: String,
-        cache_dir: PathBuf,
-        branch: String,
-    ) -> Result<Self> {
-        let provider = GitProvider::new(
-            url,
-            cache_dir.clone(),
-            GitReference::Branch(branch),
-            GitAuth::None,
-        );
-        LocallyCachedStore::new(provider, cache_dir, name)
+    /// Set to use a specific branch
+    pub fn branch(mut self, branch: impl Into<String>) -> Self {
+        self.reference = GitReference::Branch(branch.into());
+        self
     }
 
-    /// Create a new git store with a specific tag
-    ///
-    /// # Arguments
-    /// * `name` - Human-readable name for the store
-    /// * `url` - Git repository URL
-    /// * `cache_dir` - Local directory where the repository will be cached
-    /// * `tag` - Tag name to checkout
-    ///
-    /// # Examples
-    /// ```rust
-    /// use quelle_store::GitStore;
-    /// use tempfile::TempDir;
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let temp_dir = TempDir::new()?;
-    /// let store = GitStore::with_tag(
-    ///     "stable-store".to_string(),
-    ///     "https://github.com/user/repo.git".to_string(),
-    ///     temp_dir.path().to_path_buf(),
-    ///     "v1.0.0".to_string(),
-    /// )?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn with_tag(name: String, url: String, cache_dir: PathBuf, tag: String) -> Result<Self> {
-        let provider = GitProvider::new(
-            url,
-            cache_dir.clone(),
-            GitReference::Tag(tag),
-            GitAuth::None,
-        );
-        LocallyCachedStore::new(provider, cache_dir, name)
+    /// Set to use a specific tag
+    pub fn tag(mut self, tag: impl Into<String>) -> Self {
+        self.reference = GitReference::Tag(tag.into());
+        self
     }
 
-    /// Create a new git store with a specific commit
-    ///
-    /// # Arguments
-    /// * `name` - Human-readable name for the store
-    /// * `url` - Git repository URL
-    /// * `cache_dir` - Local directory where the repository will be cached
-    /// * `commit` - Commit hash to checkout
-    ///
-    /// # Examples
-    /// ```rust
-    /// use quelle_store::GitStore;
-    /// use tempfile::TempDir;
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let temp_dir = TempDir::new()?;
-    /// let store = GitStore::with_commit(
-    ///     "pinned-store".to_string(),
-    ///     "https://github.com/user/repo.git".to_string(),
-    ///     temp_dir.path().to_path_buf(),
-    ///     "abc123def456".to_string(),
-    /// )?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn with_commit(
-        name: String,
-        url: String,
-        cache_dir: PathBuf,
-        commit: String,
-    ) -> Result<Self> {
-        let provider = GitProvider::new(
-            url,
-            cache_dir.clone(),
-            GitReference::Commit(commit),
-            GitAuth::None,
-        );
-        LocallyCachedStore::new(provider, cache_dir, name)
+    /// Set to use a specific commit
+    pub fn commit(mut self, commit: impl Into<String>) -> Self {
+        self.reference = GitReference::Commit(commit.into());
+        self
     }
 
-    /// Create a fully customized git store
-    ///
-    /// # Arguments
-    /// * `name` - Human-readable name for the store
-    /// * `url` - Git repository URL
-    /// * `cache_dir` - Local directory where the repository will be cached
-    /// * `reference` - Git reference (branch/tag/commit) to checkout
-    /// * `auth` - Authentication configuration
-    /// * `fetch_interval` - How often to check for updates
-    /// * `shallow` - Whether to use shallow clones for faster cloning
-    ///
-    /// # Examples
-    /// ```rust
-    /// use quelle_store::{GitStore, GitAuth, GitReference};
-    /// use tempfile::TempDir;
-    /// use std::time::Duration;
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let temp_dir = TempDir::new()?;
-    /// let auth = GitAuth::Token { token: "ghp_xxxx".to_string() };
-    /// let reference = GitReference::Branch("main".to_string());
-    ///
-    /// let store = GitStore::with_config(
-    ///     "custom-store".to_string(),
-    ///     "https://github.com/user/repo.git".to_string(),
-    ///     temp_dir.path().to_path_buf(),
-    ///     reference,
-    ///     auth,
-    ///     Duration::from_secs(1800), // Check for updates every 30 minutes
-    ///     false, // Don't use shallow clone
-    /// )?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn with_config(
-        name: String,
-        url: String,
-        cache_dir: PathBuf,
-        reference: GitReference,
-        auth: GitAuth,
-        fetch_interval: Duration,
-        shallow: bool,
-        write_config: Option<GitWriteConfig>,
-    ) -> Result<Self> {
-        let mut provider = GitProvider::new(url, cache_dir.clone(), reference, auth)
-            .with_fetch_interval(fetch_interval)
-            .with_shallow(shallow);
+    /// Set the git reference directly
+    pub fn reference(mut self, reference: GitReference) -> Self {
+        self.reference = reference;
+        self
+    }
 
-        if let Some(write_config) = write_config {
+    /// Set the fetch interval for checking updates
+    pub fn fetch_interval(mut self, interval: Duration) -> Self {
+        self.fetch_interval = interval;
+        self
+    }
+
+    /// Enable or disable shallow cloning
+    pub fn shallow(mut self, shallow: bool) -> Self {
+        self.shallow = shallow;
+        self
+    }
+
+    /// Enable writing with default configuration
+    pub fn writable(mut self) -> Self {
+        self.write_config = Some(GitWriteConfig::default());
+        self
+    }
+
+    /// Set the author for commits
+    pub fn author(mut self, name: impl Into<String>, email: impl Into<String>) -> Self {
+        let mut config = self.write_config.unwrap_or_default();
+        config.author = Some(GitAuthor::new(name, email));
+        self.write_config = Some(config);
+        self
+    }
+
+    /// Set the commit message style
+    pub fn commit_style(mut self, style: CommitStyle) -> Self {
+        let mut config = self.write_config.unwrap_or_default();
+        config.commit_style = style;
+        self.write_config = Some(config);
+        self
+    }
+
+    /// Disable automatic pushing (commits will be local only)
+    pub fn no_auto_push(mut self) -> Self {
+        let mut config = self.write_config.unwrap_or_default();
+        config.auto_push = false;
+        self.write_config = Some(config);
+        self
+    }
+
+    /// Set a custom write configuration
+    pub fn write_config(mut self, config: GitWriteConfig) -> Self {
+        self.write_config = Some(config);
+        self
+    }
+
+    /// Build the GitStore
+    pub fn build(self, cache_dir: PathBuf, name: impl Into<String>) -> Result<GitStore> {
+        let mut provider = GitProvider::new(self.url, cache_dir.clone(), self.reference, self.auth)
+            .with_fetch_interval(self.fetch_interval)
+            .with_shallow(self.shallow);
+
+        if let Some(write_config) = self.write_config {
             provider = provider.with_write_config(write_config);
         }
 
-        LocallyCachedStore::new(provider, cache_dir, name)
+        LocallyCachedStore::new(provider, cache_dir, name.into())
+    }
+}
+
+/// Convenience methods for creating git stores
+#[cfg(feature = "git")]
+impl GitStore {
+    /// Create a new git store builder
+    ///
+    /// # Examples
+    /// ```rust
+    /// use quelle_store::GitStore;
+    /// use tempfile::TempDir;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let temp_dir = TempDir::new()?;
+    /// let store = GitStore::builder("https://github.com/user/repo.git")
+    ///     .branch("main")
+    ///     .writable()
+    ///     .author("Bot", "bot@example.com")
+    ///     .build(temp_dir.path().to_path_buf(), "my-store")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn builder(url: impl Into<String>) -> GitStoreBuilder {
+        GitStoreBuilder::new(url)
     }
 
     /// Get the git repository URL
@@ -272,24 +184,6 @@ impl GitStore {
     pub async fn check_git_status(&self) -> Result<crate::stores::providers::git::GitStatus> {
         self.provider().check_repository_status().await
     }
-
-    /// Publish an extension with git workflow (commit and push)
-    pub async fn publish_extension(
-        &self,
-        package: crate::ExtensionPackage,
-        options: crate::publish::PublishOptions,
-    ) -> Result<crate::publish::PublishResult> {
-        self.publish_with_git(package, options).await
-    }
-
-    /// Unpublish an extension with git workflow (commit and push)
-    pub async fn unpublish_extension(
-        &self,
-        extension_id: &str,
-        options: crate::publish::UnpublishOptions,
-    ) -> Result<crate::publish::UnpublishResult> {
-        self.unpublish_with_git(extension_id, options).await
-    }
 }
 
 #[cfg(test)]
@@ -299,132 +193,109 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_git_store_creation() {
+    fn test_git_store_builder_basic() {
         let temp_dir = TempDir::new().unwrap();
-        let store = GitStore::from_url(
-            "test-store".to_string(),
-            "https://github.com/test/repo.git".to_string(),
-            temp_dir.path().to_path_buf(),
-        )
-        .unwrap();
+        let store = GitStore::builder("https://github.com/test/repo.git")
+            .build(temp_dir.path().to_path_buf(), "test-store")
+            .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/repo.git");
         assert_eq!(store.cache_dir(), temp_dir.path());
+        assert!(!store.is_writable());
     }
 
     #[test]
-    fn test_git_store_with_auth() {
+    fn test_git_store_builder_with_auth() {
         let temp_dir = TempDir::new().unwrap();
         let auth = GitAuth::Token {
             token: "test-token".to_string(),
         };
 
-        let store = GitStore::with_auth(
-            "auth-store".to_string(),
-            "https://github.com/test/private-repo.git".to_string(),
-            temp_dir.path().to_path_buf(),
-            auth,
-        )
-        .unwrap();
+        let store = GitStore::builder("https://github.com/test/private-repo.git")
+            .auth(auth)
+            .build(temp_dir.path().to_path_buf(), "auth-store")
+            .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/private-repo.git");
     }
 
     #[test]
-    fn test_git_store_with_branch() {
+    fn test_git_store_builder_with_branch() {
         let temp_dir = TempDir::new().unwrap();
-        let store = GitStore::with_branch(
-            "branch-store".to_string(),
-            "https://github.com/test/repo.git".to_string(),
-            temp_dir.path().to_path_buf(),
-            "develop".to_string(),
-        )
-        .unwrap();
+        let store = GitStore::builder("https://github.com/test/repo.git")
+            .branch("develop")
+            .build(temp_dir.path().to_path_buf(), "branch-store")
+            .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/repo.git");
     }
 
     #[test]
-    fn test_git_store_with_tag() {
+    fn test_git_store_builder_with_tag() {
         let temp_dir = TempDir::new().unwrap();
-        let store = GitStore::with_tag(
-            "tag-store".to_string(),
-            "https://github.com/test/repo.git".to_string(),
-            temp_dir.path().to_path_buf(),
-            "v1.0.0".to_string(),
-        )
-        .unwrap();
+        let store = GitStore::builder("https://github.com/test/repo.git")
+            .tag("v1.0.0")
+            .build(temp_dir.path().to_path_buf(), "tag-store")
+            .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/repo.git");
     }
 
     #[test]
-    fn test_git_store_with_commit() {
+    fn test_git_store_builder_with_commit() {
         let temp_dir = TempDir::new().unwrap();
-        let store = GitStore::with_commit(
-            "commit-store".to_string(),
-            "https://github.com/test/repo.git".to_string(),
-            temp_dir.path().to_path_buf(),
-            "abc123".to_string(),
-        )
-        .unwrap();
+        let store = GitStore::builder("https://github.com/test/repo.git")
+            .commit("abc123")
+            .build(temp_dir.path().to_path_buf(), "commit-store")
+            .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/repo.git");
     }
 
     #[test]
-    fn test_git_store_with_config() {
+    fn test_git_store_builder_writable() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = GitStore::builder("https://github.com/test/repo.git")
+            .writable()
+            .author("Test Author", "test@example.com")
+            .build(temp_dir.path().to_path_buf(), "writable-store")
+            .unwrap();
+
+        assert!(store.is_writable());
+    }
+
+    #[test]
+    fn test_git_store_builder_custom_config() {
         let temp_dir = TempDir::new().unwrap();
         let auth = GitAuth::Token {
             token: "test-token".to_string(),
         };
-        let reference = GitReference::Branch("main".to_string());
 
-        let store = GitStore::with_config(
-            "config-store".to_string(),
-            "https://github.com/test/repo.git".to_string(),
-            temp_dir.path().to_path_buf(),
-            reference,
-            auth,
-            Duration::from_secs(1800),
-            false,
-            None,
-        )
-        .unwrap();
+        let store = GitStore::builder("https://github.com/test/repo.git")
+            .auth(auth)
+            .branch("main")
+            .fetch_interval(Duration::from_secs(1800))
+            .shallow(false)
+            .writable()
+            .author("Bot", "bot@example.com")
+            .commit_style(CommitStyle::Detailed)
+            .build(temp_dir.path().to_path_buf(), "custom-store")
+            .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/repo.git");
+        assert!(store.is_writable());
     }
 
     #[test]
-    fn test_git_store_writability() {
+    fn test_git_store_builder_no_auto_push() {
         let temp_dir = TempDir::new().unwrap();
+        let store = GitStore::builder("https://github.com/test/repo.git")
+            .writable()
+            .no_auto_push()
+            .build(temp_dir.path().to_path_buf(), "no-push-store")
+            .unwrap();
 
-        // Read-only store
-        let readonly_store = GitStore::from_url(
-            "readonly-store".to_string(),
-            "https://github.com/test/repo.git".to_string(),
-            temp_dir.path().to_path_buf(),
-        )
-        .unwrap();
-
-        assert!(!readonly_store.is_writable());
-
-        // Writable store
-        let provider = GitProvider::new(
-            "https://github.com/test/repo.git".to_string(),
-            temp_dir.path().to_path_buf(),
-            GitReference::Default,
-            GitAuth::None,
-        )
-        .enable_writing();
-
-        let writable_store = LocallyCachedStore::new(
-            provider,
-            temp_dir.path().to_path_buf(),
-            "writable-store".to_string(),
-        )
-        .unwrap();
-
-        assert!(writable_store.is_writable());
+        assert!(store.is_writable());
+        // Check that auto_push is false (we'd need to access the provider for this)
     }
 }
