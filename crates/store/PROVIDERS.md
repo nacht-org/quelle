@@ -39,16 +39,20 @@ The `StoreProvider` trait defines the interface for syncing data from various so
 ```rust
 #[async_trait]
 pub trait StoreProvider: Send + Sync {
-    /// Sync/update the local store from the source to the given directory
-    async fn sync(&self, sync_dir: &Path) -> Result<SyncResult>;
+    /// Get the directory where this provider syncs data
+    /// This is the authoritative location for the provider's local cache
+    fn sync_dir(&self) -> &Path;
+    
+    /// Sync/update the local store from the source
+    async fn sync(&self) -> Result<SyncResult>;
     
     /// Check if sync is needed (based on time, changes, etc.)
-    async fn needs_sync(&self, sync_dir: &Path) -> Result<bool>;
+    async fn needs_sync(&self) -> Result<bool>;
     
     /// Sync only if needed - default implementation
-    async fn sync_if_needed(&self, sync_dir: &Path) -> Result<Option<SyncResult>> {
-        if self.needs_sync(sync_dir).await? {
-            Ok(Some(self.sync(sync_dir).await?))
+    async fn sync_if_needed(&self) -> Result<Option<SyncResult>> {
+        if self.needs_sync().await? {
+            Ok(Some(self.sync().await?))
         } else {
             Ok(None)
         }
@@ -59,6 +63,31 @@ pub trait StoreProvider: Send + Sync {
     
     /// Get the provider type identifier
     fn provider_type(&self) -> &'static str;
+    
+    /// Check if this provider supports write operations
+    fn is_writable(&self) -> bool {
+        false
+    }
+    
+    /// Post-publish hook: called after a successful publish operation
+    async fn post_publish(&self, extension_id: &str, version: &str) -> Result<()> {
+        Ok(())
+    }
+    
+    /// Post-unpublish hook: called after a successful unpublish operation
+    async fn post_unpublish(&self, extension_id: &str, version: &str) -> Result<()> {
+        Ok(())
+    }
+    
+    /// Check if the provider is in a state that allows publishing
+    async fn check_write_status(&self) -> Result<()> {
+        if !self.is_writable() {
+            return Err(StoreError::InvalidPackage {
+                reason: "Provider does not support write operations".to_string(),
+            });
+        }
+        Ok(())
+    }
 }
 ```
 
@@ -105,9 +134,17 @@ let provider = GitProvider::new(
 
 let store = LocallyCachedStore::new(
     provider,
-    cache_dir,
     "my-git-store".to_string()
 )?;
+
+// OR use the builder pattern (recommended):
+let store = GitStore::builder()
+    .url("https://github.com/user/extensions-repo.git")
+    .cache_dir(cache_dir)
+    .name("my-git-store")
+    .branch("main")
+    .auth(GitAuth::Token { token: "ghp_xxxx".to_string() })
+    .build()?;
 
 // First access will clone the repository
 // Subsequent accesses will fetch updates if needed
@@ -127,42 +164,42 @@ For convenience, `GitStore` is a type alias for `LocallyCachedStore<GitProvider>
 use quelle_store::GitStore;
 
 // Simple creation
-let store = GitStore::from_url(
-    "my-store".to_string(),
-    "https://github.com/user/repo.git".to_string(),
-    cache_dir
-)?;
+let store = GitStore::builder()
+    .url("https://github.com/user/repo.git")
+    .cache_dir(cache_dir)
+    .name("my-store")
+    .build()?;
 
 // With authentication
-let store = GitStore::with_auth(
-    "private-store".to_string(),
-    "https://github.com/user/private-repo.git".to_string(),
-    cache_dir,
-    GitAuth::Token { token: "ghp_xxxx".to_string() }
-)?;
+let store = GitStore::builder()
+    .url("https://github.com/user/private-repo.git")
+    .cache_dir(cache_dir)
+    .name("private-store")
+    .auth(GitAuth::Token { token: "ghp_xxxx".to_string() })
+    .build()?;
 
 // With specific branch
-let store = GitStore::with_branch(
-    "dev-store".to_string(),
-    "https://github.com/user/repo.git".to_string(),
-    cache_dir,
-    "develop".to_string()
-)?;
+let store = GitStore::builder()
+    .url("https://github.com/user/repo.git")
+    .cache_dir(cache_dir)
+    .name("dev-store")
+    .branch("develop")
+    .build()?;
 
 // Full customization
-let store = GitStore::with_config(
-    "custom-store".to_string(),
-    "https://github.com/user/repo.git".to_string(),
-    cache_dir,
-    GitReference::Tag("v2.0.0".to_string()),
-    GitAuth::SshKey {
+let store = GitStore::builder()
+    .url("https://github.com/user/repo.git")
+    .cache_dir(cache_dir)
+    .name("custom-store")
+    .tag("v2.0.0")
+    .auth(GitAuth::SshKey {
         private_key_path: PathBuf::from("~/.ssh/id_rsa"),
         public_key_path: None,
         passphrase: Some("password".to_string())
-    },
-    Duration::from_secs(1800), // 30 minute fetch interval
-    false // Don't use shallow clone
-)?;
+    })
+    .fetch_interval(Duration::from_secs(1800))
+    .shallow(false)
+    .build()?;
 ```
 
 ## Git Authentication
@@ -252,12 +289,12 @@ Set up a store that automatically syncs from a Git repository:
 use quelle_store::{GitStore, GitAuth};
 
 // Store will sync from Git repository
-let store = GitStore::with_auth(
-    "community-extensions".to_string(),
-    "https://github.com/quelle-org/community-extensions.git".to_string(),
-    dirs::cache_dir().unwrap().join("quelle/stores/community"),
-    GitAuth::Token { token: env::var("GITHUB_TOKEN")? }
-)?;
+let store = GitStore::builder()
+    .url("https://github.com/quelle-org/community-extensions.git")
+    .cache_dir(dirs::cache_dir().unwrap().join("quelle/stores/community"))
+    .name("community-extensions")
+    .auth(GitAuth::Token { token: env::var("GITHUB_TOKEN")? })
+    .build()?;
 
 // First use will clone the repository
 let extensions = store.list_extensions().await?;
@@ -278,19 +315,19 @@ Mix different provider types in the same application:
 let dev_store = quelle_store::stores::local::LocalStore::new("./dev-extensions")?;
 
 // Official extensions from Git
-let official_store = GitStore::from_url(
-    "official".to_string(),
-    "https://github.com/quelle-org/official-extensions.git".to_string(),
-    cache_dir.join("official")
-)?;
+let official_store = GitStore::builder()
+    .url("https://github.com/quelle-org/official-extensions.git")
+    .cache_dir(cache_dir.join("official"))
+    .name("official")
+    .build()?;
 
 // Community extensions from Git with auth
-let community_store = GitStore::with_auth(
-    "community".to_string(),
-    "https://github.com/quelle-org/community-extensions.git".to_string(),
-    cache_dir.join("community"),
-    GitAuth::Token { token: github_token }
-)?;
+let community_store = GitStore::builder()
+    .url("https://github.com/quelle-org/community-extensions.git")
+    .cache_dir(cache_dir.join("community"))
+    .name("community")
+    .auth(GitAuth::Token { token: github_token })
+    .build()?;
 
 // All stores implement ReadableStore trait
 // Note: You'd need to ensure dev_store is properly initialized first
@@ -403,17 +440,27 @@ struct HttpProvider {
 
 #[async_trait]
 impl StoreProvider for HttpProvider {
-    async fn sync(&self, sync_dir: &Path) -> Result<SyncResult> {
+    fn sync_dir(&self) -> &Path {
+        &self.cache_dir
+    }
+    
+    async fn sync(&self) -> Result<SyncResult> {
         // Download extensions from HTTP API
-        // Extract to sync_dir
+        // Extract to self.sync_dir()
         // Return sync result
     }
     
-    async fn needs_sync(&self, sync_dir: &Path) -> Result<bool> {
+    async fn needs_sync(&self) -> Result<bool> {
         // Check last-modified headers, etc.
     }
     
-    // ...
+    fn description(&self) -> String {
+        format!("HTTP provider for {}", self.base_url)
+    }
+    
+    fn provider_type(&self) -> &'static str {
+        "http"
+    }
 }
 
 // Type alias for convenience

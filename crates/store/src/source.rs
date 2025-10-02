@@ -265,7 +265,9 @@ impl ExtensionSource {
                     .reference(reference.clone())
                     .fetch_interval(std::time::Duration::from_secs(300))
                     .shallow(true)
-                    .build(cache_dir.clone(), self.name.clone())
+                    .cache_dir(cache_dir.clone())
+                    .name(self.name.clone())
+                    .build()
                     .map_err(|e| StoreError::StoreCreationError {
                         store_type: "git".to_string(),
                         source: Box::new(e),
@@ -298,7 +300,9 @@ impl ExtensionSource {
                     .fetch_interval(std::time::Duration::from_secs(300))
                     .shallow(true)
                     .writable()
-                    .build(cache_dir.clone(), self.name.clone())
+                    .cache_dir(cache_dir.clone())
+                    .name(self.name.clone())
+                    .build()
                     .map_err(|e| StoreError::StoreCreationError {
                         store_type: "git".to_string(),
                         source: Box::new(e),
@@ -331,7 +335,9 @@ impl ExtensionSource {
                     .reference(reference.clone())
                     .fetch_interval(std::time::Duration::from_secs(300))
                     .shallow(true)
-                    .build(cache_dir.clone(), self.name.clone())
+                    .cache_dir(cache_dir.clone())
+                    .name(self.name.clone())
+                    .build()
                     .map_err(|e| StoreError::StoreCreationError {
                         store_type: "git".to_string(),
                         source: Box::new(e),
@@ -368,7 +374,9 @@ pub async fn create_readable_store_from_source(
                 .reference(reference.clone())
                 .fetch_interval(std::time::Duration::from_secs(300))
                 .shallow(true)
-                .build(cache_dir.clone(), source.name.clone())
+                .cache_dir(cache_dir.clone())
+                .name(source.name.clone())
+                .build()
                 .map_err(|e| StoreError::StoreCreationError {
                     store_type: "git".to_string(),
                     source: Box::new(e),

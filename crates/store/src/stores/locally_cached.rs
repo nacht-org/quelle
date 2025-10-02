@@ -47,7 +47,31 @@ pub struct LocallyCachedStore<T: StoreProvider> {
 
 impl<T: StoreProvider> LocallyCachedStore<T> {
     /// Create a new locally cached store
-    pub fn new(provider: T, sync_dir: PathBuf, name: String) -> Result<Self> {
+    ///
+    /// The sync directory is determined by the provider's `sync_dir()` method.
+    /// This ensures a single source of truth for where data is stored.
+    pub fn new(provider: T, name: String) -> Result<Self> {
+        let sync_dir = provider.sync_dir().to_path_buf();
+        let local_store = LocalStore::new(&sync_dir)?;
+        Ok(Self {
+            provider,
+            local_store,
+            sync_dir,
+            name,
+            sync_state: Arc::new(Mutex::new(SyncState { last_sync: None })),
+        })
+    }
+
+    /// Create a new locally cached store with a custom sync directory
+    ///
+    /// **Warning:** This is an advanced method. The sync_dir must match the provider's
+    /// internal directory or behavior may be undefined. Use `new()` instead unless you
+    /// have a specific reason to override the directory.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use new() instead - provider manages its own directory"
+    )]
+    pub fn with_custom_sync_dir(provider: T, sync_dir: PathBuf, name: String) -> Result<Self> {
         let local_store = LocalStore::new(&sync_dir)?;
         Ok(Self {
             provider,
@@ -98,7 +122,7 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
             self.provider.provider_type()
         );
 
-        match self.provider.sync_if_needed(&self.sync_dir).await {
+        match self.provider.sync_if_needed().await {
             Ok(Some(result)) => {
                 info!(
                     "Synced store '{}': {} changes, {} warnings",
@@ -147,7 +171,7 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         self.ensure_synced().await?;
 
         // Check if provider supports writing and is in valid state
-        self.provider.check_write_status(&self.sync_dir).await?;
+        self.provider.check_write_status().await?;
 
         // Delegate to local store for the actual publishing
         let result = self.local_store.publish(package.clone(), options).await?;
@@ -155,11 +179,7 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         // Post-publish hook for provider-specific operations (git commit/push, etc.)
         if let Err(e) = self
             .provider
-            .post_publish(
-                &package.manifest.id,
-                &package.manifest.version.to_string(),
-                &self.sync_dir,
-            )
+            .post_publish(&package.manifest.id, &package.manifest.version.to_string())
             .await
         {
             tracing::warn!(
@@ -181,7 +201,7 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         self.ensure_synced().await?;
 
         // Check if provider supports writing and is in valid state
-        self.provider.check_write_status(&self.sync_dir).await?;
+        self.provider.check_write_status().await?;
 
         // Delegate to local store
         let result = self
@@ -192,11 +212,7 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         // Post-publish hook for provider-specific operations (git commit/push, etc.)
         if let Err(e) = self
             .provider
-            .post_publish(
-                extension_id,
-                &package.manifest.version.to_string(),
-                &self.sync_dir,
-            )
+            .post_publish(extension_id, &package.manifest.version.to_string())
             .await
         {
             tracing::warn!(
@@ -217,7 +233,7 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         self.ensure_synced().await?;
 
         // Check if provider supports writing and is in valid state
-        self.provider.check_write_status(&self.sync_dir).await?;
+        self.provider.check_write_status().await?;
 
         // Delegate to local store
         let result = self.local_store.unpublish(extension_id, options).await?;
@@ -225,7 +241,7 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         // Post-unpublish hook for provider-specific operations (git commit/push, etc.)
         if let Err(e) = self
             .provider
-            .post_unpublish(extension_id, &result.version, &self.sync_dir)
+            .post_unpublish(extension_id, &result.version)
             .await
         {
             tracing::warn!(
@@ -534,7 +550,7 @@ impl<T: StoreProvider> CacheableStore for LocallyCachedStore<T> {
         }
 
         // Force sync
-        self.provider.sync(&self.sync_dir).await?;
+        self.provider.sync().await?;
 
         // Update sync time
         {
@@ -571,31 +587,38 @@ mod tests {
     struct MockProvider {
         should_sync: bool,
         sync_result: SyncResult,
+        sync_dir: PathBuf,
     }
 
     impl MockProvider {
-        fn new() -> Self {
+        fn new(sync_dir: PathBuf) -> Self {
             Self {
                 should_sync: true,
                 sync_result: SyncResult::no_changes(),
+                sync_dir,
             }
         }
 
-        fn with_changes(changes: Vec<String>) -> Self {
+        fn with_changes(sync_dir: PathBuf, changes: Vec<String>) -> Self {
             Self {
                 should_sync: true,
                 sync_result: SyncResult::with_changes(changes),
+                sync_dir,
             }
         }
     }
 
     #[async_trait]
     impl StoreProvider for MockProvider {
-        async fn sync(&self, _sync_dir: &Path) -> Result<SyncResult> {
+        fn sync_dir(&self) -> &Path {
+            &self.sync_dir
+        }
+
+        async fn sync(&self) -> Result<SyncResult> {
             Ok(self.sync_result.clone())
         }
 
-        async fn needs_sync(&self, _sync_dir: &Path) -> Result<bool> {
+        async fn needs_sync(&self) -> Result<bool> {
             Ok(self.should_sync)
         }
 
@@ -611,28 +634,20 @@ mod tests {
     #[tokio::test]
     async fn test_locally_cached_store_creation() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = MockProvider::new();
-        let store = LocallyCachedStore::new(
-            provider,
-            temp_dir.path().to_path_buf(),
-            "test-store".to_string(),
-        )
-        .unwrap();
+        let provider = MockProvider::new(temp_dir.path().to_path_buf());
+        let store = LocallyCachedStore::new(provider, "test-store".to_string()).unwrap();
 
         assert_eq!(store.name, "test-store");
-        assert_eq!(store.sync_dir(), temp_dir.path());
     }
 
     #[tokio::test]
     async fn test_sync_caching() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = MockProvider::with_changes(vec!["file1.json".to_string()]);
-        let store = LocallyCachedStore::new(
-            provider,
+        let provider = MockProvider::with_changes(
             temp_dir.path().to_path_buf(),
-            "test-store".to_string(),
-        )
-        .unwrap();
+            vec!["file1.json".to_string()],
+        );
+        let store = LocallyCachedStore::new(provider, "test-store".to_string()).unwrap();
 
         // First sync should work
         let result1 = store.ensure_synced().await.unwrap();
@@ -647,13 +662,8 @@ mod tests {
     #[tokio::test]
     async fn test_initialize_store() {
         let temp_dir = TempDir::new().unwrap();
-        let provider = MockProvider::new();
-        let store = LocallyCachedStore::new(
-            provider,
-            temp_dir.path().to_path_buf(),
-            "test-store".to_string(),
-        )
-        .unwrap();
+        let provider = MockProvider::new(temp_dir.path().to_path_buf());
+        let store = LocallyCachedStore::new(provider, "test-store".to_string()).unwrap();
 
         // Initialize the store
         // Test that we can call initialize_store on MockProvider (it will delegate to local store)
@@ -686,12 +696,7 @@ mod tests {
             GitAuth::None,
         );
 
-        let store = LocallyCachedStore::new(
-            provider,
-            temp_dir.path().to_path_buf(),
-            "git-test-store".to_string(),
-        )
-        .unwrap();
+        let store = LocallyCachedStore::new(provider, "test-git-store".to_string()).unwrap();
 
         // Initialize the git store with specific metadata
         store
@@ -735,19 +740,15 @@ mod tests {
         assert!(!provider.is_writable()); // No write config, so read-only
 
         // Test that check_write_status works (should fail for read-only provider)
-        let result = provider.check_write_status(&temp_dir.path()).await;
+        let result = provider.check_write_status().await;
         assert!(result.is_err());
 
         // Test that post_publish and post_unpublish methods exist and can be called
         // (they should do nothing for read-only providers)
-        let post_pub_result = provider
-            .post_publish("test-ext", "1.0.0", &temp_dir.path())
-            .await;
+        let post_pub_result = provider.post_publish("test-ext", "1.0.0").await;
         assert!(post_pub_result.is_ok());
 
-        let post_unpub_result = provider
-            .post_unpublish("test-ext", "1.0.0", &temp_dir.path())
-            .await;
+        let post_unpub_result = provider.post_unpublish("test-ext", "1.0.0").await;
         assert!(post_unpub_result.is_ok());
     }
 
@@ -791,12 +792,7 @@ mod tests {
             GitAuth::None, // Should use system credentials
         );
 
-        let store = LocallyCachedStore::new(
-            provider,
-            temp_dir.path().to_path_buf(),
-            "git-test-store".to_string(),
-        )
-        .unwrap();
+        let store = LocallyCachedStore::new(provider, "test-git-store".to_string()).unwrap();
 
         // Test that the provider is configured to use system credentials
         // We can't test the actual push without a real git repo and credentials,
@@ -859,12 +855,7 @@ mod tests {
         )
         .with_write_config(write_config);
 
-        let store = LocallyCachedStore::new(
-            provider,
-            temp_dir.path().to_path_buf(),
-            "git-init-test-store".to_string(),
-        )
-        .unwrap();
+        let store = LocallyCachedStore::new(provider, "test-git-store".to_string()).unwrap();
 
         // Verify the store is writable
         assert!(store.provider().is_writable());
@@ -913,12 +904,7 @@ mod tests {
             GitAuth::None,
         );
 
-        let store = LocallyCachedStore::new(
-            provider,
-            temp_dir.path().to_path_buf(),
-            "git-url-test-store".to_string(),
-        )
-        .unwrap();
+        let store = LocallyCachedStore::new(provider, "test-git-store".to_string()).unwrap();
 
         // Initialize the git store
         store
@@ -978,12 +964,7 @@ mod tests {
         );
         // Note: No .with_write_config() call here
 
-        let store = LocallyCachedStore::new(
-            provider,
-            temp_dir.path().to_path_buf(),
-            "git-no-write-test-store".to_string(),
-        )
-        .unwrap();
+        let store = LocallyCachedStore::new(provider, "test-git-store".to_string()).unwrap();
 
         // Verify the store is NOT writable (this is the issue)
         assert!(!store.provider().is_writable());
@@ -1024,12 +1005,9 @@ mod tests {
             GitAuth::None,
         );
 
-        let store_no_write = LocallyCachedStore::new(
-            provider_no_write,
-            temp_dir.path().to_path_buf(),
-            "diagnostic-test-1".to_string(),
-        )
-        .unwrap();
+        let store_no_write =
+            LocallyCachedStore::new(provider_no_write, "test-git-store-readonly".to_string())
+                .unwrap();
 
         let diagnostic = store_no_write.diagnose_git_config();
         assert!(!diagnostic.is_writable);
@@ -1058,12 +1036,9 @@ mod tests {
         )
         .with_write_config(write_config);
 
-        let store_with_write = LocallyCachedStore::new(
-            provider_with_write,
-            temp_dir.path().to_path_buf(),
-            "diagnostic-test-2".to_string(),
-        )
-        .unwrap();
+        let store_with_write =
+            LocallyCachedStore::new(provider_with_write, "test-git-store-writable".to_string())
+                .unwrap();
 
         let diagnostic2 = store_with_write.diagnose_git_config();
         assert!(diagnostic2.is_writable);

@@ -28,6 +28,8 @@ pub type GitStore = LocallyCachedStore<GitProvider>;
 #[cfg(feature = "git")]
 pub struct GitStoreBuilder {
     url: String,
+    cache_dir: Option<PathBuf>,
+    name: Option<String>,
     reference: GitReference,
     auth: GitAuth,
     fetch_interval: Duration,
@@ -41,12 +43,26 @@ impl GitStoreBuilder {
     pub fn new(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
+            cache_dir: None,
+            name: None,
             reference: GitReference::Default,
             auth: GitAuth::None,
             fetch_interval: Duration::from_secs(300), // 5 minutes
             shallow: true,
             write_config: None,
         }
+    }
+
+    /// Set the cache directory where the git repository will be stored
+    pub fn cache_dir(mut self, path: impl Into<PathBuf>) -> Self {
+        self.cache_dir = Some(path.into());
+        self
+    }
+
+    /// Set the name for this store
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
     }
 
     /// Set authentication for the git repository
@@ -128,8 +144,27 @@ impl GitStoreBuilder {
     }
 
     /// Build the GitStore
-    pub fn build(self, cache_dir: PathBuf, name: impl Into<String>) -> Result<GitStore> {
-        let mut provider = GitProvider::new(self.url, cache_dir.clone(), self.reference, self.auth)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - `cache_dir` was not set via the builder
+    /// - `name` was not set via the builder
+    /// - The store cannot be initialized
+    pub fn build(self) -> Result<GitStore> {
+        let cache_dir = self.cache_dir.ok_or_else(|| {
+            crate::error::StoreError::InvalidConfiguration(
+                "cache_dir must be set before building GitStore".to_string(),
+            )
+        })?;
+
+        let name = self.name.ok_or_else(|| {
+            crate::error::StoreError::InvalidConfiguration(
+                "name must be set before building GitStore".to_string(),
+            )
+        })?;
+
+        let mut provider = GitProvider::new(self.url, cache_dir, self.reference, self.auth)
             .with_fetch_interval(self.fetch_interval)
             .with_shallow(self.shallow);
 
@@ -137,7 +172,20 @@ impl GitStoreBuilder {
             provider = provider.with_write_config(write_config);
         }
 
-        LocallyCachedStore::new(provider, cache_dir, name.into())
+        LocallyCachedStore::new(provider, name)
+    }
+
+    /// Build the GitStore with explicit cache_dir and name parameters
+    ///
+    /// This is a convenience method that's equivalent to calling
+    /// `builder.cache_dir(cache_dir).name(name).build()`
+    ///
+    /// # Deprecated
+    ///
+    /// Use `.cache_dir().name().build()` instead for a more fluent API
+    #[deprecated(since = "0.1.0", note = "Use .cache_dir().name().build() instead")]
+    pub fn build_with(self, cache_dir: PathBuf, name: impl Into<String>) -> Result<GitStore> {
+        self.cache_dir(cache_dir).name(name).build()
     }
 }
 
@@ -154,10 +202,12 @@ impl GitStore {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let temp_dir = TempDir::new()?;
     /// let store = GitStore::builder("https://github.com/user/repo.git")
+    ///     .cache_dir(temp_dir.path())
+    ///     .name("my-store")
     ///     .branch("main")
     ///     .writable()
     ///     .author("Bot", "bot@example.com")
-    ///     .build(temp_dir.path().to_path_buf(), "my-store")?;
+    ///     .build()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -196,7 +246,9 @@ mod tests {
     fn test_git_store_builder_basic() {
         let temp_dir = TempDir::new().unwrap();
         let store = GitStore::builder("https://github.com/test/repo.git")
-            .build(temp_dir.path().to_path_buf(), "test-store")
+            .cache_dir(temp_dir.path())
+            .name("test-store")
+            .build()
             .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/repo.git");
@@ -212,8 +264,10 @@ mod tests {
         };
 
         let store = GitStore::builder("https://github.com/test/private-repo.git")
+            .cache_dir(temp_dir.path())
+            .name("auth-store")
             .auth(auth)
-            .build(temp_dir.path().to_path_buf(), "auth-store")
+            .build()
             .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/private-repo.git");
@@ -223,8 +277,10 @@ mod tests {
     fn test_git_store_builder_with_branch() {
         let temp_dir = TempDir::new().unwrap();
         let store = GitStore::builder("https://github.com/test/repo.git")
+            .cache_dir(temp_dir.path())
+            .name("branch-store")
             .branch("develop")
-            .build(temp_dir.path().to_path_buf(), "branch-store")
+            .build()
             .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/repo.git");
@@ -234,8 +290,10 @@ mod tests {
     fn test_git_store_builder_with_tag() {
         let temp_dir = TempDir::new().unwrap();
         let store = GitStore::builder("https://github.com/test/repo.git")
+            .cache_dir(temp_dir.path())
+            .name("tag-store")
             .tag("v1.0.0")
-            .build(temp_dir.path().to_path_buf(), "tag-store")
+            .build()
             .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/repo.git");
@@ -245,8 +303,10 @@ mod tests {
     fn test_git_store_builder_with_commit() {
         let temp_dir = TempDir::new().unwrap();
         let store = GitStore::builder("https://github.com/test/repo.git")
+            .cache_dir(temp_dir.path())
+            .name("commit-store")
             .commit("abc123")
-            .build(temp_dir.path().to_path_buf(), "commit-store")
+            .build()
             .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/repo.git");
@@ -256,9 +316,11 @@ mod tests {
     fn test_git_store_builder_writable() {
         let temp_dir = TempDir::new().unwrap();
         let store = GitStore::builder("https://github.com/test/repo.git")
+            .cache_dir(temp_dir.path())
+            .name("writable-store")
             .writable()
             .author("Test Author", "test@example.com")
-            .build(temp_dir.path().to_path_buf(), "writable-store")
+            .build()
             .unwrap();
 
         assert!(store.is_writable());
@@ -272,6 +334,8 @@ mod tests {
         };
 
         let store = GitStore::builder("https://github.com/test/repo.git")
+            .cache_dir(temp_dir.path())
+            .name("custom-store")
             .auth(auth)
             .branch("main")
             .fetch_interval(Duration::from_secs(1800))
@@ -279,7 +343,7 @@ mod tests {
             .writable()
             .author("Bot", "bot@example.com")
             .commit_style(CommitStyle::Detailed)
-            .build(temp_dir.path().to_path_buf(), "custom-store")
+            .build()
             .unwrap();
 
         assert_eq!(store.url(), "https://github.com/test/repo.git");
@@ -290,12 +354,39 @@ mod tests {
     fn test_git_store_builder_no_auto_push() {
         let temp_dir = TempDir::new().unwrap();
         let store = GitStore::builder("https://github.com/test/repo.git")
+            .cache_dir(temp_dir.path())
+            .name("no-push-store")
             .writable()
             .no_auto_push()
-            .build(temp_dir.path().to_path_buf(), "no-push-store")
+            .build()
             .unwrap();
 
         assert!(store.is_writable());
         // Check that auto_push is false (we'd need to access the provider for this)
+    }
+
+    #[test]
+    fn test_git_store_builder_missing_cache_dir() {
+        let result = GitStore::builder("https://github.com/test/repo.git")
+            .name("test-store")
+            .build();
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("cache_dir must be set"));
+        }
+    }
+
+    #[test]
+    fn test_git_store_builder_missing_name() {
+        let temp_dir = TempDir::new().unwrap();
+        let result = GitStore::builder("https://github.com/test/repo.git")
+            .cache_dir(temp_dir.path())
+            .build();
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("name must be set"));
+        }
     }
 }

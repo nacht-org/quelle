@@ -64,17 +64,21 @@ impl SyncResult {
 /// Trait for providers that can sync data from various sources to local storage
 #[async_trait]
 pub trait StoreProvider: Send + Sync {
-    /// Sync/update the local store from the source to the given directory
+    /// Get the directory where this provider syncs data
+    /// This is the authoritative location for the provider's local cache
+    fn sync_dir(&self) -> &Path;
+
+    /// Sync/update the local store from the source
     /// This should handle initial setup (clone/download) as well as updates
-    async fn sync(&self, sync_dir: &Path) -> Result<SyncResult>;
+    async fn sync(&self) -> Result<SyncResult>;
 
     /// Check if sync is needed (based on time, changes, etc.)
-    async fn needs_sync(&self, sync_dir: &Path) -> Result<bool>;
+    async fn needs_sync(&self) -> Result<bool>;
 
     /// Sync only if needed - default implementation
-    async fn sync_if_needed(&self, sync_dir: &Path) -> Result<Option<SyncResult>> {
-        if self.needs_sync(sync_dir).await? {
-            Ok(Some(self.sync(sync_dir).await?))
+    async fn sync_if_needed(&self) -> Result<Option<SyncResult>> {
+        if self.needs_sync().await? {
+            Ok(Some(self.sync().await?))
         } else {
             Ok(None)
         }
@@ -93,28 +97,23 @@ pub trait StoreProvider: Send + Sync {
 
     /// Post-publish hook: called after a successful publish operation
     /// Providers can use this to commit changes, push to remotes, etc.
-    async fn post_publish(&self, extension_id: &str, version: &str, sync_dir: &Path) -> Result<()> {
+    async fn post_publish(&self, extension_id: &str, version: &str) -> Result<()> {
         // Default implementation does nothing
-        let _ = (extension_id, version, sync_dir);
+        let _ = (extension_id, version);
         Ok(())
     }
 
     /// Post-unpublish hook: called after a successful unpublish operation
     /// Providers can use this to commit changes, push to remotes, etc.
-    async fn post_unpublish(
-        &self,
-        extension_id: &str,
-        version: &str,
-        sync_dir: &Path,
-    ) -> Result<()> {
+    async fn post_unpublish(&self, extension_id: &str, version: &str) -> Result<()> {
         // Default implementation does nothing
-        let _ = (extension_id, version, sync_dir);
+        let _ = (extension_id, version);
         Ok(())
     }
 
     /// Check if the provider is in a state that allows publishing
     /// Returns an error if publishing should be blocked
-    async fn check_write_status(&self, _sync_dir: &Path) -> Result<()> {
+    async fn check_write_status(&self) -> Result<()> {
         // Default implementation allows writing if writable
         if !self.is_writable() {
             return Err(crate::error::StoreError::InvalidPackage {

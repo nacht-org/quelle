@@ -585,16 +585,11 @@ impl GitProvider {
 
 #[async_trait]
 impl StoreProvider for GitProvider {
-    async fn sync(&self, sync_dir: &Path) -> Result<SyncResult> {
-        // Ensure the sync directory matches our cache directory
-        if sync_dir != self.cache_dir {
-            return Err(StoreError::InvalidConfiguration(format!(
-                "Sync directory {} does not match cache directory {}",
-                sync_dir.display(),
-                self.cache_dir.display()
-            )));
-        }
+    fn sync_dir(&self) -> &Path {
+        &self.cache_dir
+    }
 
+    async fn sync(&self) -> Result<SyncResult> {
         let mut changes = Vec::new();
         let warnings: Vec<String> = Vec::new();
         let updated;
@@ -630,12 +625,7 @@ impl StoreProvider for GitProvider {
         })
     }
 
-    async fn needs_sync(&self, sync_dir: &Path) -> Result<bool> {
-        // Ensure the sync directory matches our cache directory
-        if sync_dir != self.cache_dir {
-            return Ok(false);
-        }
-
+    async fn needs_sync(&self) -> Result<bool> {
         // Always sync if repo doesn't exist
         if !self.repo_exists() {
             return Ok(true);
@@ -666,12 +656,7 @@ impl StoreProvider for GitProvider {
         self.write_config.is_some()
     }
 
-    async fn post_publish(
-        &self,
-        extension_id: &str,
-        version: &str,
-        _sync_dir: &Path,
-    ) -> Result<()> {
+    async fn post_publish(&self, extension_id: &str, version: &str) -> Result<()> {
         if !self.is_writable() {
             return Ok(());
         }
@@ -705,12 +690,7 @@ impl StoreProvider for GitProvider {
         Ok(())
     }
 
-    async fn post_unpublish(
-        &self,
-        extension_id: &str,
-        version: &str,
-        _sync_dir: &Path,
-    ) -> Result<()> {
+    async fn post_unpublish(&self, extension_id: &str, version: &str) -> Result<()> {
         if !self.is_writable() {
             return Ok(());
         }
@@ -744,7 +724,7 @@ impl StoreProvider for GitProvider {
         Ok(())
     }
 
-    async fn check_write_status(&self, _sync_dir: &Path) -> Result<()> {
+    async fn check_write_status(&self) -> Result<()> {
         if !self.is_writable() {
             return Err(crate::error::StoreError::InvalidPackage {
                 reason: "Git provider is read-only".to_string(),
@@ -1221,7 +1201,7 @@ mod tests {
             GitAuth::None,
         );
 
-        let needs_sync = provider.needs_sync(temp_dir.path()).await.unwrap();
+        let needs_sync = provider.needs_sync().await.unwrap();
         assert!(needs_sync); // Should need sync when repo doesn't exist
     }
 

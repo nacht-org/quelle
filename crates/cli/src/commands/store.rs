@@ -1,9 +1,6 @@
 use eyre::{Context, Result};
 use quelle_store::stores::local::LocalStore;
-use quelle_store::{
-    BaseStore, ExtensionSource, GitProvider, GitStore, GitWriteConfig, RegistryConfig,
-    StoreManager, StoreType,
-};
+use quelle_store::{BaseStore, ExtensionSource, GitStore, RegistryConfig, StoreManager, StoreType};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -314,7 +311,9 @@ async fn handle_add_git_store(
         .fetch_interval(std::time::Duration::from_secs(300))
         .shallow(true)
         .writable()
-        .build(cache_path.clone(), name.clone())?;
+        .cache_dir(cache_path.clone())
+        .name(name.clone())
+        .build()?;
 
     git_store
         .ensure_synced()

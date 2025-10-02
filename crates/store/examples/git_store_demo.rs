@@ -53,7 +53,7 @@ async fn demo_git_provider(demo_dir: &std::path::Path) -> Result<(), Box<dyn std
     println!("  📂 Cache directory: {}", provider.cache_dir().display());
 
     // Check if sync is needed (should be true initially)
-    let needs_sync = provider.needs_sync(demo_dir).await?;
+    let needs_sync = provider.needs_sync().await?;
     println!("  🔍 Needs sync: {}", needs_sync);
 
     if needs_sync {
