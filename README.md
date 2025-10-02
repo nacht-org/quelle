@@ -191,27 +191,36 @@ rustup target add wasm32-unknown-unknown
 cargo install just cargo-component
 ```
 
-### Building Extensions
+### Extension Development Workflow
 
 ```bash
-# Build a specific extension
-just build-extension scribblehub
+# Validate extension structure and build
+just dev-validate scribblehub
 
-# Publish to local store
-just publish scribblehub
+# Quick test novel info fetching
+just dev-test-novel scribblehub "https://www.scribblehub.com/series/123456/novel/"
 
-# Build and run CLI
-cargo run -p quelle_cli -- --help
+# Quick test search functionality  
+just dev-test-search scribblehub "fantasy adventure"
+
+# Start development server with hot reload
+just dev-server scribblehub
 ```
+
+The development server provides:
+- **Hot reload**: Automatic rebuild on file changes
+- **Interactive testing**: Test novel fetching, search, and chapters
+- **Real-time feedback**: Detailed timing and error information
+- **Pure extensions**: No debugging code needed in extensions
 
 ### Creating New Extensions
 
 1. Copy an existing extension as template
 2. Implement the required WIT interfaces
-3. Build and test: `just build-extension <name>`
+3. Test with development tools: `just dev-validate <name>`
 4. Publish: `just publish <name>`
 
-See existing extensions in `extensions/` for reference implementations.
+📖 **[Complete Extension Development Guide](./docs/EXTENSION_DEVELOPMENT.md)**
 
 ### Publishing Extensions
 
@@ -295,16 +304,17 @@ The book contains detailed guides for:
 
 We welcome contributions! Priority areas:
 
-1. **New Extensions**: Add support for more novel sources
-2. **Export Formats**: Improve PDF generation, add new formats
-3. **Search Enhancement**: Better filtering and aggregation
-4. **Testing**: Improve test coverage
-5. **Documentation**: User guides and tutorials
+- **New Extensions**: Add support for more novel sources  
+- **Export Formats**: Improve PDF generation, add new formats
+- **Search Enhancement**: Better filtering and aggregation
+- **Extension Development**: Improved debugging and testing tools
+- **Documentation**: User guides and tutorials
 
 ### Contribution Guidelines
 
 - Follow Rust coding standards (`cargo fmt`)
-- Add tests for new functionality
+- Use the extension development tools for testing (`just dev-validate`, `just dev-test`)
+- Keep extension code pure (no debugging utilities in production extensions)
 - Update documentation for user-facing changes
 - Respect websites' terms of service and robots.txt
 - Handle rate limiting appropriately

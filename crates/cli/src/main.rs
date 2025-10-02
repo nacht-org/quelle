@@ -11,10 +11,10 @@ mod utils;
 
 use cli::{Cli, Commands};
 use commands::{
-    handle_add_command, handle_config_command, handle_export_command, handle_extension_command,
-    handle_fetch_command, handle_library_command, handle_publish_command, handle_read_command,
-    handle_remove_command, handle_search_command, handle_status_command, handle_store_command,
-    handle_update_command,
+    handle_add_command, handle_config_command, handle_dev_command, handle_export_command,
+    handle_extension_command, handle_fetch_command, handle_library_command, handle_publish_command,
+    handle_read_command, handle_remove_command, handle_search_command, handle_status_command,
+    handle_store_command, handle_update_command,
 };
 use config::Config;
 
@@ -142,5 +142,6 @@ async fn main() -> Result<()> {
         Commands::Fetch { command } => {
             handle_fetch_command(command, &mut store_manager, &storage, cli.dry_run).await
         }
+        Commands::Dev { command } => handle_dev_command(command, &config).await,
     }
 }

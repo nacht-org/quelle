@@ -142,6 +142,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: FetchCommands,
     },
+    /// Extension development tools
+    Dev {
+        #[command(subcommand)]
+        command: crate::commands::dev::DevCommands,
+    },
 }
 
 #[derive(clap::Subcommand, Debug)]
