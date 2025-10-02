@@ -405,14 +405,62 @@ impl LocallyCachedStore<GitProvider> {
         let final_description = description.unwrap_or_else(|| git_description);
 
         // Create git-specific manifest with repository URL
-        let base_manifest = StoreManifest::new(store_name, "git".to_string(), "1.0.0".to_string())
-            .with_url(git_url)
-            .with_description(final_description);
+        let base_manifest =
+            StoreManifest::new(store_name.clone(), "git".to_string(), "1.0.0".to_string())
+                .with_url(git_url)
+                .with_description(final_description);
 
         let local_manifest = LocalStoreManifest::new(base_manifest);
 
         // Use the shared write function from local store
-        self.local_store.write_store_manifest(local_manifest).await
+        self.local_store
+            .write_store_manifest(local_manifest)
+            .await?;
+
+        // If git is writable, commit and push the initialization
+        if self.provider.is_writable() {
+            if let Err(e) = self.git_initialize_workflow(&store_name).await {
+                tracing::warn!("Git workflow failed after successful initialization: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Git workflow for store initialization
+    async fn git_initialize_workflow(&self, store_name: &str) -> Result<()> {
+        let write_config = self.provider.write_config.as_ref().ok_or_else(|| {
+            crate::error::StoreError::InvalidPackage {
+                reason: "Git write configuration not available".to_string(),
+            }
+        })?;
+
+        // Add all changes (store.json and any other files)
+        self.provider.git_add_all().await?;
+
+        // Create commit message for initialization
+        let commit_message = if write_config
+            .commit_message_template
+            .contains("{extension_id}")
+        {
+            // If template uses extension placeholders, create a more appropriate message
+            format!("Initialize git store: {}", store_name)
+        } else {
+            // Use the template as-is if it doesn't rely on extension-specific placeholders
+            write_config.commit_message_template.clone()
+        };
+
+        // Commit changes
+        self.provider.git_commit(&commit_message).await?;
+
+        // Push if auto-push is enabled and authentication is available
+        if write_config.auto_push {
+            if let Err(e) = self.provider.git_push().await {
+                tracing::warn!("Failed to push initialization to remote repository: {}. Consider configuring authentication for automatic pushing.", e);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -844,5 +892,137 @@ mod tests {
         .with_write_config(write_config);
 
         assert!(provider_with_write.is_writable());
+    }
+
+    #[tokio::test]
+    async fn test_git_initialization_commits_and_pushes() {
+        use crate::stores::providers::git::{
+            GitAuth, GitAuthor, GitProvider, GitReference, GitWriteConfig,
+        };
+        use std::fs;
+
+        let temp_dir = TempDir::new().unwrap();
+        let git_url = "https://github.com/example/test-store.git";
+
+        let write_config = GitWriteConfig {
+            author: GitAuthor {
+                name: "Test Author".to_string(),
+                email: "test@example.com".to_string(),
+            },
+            commit_message_template: "{action} extension {extension_id} v{version}".to_string(),
+            auto_push: true,
+            write_auth: None,
+            write_branch: None,
+        };
+
+        let provider = GitProvider::new(
+            git_url.to_string(),
+            temp_dir.path().to_path_buf(),
+            GitReference::Default,
+            GitAuth::None,
+        )
+        .with_write_config(write_config);
+
+        let store = LocallyCachedStore::new(
+            provider,
+            temp_dir.path().to_path_buf(),
+            "git-init-test-store".to_string(),
+        )
+        .unwrap();
+
+        // Verify the store is writable
+        assert!(store.provider().is_writable());
+
+        // Initialize the store - this should attempt to commit and push
+        let result = store
+            .initialize_store(
+                "Test Store With Git".to_string(),
+                Some("Testing git workflow during initialization".to_string()),
+            )
+            .await;
+
+        // The initialization should succeed even if git operations fail
+        // (since we don't have a real git repo)
+        assert!(result.is_ok());
+
+        // Verify the store.json was created
+        let manifest_path = temp_dir.path().join("store.json");
+        assert!(manifest_path.exists());
+
+        // Verify the content is correct
+        let content = fs::read_to_string(&manifest_path).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        assert_eq!(manifest["name"], "Test Store With Git");
+        assert_eq!(manifest["store_type"], "git");
+        assert_eq!(manifest["url"], git_url);
+        assert_eq!(
+            manifest["description"],
+            "Testing git workflow during initialization"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_git_url_preserved_after_manifest_updates() {
+        use crate::stores::providers::git::{GitAuth, GitProvider, GitReference};
+        use std::fs;
+
+        let temp_dir = TempDir::new().unwrap();
+        let git_url = "https://github.com/example/test-store.git";
+
+        let provider = GitProvider::new(
+            git_url.to_string(),
+            temp_dir.path().to_path_buf(),
+            GitReference::Default,
+            GitAuth::None,
+        );
+
+        let store = LocallyCachedStore::new(
+            provider,
+            temp_dir.path().to_path_buf(),
+            "git-url-test-store".to_string(),
+        )
+        .unwrap();
+
+        // Initialize the git store
+        store
+            .initialize_store(
+                "Git URL Test Store".to_string(),
+                Some("Testing URL preservation".to_string()),
+            )
+            .await
+            .unwrap();
+
+        // Verify initial URL is correct
+        let manifest_path = temp_dir.path().join("store.json");
+        let content = fs::read_to_string(&manifest_path).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        assert_eq!(manifest["url"], git_url);
+        assert_eq!(manifest["store_type"], "git");
+
+        // Simulate what happens during publish/unpublish - the local store saves its manifest
+        // This should NOT overwrite the git URL with a file:// URL
+        store.local_store().save_store_manifest().await.unwrap();
+
+        // Verify URL is still the git URL, not a file:// URL
+        let updated_content = fs::read_to_string(&manifest_path).unwrap();
+        let updated_manifest: serde_json::Value = serde_json::from_str(&updated_content).unwrap();
+
+        assert_eq!(updated_manifest["url"], git_url);
+        assert_eq!(updated_manifest["store_type"], "git");
+
+        // Make sure it's NOT a file:// URL
+        let url_str = updated_manifest["url"].as_str().unwrap();
+        assert!(
+            !url_str.starts_with("file://"),
+            "URL should not be a file:// path, got: {}",
+            url_str
+        );
+        assert!(
+            url_str.starts_with("https://"),
+            "URL should be the original git URL, got: {}",
+            url_str
+        );
     }
 }

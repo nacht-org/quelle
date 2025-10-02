@@ -125,13 +125,21 @@ let write_config = GitWriteConfig {
 };
 
 let provider = GitProvider::new(
-    "https://github.com/username/store.git".to_string(),
+    "https://github.com/my-org/extension-store.git".to_string(),
     cache_dir,
     GitReference::Default,
     GitAuth::Token { token: "your_token".to_string() },
 )
 .with_write_config(write_config);
 ```
+
+**Note:** When you call `initialize_store()` on a writable git store, it will automatically:
+1. Create the `store.json` manifest file
+2. Add it to git staging area
+3. Commit it with a message like "Initialize git store: Your Store Name"
+4. Push to remote (if `auto_push: true` and authentication is configured)
+
+This ensures your store initialization is properly recorded in git history.
 
 ## Disabling Auto-Push
 
@@ -148,6 +156,11 @@ let write_config = GitWriteConfig {
     write_auth: None,
 };
 ```
+
+**Important:** Store initialization will automatically commit and push the initial `store.json` file when:
+- The store has write configuration (`GitWriteConfig`)
+- Auto-push is enabled (`auto_push: true`)
+- Valid authentication is configured
 
 ## Environment Variables
 
@@ -286,6 +299,7 @@ async fn setup_git_store() -> Result<LocallyCachedStore<GitProvider>, Box<dyn st
     )?;
 
     // Initialize store if needed
+    // This will create store.json, commit it, and push to remote if configured
     store.initialize_store(
         "My Extension Store".to_string(),
         Some("A git-backed extension store".to_string()),

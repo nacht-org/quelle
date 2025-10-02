@@ -1152,13 +1152,18 @@ impl LocalStore {
             if let Ok(content) = fs::read_to_string(&manifest_path).await {
                 if let Ok(existing_manifest) = serde_json::from_str::<LocalStoreManifest>(&content)
                 {
-                    // Preserve existing base manifest metadata but update URL and timestamp
-                    let mut base = existing_manifest
-                        .base
-                        .with_url(format!("file://{}", canonical_root_path.display()));
+                    // Preserve existing base manifest metadata
+                    let mut base = existing_manifest.base.clone();
+
+                    // Only update URL to file:// for true local stores
+                    // Git stores should preserve their git URLs
+                    if base.store_type == "local" {
+                        base = base.with_url(format!("file://{}", canonical_root_path.display()));
+                        // Ensure store_type is always "local" for local stores
+                        base.store_type = "local".to_string();
+                    }
+
                     base.touch();
-                    // Ensure store_type is always "local" for local stores
-                    base.store_type = "local".to_string();
                     base
                 } else {
                     // If we can't parse existing manifest, we can't recover metadata
