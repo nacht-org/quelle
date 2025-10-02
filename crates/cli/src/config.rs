@@ -81,9 +81,7 @@ impl Config {
         let config_path = Self::get_config_path();
 
         if !config_path.exists() {
-            let default_config = Self::default();
-            default_config.save().await?;
-            return Ok(default_config);
+            return Ok(Self::default());
         }
 
         let content = fs::read_to_string(&config_path).await?;
