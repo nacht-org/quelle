@@ -11,12 +11,13 @@ use quelle_engine::bindings::quelle::extension::{
     source::SourceMeta,
 };
 use quelle_engine::{ExtensionEngine, ExtensionRunner};
+use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tracing::debug;
 use url::Url;
 
@@ -177,76 +178,89 @@ async fn start_dev_server(extension_name: String, watch: bool) -> Result<()> {
         println!("  meta          - Show extension metadata");
         println!("  rebuild       - Force rebuild extension");
         println!("  quit          - Exit development server");
+        println!("  (Use ↑/↓ arrow keys for command history)");
 
-        let stdin = io::stdin();
-        let mut reader = BufReader::new(stdin);
-        let mut line = String::new();
+        // Create readline editor with history
+        let mut rl =
+            DefaultEditor::new().map_err(|e| eyre!("Failed to create readline editor: {}", e))?;
 
         loop {
-            use std::io::Write;
-            print!("dev> ");
-            std::io::stdout().flush().unwrap();
-
-            line.clear();
-            if reader.read_line(&mut line).await? == 0 {
-                break; // EOF
-            }
-
-            let command_line = line.trim();
-            if command_line.is_empty() {
-                continue;
-            }
-
-            // Parse command using clap
-            let args: Vec<&str> = command_line.split_whitespace().collect();
-            if args.is_empty() {
-                continue;
-            }
-
-            // Create a proper command line for clap parsing
-            let full_args = vec!["dev-server"]
-                .into_iter()
-                .chain(args.iter().copied())
-                .collect::<Vec<_>>();
-
-            match DevServerCommand::try_parse_from(full_args) {
-                Ok(cmd) => {
-                    if let Ok(mut server) = dev_server.lock() {
-                        if let Err(e) = server.handle_parsed_command(cmd).await {
-                            println!("❌ Command failed: {}", e);
-                        }
+            match rl.readline("dev> ") {
+                Ok(line) => {
+                    let command_line = line.trim();
+                    if command_line.is_empty() {
+                        continue;
                     }
-                }
-                Err(e) => {
-                    // Check if this is a help request
-                    let is_help = command_line == "help"
-                        || command_line == "--help"
-                        || args.contains(&"--help")
-                        || args.contains(&"-h");
 
-                    if is_help {
-                        // Use clap's built-in help
-                        if let Err(help_err) =
-                            DevServerCommand::try_parse_from(vec!["dev-server", "--help"])
-                        {
-                            println!("{}", help_err);
+                    // Add to history
+                    let _ = rl.add_history_entry(command_line);
+
+                    // Parse command using clap
+                    let args: Vec<&str> = command_line.split_whitespace().collect();
+                    if args.is_empty() {
+                        continue;
+                    }
+
+                    // Create a proper command line for clap parsing
+                    let full_args = vec!["dev-server"]
+                        .into_iter()
+                        .chain(args.iter().copied())
+                        .collect::<Vec<_>>();
+
+                    match DevServerCommand::try_parse_from(full_args) {
+                        Ok(cmd) => {
+                            if let Ok(mut server) = dev_server.lock() {
+                                if let Err(e) = server.handle_parsed_command(cmd).await {
+                                    println!("❌ Command failed: {}", e);
+                                }
+                            }
                         }
-                    } else {
-                        // Check if it's a subcommand help request
-                        if args.len() >= 2 && (args[1] == "--help" || args[1] == "-h") {
-                            println!("{}", e);
-                        } else {
-                            println!("❌ Invalid command. Type 'help' for available commands.");
-                            if !e.to_string().contains("clap") {
-                                println!("   Error: {}", e);
+                        Err(e) => {
+                            // Check if this is a help request
+                            let is_help = command_line == "help"
+                                || command_line == "--help"
+                                || args.contains(&"--help")
+                                || args.contains(&"-h");
+
+                            if is_help {
+                                // Use clap's built-in help
+                                if let Err(help_err) =
+                                    DevServerCommand::try_parse_from(vec!["dev-server", "--help"])
+                                {
+                                    println!("{}", help_err);
+                                }
+                            } else {
+                                // Check if it's a subcommand help request
+                                if args.len() >= 2 && (args[1] == "--help" || args[1] == "-h") {
+                                    println!("{}", e);
+                                } else {
+                                    println!(
+                                        "❌ Invalid command. Type 'help' for available commands."
+                                    );
+                                    if !e.to_string().contains("clap") {
+                                        println!("   Error: {}", e);
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }
 
-            if command_line == "quit" {
-                break;
+                    if command_line == "quit" {
+                        break;
+                    }
+                }
+                Err(ReadlineError::Interrupted) => {
+                    println!("CTRL-C");
+                    break;
+                }
+                Err(ReadlineError::Eof) => {
+                    println!("CTRL-D");
+                    break;
+                }
+                Err(err) => {
+                    println!("Error: {:?}", err);
+                    break;
+                }
             }
         }
     }

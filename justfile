@@ -23,7 +23,7 @@ setup:
 
 # === Extension Development Commands (quelle_dev crate) ===
 
-# Start development server with hot reload for an extension
+# Start development server with hot reload and command history for an extension
 dev-server NAME:
     cargo run -p quelle_cli -- dev server {{NAME}} --watch
 
@@ -91,7 +91,7 @@ example-dev-scribblehub:
     @echo "💡 This will:"
     @echo "   1. Build the extension (no store dependencies)"
     @echo "   2. Start file watching for auto-rebuild"
-    @echo "   3. Provide interactive testing commands"
+    @echo "   3. Provide interactive testing commands with session history"
     @echo "   4. Use clean output (no timestamps)"
     @echo ""
     @echo "Available commands in dev server:"
@@ -102,6 +102,8 @@ example-dev-scribblehub:
     @echo "  rebuild       - Force rebuild extension"
     @echo "  help          - Show available commands"
     @echo "  quit          - Exit development server"
+    @echo ""
+    @echo "💡 Features: ↑/↓ arrow keys for session history"
     @echo ""
     just dev-server scribblehub
 
