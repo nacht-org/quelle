@@ -419,9 +419,20 @@ impl LocallyCachedStore<GitProvider> {
 
         // If git is writable, commit and push the initialization
         if self.provider.is_writable() {
+            tracing::info!(
+                "Starting git initialization workflow for store: {}",
+                store_name
+            );
             if let Err(e) = self.git_initialize_workflow(&store_name).await {
                 tracing::warn!("Git workflow failed after successful initialization: {}", e);
+            } else {
+                tracing::info!("Git initialization workflow completed successfully");
             }
+        } else {
+            tracing::info!(
+                "Git store '{}' initialized successfully. To enable automatic git commits and pushes, configure GitWriteConfig with author info and commit settings.",
+                store_name
+            );
         }
 
         Ok(())
@@ -429,14 +440,19 @@ impl LocallyCachedStore<GitProvider> {
 
     /// Git workflow for store initialization
     async fn git_initialize_workflow(&self, store_name: &str) -> Result<()> {
+        tracing::debug!("Starting git initialization workflow");
+
         let write_config = self.provider.write_config.as_ref().ok_or_else(|| {
+            tracing::error!("No write configuration available for git provider");
             crate::error::StoreError::InvalidPackage {
                 reason: "Git write configuration not available".to_string(),
             }
         })?;
 
+        tracing::debug!("Adding all changes to git staging area");
         // Add all changes (store.json and any other files)
         self.provider.git_add_all().await?;
+        tracing::debug!("Successfully added changes to git staging area");
 
         // Create commit message for initialization
         let commit_message = if write_config
@@ -451,16 +467,89 @@ impl LocallyCachedStore<GitProvider> {
         };
 
         // Commit changes
+        tracing::debug!("Committing changes with message: {}", commit_message);
         self.provider.git_commit(&commit_message).await?;
+        tracing::info!("Successfully committed initialization changes");
 
         // Push if auto-push is enabled and authentication is available
         if write_config.auto_push {
+            tracing::debug!("Auto-push is enabled, attempting to push to remote");
             if let Err(e) = self.provider.git_push().await {
                 tracing::warn!("Failed to push initialization to remote repository: {}. Consider configuring authentication for automatic pushing.", e);
+            } else {
+                tracing::info!("Successfully pushed initialization to remote repository");
             }
+        } else {
+            tracing::debug!("Auto-push is disabled, skipping push to remote");
         }
 
         Ok(())
+    }
+
+    /// Diagnostic method to check git store configuration
+    pub fn diagnose_git_config(&self) -> GitStoreDiagnostic {
+        let is_writable = self.provider.is_writable();
+        let has_write_config = self.provider.write_config.is_some();
+        let auth_type = "Unknown".to_string(); // Can't access private auth field
+
+        let auto_push = if let Some(config) = &self.provider.write_config {
+            Some(config.auto_push)
+        } else {
+            None
+        };
+
+        GitStoreDiagnostic {
+            is_writable,
+            has_write_config,
+            auth_type,
+            auto_push,
+            git_url: self.provider.url().to_string(),
+        }
+    }
+}
+
+/// Diagnostic information about git store configuration
+#[derive(Debug, Clone)]
+pub struct GitStoreDiagnostic {
+    pub is_writable: bool,
+    pub has_write_config: bool,
+    pub auth_type: String,
+    pub auto_push: Option<bool>,
+    pub git_url: String,
+}
+
+impl GitStoreDiagnostic {
+    pub fn can_commit_and_push(&self) -> bool {
+        self.is_writable && self.auto_push.unwrap_or(false)
+    }
+
+    pub fn issues(&self) -> Vec<String> {
+        let mut issues = Vec::new();
+
+        if !self.has_write_config {
+            issues.push(
+                "No GitWriteConfig configured - commits and pushes will be skipped".to_string(),
+            );
+        }
+
+        if self.has_write_config && !self.auto_push.unwrap_or(false) {
+            issues.push(
+                "Auto-push is disabled - commits will be made locally but not pushed".to_string(),
+            );
+        }
+
+        issues
+    }
+
+    pub fn recommendations(&self) -> Vec<String> {
+        let mut recommendations = Vec::new();
+
+        if !self.has_write_config {
+            recommendations
+                .push("Add GitWriteConfig with author info and commit template".to_string());
+        }
+
+        recommendations
     }
 }
 
@@ -1024,5 +1113,119 @@ mod tests {
             "URL should be the original git URL, got: {}",
             url_str
         );
+    }
+
+    #[tokio::test]
+    async fn test_git_initialization_without_write_config() {
+        use crate::stores::providers::git::{GitAuth, GitProvider, GitReference};
+        use std::fs;
+
+        let temp_dir = TempDir::new().unwrap();
+        let git_url = "https://github.com/example/test-store.git";
+
+        // Create provider WITHOUT write config - this is likely the issue
+        let provider = GitProvider::new(
+            git_url.to_string(),
+            temp_dir.path().to_path_buf(),
+            GitReference::Default,
+            GitAuth::None,
+        );
+        // Note: No .with_write_config() call here
+
+        let store = LocallyCachedStore::new(
+            provider,
+            temp_dir.path().to_path_buf(),
+            "git-no-write-test-store".to_string(),
+        )
+        .unwrap();
+
+        // Verify the store is NOT writable (this is the issue)
+        assert!(!store.provider().is_writable());
+
+        // Initialize the store - this should NOT attempt to commit and push
+        let result = store
+            .initialize_store(
+                "Test Store No Write".to_string(),
+                Some("Testing without write config".to_string()),
+            )
+            .await;
+
+        // The initialization should still succeed
+        assert!(result.is_ok());
+
+        // Verify the store.json was created
+        let manifest_path = temp_dir.path().join("store.json");
+        assert!(manifest_path.exists());
+
+        // But no git operations should have been attempted
+        // (we would need to check logs to verify this)
+    }
+
+    #[tokio::test]
+    async fn test_git_store_diagnostic() {
+        use crate::stores::providers::git::{
+            GitAuth, GitAuthor, GitProvider, GitReference, GitWriteConfig,
+        };
+
+        let temp_dir = TempDir::new().unwrap();
+        let git_url = "https://github.com/example/diagnostic-test.git";
+
+        // Test 1: Store without write config (not writable)
+        let provider_no_write = GitProvider::new(
+            git_url.to_string(),
+            temp_dir.path().to_path_buf(),
+            GitReference::Default,
+            GitAuth::None,
+        );
+
+        let store_no_write = LocallyCachedStore::new(
+            provider_no_write,
+            temp_dir.path().to_path_buf(),
+            "diagnostic-test-1".to_string(),
+        )
+        .unwrap();
+
+        let diagnostic = store_no_write.diagnose_git_config();
+        assert!(!diagnostic.is_writable);
+        assert!(!diagnostic.has_write_config);
+        assert!(!diagnostic.can_commit_and_push());
+        assert!(!diagnostic.issues().is_empty());
+        assert!(!diagnostic.recommendations().is_empty());
+
+        // Test 2: Store with write config (writable)
+        let write_config = GitWriteConfig {
+            author: GitAuthor {
+                name: "Test Author".to_string(),
+                email: "test@example.com".to_string(),
+            },
+            commit_message_template: "{action} extension {extension_id} v{version}".to_string(),
+            auto_push: true,
+            write_auth: None,
+            write_branch: None,
+        };
+
+        let provider_with_write = GitProvider::new(
+            git_url.to_string(),
+            temp_dir.path().to_path_buf(),
+            GitReference::Default,
+            GitAuth::Token {
+                token: "test_token".to_string(),
+            },
+        )
+        .with_write_config(write_config);
+
+        let store_with_write = LocallyCachedStore::new(
+            provider_with_write,
+            temp_dir.path().to_path_buf(),
+            "diagnostic-test-2".to_string(),
+        )
+        .unwrap();
+
+        let diagnostic2 = store_with_write.diagnose_git_config();
+        assert!(diagnostic2.is_writable);
+        assert!(diagnostic2.has_write_config);
+        assert!(diagnostic2.can_commit_and_push());
+        assert_eq!(diagnostic2.git_url, git_url);
+        assert_eq!(diagnostic2.auto_push, Some(true));
     }
 }

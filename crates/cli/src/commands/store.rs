@@ -1,7 +1,8 @@
 use eyre::{Context, Result};
 use quelle_store::stores::local::LocalStore;
 use quelle_store::{
-    BaseStore, ExtensionSource, GitProvider, GitStore, RegistryConfig, StoreManager, StoreType,
+    BaseStore, ExtensionSource, GitProvider, GitStore, GitWriteConfig, RegistryConfig,
+    StoreManager, StoreType,
 };
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -307,8 +308,17 @@ async fn handle_add_git_store(
         })?;
     }
 
-    let provider = GitProvider::new(url.clone(), &cache_path, reference.clone(), auth.clone());
-    let git_store = GitStore::new(provider, cache_path.clone(), name.clone())?;
+    let git_store = GitStore::with_config(
+        name.clone(),
+        url.clone(),
+        cache_path.clone(),
+        reference.clone(),
+        auth.clone(),
+        std::time::Duration::from_secs(300), // 5 minutes default
+        true,
+        Some(GitWriteConfig::default()),
+    )?;
+
     git_store
         .ensure_synced()
         .await
