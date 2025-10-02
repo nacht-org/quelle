@@ -1,296 +1,304 @@
 # Basic Usage
 
-This guide covers the main commands you'll use with Quelle. Remember, Quelle is still in early development, so some features are limited.
+This guide covers common workflows and commands for using Quelle effectively.
 
-## Prerequisites
+## Core Workflows
 
-Before using these commands, make sure you've:
-1. Built Quelle from source (see [Getting Started](./getting-started.md))
-2. Built at least one extension with `just build-extension <name>`
-3. Set up a local store
+### Adding Novels to Your Library
 
-## Main Commands
-
-### Check Status
-
-See what's currently configured:
+The `add` command is your primary way to build your library:
 
 ```bash
-# Overall status
-quelle status
+# Add a complete novel (fetches all chapters)
+quelle add https://dragontea.ink/novel/example
 
-# List configured stores
-quelle store list
+# Add only metadata (no chapters)
+quelle add https://example.com/novel --no-chapters
 
-# List installed extensions
-quelle extension list
-
-# Check if stores are working
-quelle store health
+# Add with chapter limit (useful for testing large novels)
+quelle add https://example.com/novel --max-chapters 10
 ```
 
-### Fetch Novel Information
+**What happens when you add a novel:**
+1. Quelle identifies the appropriate extension
+2. Fetches novel metadata (title, author, description, cover)
+3. Downloads all available chapters (unless `--no-chapters`)
+4. Stores everything in your local library
 
-Get basic info about a novel from its URL:
+### Managing Your Library
 
+**View your library:**
 ```bash
-# Fetch novel info (DragonTea example)
-quelle fetch novel https://dragontea.ink/novel/some-novel
+# List all novels
+quelle library list
 
-# Fetch novel info (ScribbleHub example) 
-quelle fetch novel https://scribblehub.com/series/123456/novel-title/
+# Show detailed information for a specific novel
+quelle library show "Novel Title"
+
+# View chapters for a novel
+quelle library chapters "Novel Title"
+
+# Show library statistics
+quelle library stats
 ```
 
-This shows:
-- Novel title
-- Author(s)
-- Description
-- Cover image URL
-- Total chapters
-- Publication status
-
-### Fetch Chapter Content
-
-Get the text content of a specific chapter:
-
+**Update with new content:**
 ```bash
-# Fetch chapter content
-quelle fetch chapter https://dragontea.ink/novel/some-novel/chapter-1
+# Update all novels with new chapters
+quelle update
 
-# ScribbleHub chapter
-quelle fetch chapter https://scribblehub.com/read/123456-novel-title/chapter/1/
+# Update specific novel
+quelle update "Novel Title"
+
+# Check for updates without downloading
+quelle update --check-only
 ```
 
-This shows:
-- Chapter content length
-- Preview of the text content
-
-### Search for Novels
-
-Search across available extensions:
-
+**Remove content:**
 ```bash
-# Simple search
+# Remove a novel (prompts for confirmation)
+quelle remove "Novel Title"
+
+# Remove without confirmation
+quelle remove "Novel Title" --force
+```
+
+### Reading Content
+
+**Read chapters:**
+```bash
+# List available chapters
+quelle read "Novel Title" --list
+
+# Read a specific chapter
+quelle read "Novel Title" 1
+quelle read "Novel Title" "Chapter Title"
+
+# Read using novel ID (shown in library list)
+quelle read novel-id-123 5
+```
+
+### Searching for Novels
+
+**Basic search:**
+```bash
+# Simple text search
 quelle search "cultivation"
+quelle search "magic academy"
 
 # Search with author filter
-quelle search "romance" --author "Author Name"
-
-# Search with tags (if supported)
-quelle search "fantasy" --tags "magic,adventure"
-
-# Limit results
-quelle search "novel" --limit 5
+quelle search "reincarnation" --author "AuthorName"
 ```
 
-### List Available Extensions
-
-See what extensions are available in your stores:
-
+**Advanced search:**
 ```bash
-# List extensions in all stores
-quelle list
+# Search with multiple filters
+quelle search "fantasy" --tags "magic,adventure" --limit 10
 
-# This shows each store and its extensions
-```
-
-## Store Management
-
-### Add a Store
-
-```bash
-# Add a local directory as a store
-quelle store add local ./path/to/extensions --name "my-store"
-
-# Add with auto-generated name
-quelle store add local ./extensions
-```
-
-### Manage Stores
-
-```bash
-# List all stores
-quelle store list
-
-# Remove a store
-quelle store remove my-store
-
-# Check store health
-quelle store health
-
-# Search across all stores
-quelle store search "novel title"
-
-# List extensions in all stores  
-quelle store list-extensions
+# Filter by categories
+quelle search "novel" --categories "fantasy,action"
 ```
 
 ## Extension Management
 
-### Install Extensions
+### Working with Extensions
 
+**List extensions:**
 ```bash
-# Install an extension (if available in a store)
-quelle extension install dragontea
+# Show installed extensions
+quelle extensions list
+
+# Show detailed extension information
+quelle extensions info dragontea
+```
+
+**Search for new extensions:**
+```bash
+# Search available extensions
+quelle extensions search "webnovel"
+
+# Install an extension
+quelle extensions install new-extension-id
 
 # Install specific version
-quelle extension install dragontea --version 1.0.0
-
-# Force reinstall
-quelle extension install dragontea --force
+quelle extensions install dragontea --version 1.2.0
 ```
 
-### Manage Extensions
-
+**Update extensions:**
 ```bash
-# List installed extensions
-quelle extension list
-
-# Get extension info
-quelle extension info dragontea
-
-# Update an extension
-quelle extension update dragontea
-
 # Update all extensions
-quelle extension update all
+quelle extensions update all
 
-# Uninstall an extension
-quelle extension uninstall dragontea
+# Update specific extension
+quelle extensions update dragontea
+
+# Force update even if no new version
+quelle extensions update dragontea --force
 ```
 
-### Publish Extensions (Development)
+## Advanced Operations
 
-If you're developing extensions:
+### Export Content
 
+**Export to different formats:**
 ```bash
-# Publish to a local store
-quelle extension publish ./extension.wasm --store local
+# Export to EPUB (default format)
+quelle export "Novel Title"
 
-# Publish with overwrite
-quelle extension publish ./extension.wasm --store local --overwrite
+# Export to PDF
+quelle export "Novel Title" --format pdf
+
+# Export to specific directory
+quelle export "Novel Title" --output /path/to/exports
+
+# Export with images included
+quelle export "Novel Title" --include-images
+
+# Export all novels
+quelle export all
 ```
 
-## Common Workflows
+### Fetch Operations (Advanced)
 
-### Daily Usage
+For debugging or testing individual operations:
 
 ```bash
-# 1. Check status
-quelle status
-
-# 2. Search for something new
-quelle search "new novel"
-
-# 3. Get novel info from a URL you found
+# Fetch only novel metadata
 quelle fetch novel https://example.com/novel
 
-# 4. Read a chapter
+# Fetch specific chapter
 quelle fetch chapter https://example.com/novel/chapter-1
+
+# Fetch all chapters for existing novel
+quelle fetch chapters novel-id-123
 ```
 
-### Setting Up New Extensions
+### Configuration Management
 
+**View and modify settings:**
 ```bash
-# 1. Build the extension
-just build-extension new-site
+# Show all configuration
+quelle config show
 
-# 2. Add to your local store (manual file copy for now)
-cp target/wasm32-unknown-unknown/release/extension_new_site.wasm ./my-extensions/
+# Set specific values
+quelle config set export.format epub
+quelle config set data_dir /custom/path
 
-# 3. Test it
-quelle fetch novel https://new-site.com/novel-url
+# Get specific value
+quelle config get export.format
+
+# Reset to defaults
+quelle config reset --force
 ```
 
-### Managing Multiple Extensions
+## Working with Multiple Sources
 
-```bash
-# Check what you have
-quelle extension list
+### Supported Sites
 
-# Update everything
-quelle extension update all
+Currently supported extensions:
+- **DragonTea** (`dragontea`): Dragons Tea novels
+- **ScribbleHub** (`scribblehub`): ScribbleHub stories
 
-# Check for issues
-quelle store health
-```
+### URL Patterns
 
-## Output Examples
+Each extension supports specific URL patterns:
 
-### Novel Fetch Success
-```text
-Found extension with ID: dragontea
-📖 Fetching novel info from: https://dragontea.ink/novel/example
-✅ Successfully fetched novel information:
-  Title: Example Novel
-  Authors: Author Name
-  Description: A great story about...
-  Cover URL: https://example.com/cover.jpg
-  Total chapters: 150
-  Status: Ongoing
-```
+**DragonTea:**
+- Novel: `https://dragontea.ink/novel/novel-name`
+- Chapter: `https://dragontea.ink/novel/novel-name/chapter-n`
 
-### Chapter Fetch Success
-```text
-Found extension with ID: dragontea
-📄 Fetching chapter from: https://dragontea.ink/novel/example/chapter-1
-✅ Successfully fetched chapter:
-  Content length: 2847 characters
-  Preview: Chapter 1: The Beginning...
-```
+**ScribbleHub:**
+- Novel: `https://scribblehub.com/series/12345/novel-name`
+- Chapter: `https://scribblehub.com/read/12345-novel-name/chapter/67890`
 
-### Search Results
-```text
-🔍 Using simple search...
-Found 3 results:
-1. Cultivation Master by Great Author
-   A young cultivator begins his journey...
-   Store: my-store
-2. Magic Academy by Another Author
-   Students learn magic in this academy...
-   Store: my-store
-```
+## Tips and Best Practices
 
-## Current Limitations
+### Performance Tips
 
-### What Works
-- ✅ Fetching novel info from URLs
-- ✅ Fetching chapter content
-- ✅ Basic search (if extension supports it)
-- ✅ Store and extension management
-- ✅ Two working extensions (DragonTea, ScribbleHub)
+1. **Use chapter limits for testing:**
+   ```bash
+   quelle add https://example.com/novel --max-chapters 5
+   ```
 
-### What's Missing
-- ❌ Downloading complete novels
-- ❌ Exporting to EPUB/PDF
-- ❌ Batch operations
-- ❌ Resume interrupted downloads
-- ❌ Advanced search across multiple sites
-- ❌ Built-in extension repository
+2. **Update regularly but efficiently:**
+   ```bash
+   # Check first, then update
+   quelle update --check-only
+   quelle update
+   ```
 
-## Tips
+3. **Use dry-run for testing:**
+   ```bash
+   quelle --dry-run add https://example.com/novel
+   ```
 
-1. **Always check status first** with `quelle status` to see what's configured
-2. **URLs matter** - make sure you're using URLs that your extensions support
-3. **Extensions auto-install** - if you fetch from a URL and the extension exists in a store, it installs automatically
-4. **Local stores are simple** - just directories with WASM files for now
-5. **Build before use** - remember to build extensions with `just build-extension <name>`
+### Organization Tips
 
-## Troubleshooting
+1. **Use meaningful library organization:**
+   - Let Quelle handle file organization automatically
+   - Use library commands to browse content
 
-### "No extension found for URL"
-- Make sure you have extensions built and available in stores
-- Check that the URL matches what the extension supports
-- Run `quelle list` to see available extensions
+2. **Regular maintenance:**
+   ```bash
+   # Clean up orphaned data
+   quelle library cleanup
+   
+   # Check library health
+   quelle status
+   ```
 
-### Extension errors
-- Check that the extension was built successfully
-- Verify the website URL is correct and accessible
-- Some sites may block automated access
+### Troubleshooting Tips
 
-### Store issues
-- Run `quelle store health` to check connectivity
-- Make sure store directories exist and have proper permissions
-- Check `quelle store list` to see configured stores
+1. **Use verbose output for debugging:**
+   ```bash
+   quelle --verbose add https://example.com/novel
+   ```
 
-For more help, check the other sections of this book or look at the source code in the project repository.
+2. **Check system status:**
+   ```bash
+   quelle status
+   ```
+
+3. **Verify extensions work:**
+   ```bash
+   quelle extensions list
+   quelle fetch novel https://example.com/test-novel
+   ```
+
+## Common Issues and Solutions
+
+### Novel Not Found
+**Problem:** Extension can't find the novel at URL
+**Solutions:**
+- Verify the URL is correct and accessible in browser
+- Check if the extension supports that specific site format
+- Try fetching just metadata first: `quelle fetch novel <url>`
+
+### Network Timeouts
+**Problem:** Downloads fail due to network issues
+**Solutions:**
+- Retry the operation (Quelle will resume where it left off)
+- Check internet connection
+- Some sites may rate-limit requests
+
+### Missing Chapters
+**Problem:** Not all chapters were downloaded
+**Solutions:**
+- Run `quelle update "Novel Title"` to fetch missing chapters
+- Check if chapters are actually published on the site
+- Some sites may have access restrictions
+
+### Storage Issues
+**Problem:** Running out of disk space or permission errors
+**Solutions:**
+- Check available disk space: `quelle library stats`
+- Verify write permissions to storage directory
+- Change storage location: `quelle config set data_dir /new/path`
+
+## Next Steps
+
+- **For users:** Explore [CLI Commands](../reference/cli-commands.md) for complete command reference
+- **For developers:** Learn [Extension Development](../development/extension-development.md) to add new sources
+- **For troubleshooting:** See [Troubleshooting Guide](../reference/troubleshooting.md)
+
+Remember: Quelle is in active development, so features and workflows may evolve. Check the documentation regularly for updates!

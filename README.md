@@ -23,13 +23,14 @@ This project is currently under active development. The core architecture is in 
 
 📚 **Comprehensive documentation is available in the [Quelle Book](./book/)**
 
-- [Introduction](./book/src/introduction.md) - Project overview and key concepts
-- [Getting Started](./book/src/getting-started.md) - Installation and first steps
-- [Store System](./book/src/store/overview.md) - Extension package management
-- [CLI Reference](./book/src/store/cli-reference.md) - Complete command reference
-- [Development Guide](./book/src/development/store-implementation.md) - Technical implementation details
+The book contains detailed guides for users, developers, and contributors:
 
-The book contains detailed guides for users, developers, and contributors. Since Quelle is under active development, the documentation reflects current capabilities while noting planned features.
+- **User Guide**: Installation, getting started, and basic usage
+- **Store System**: Extension package management and CLI reference  
+- **Development**: Architecture, extension development, and API reference
+- **Reference**: Quick reference, troubleshooting, and technical details
+
+Since Quelle is under active development, the documentation reflects current capabilities while noting planned features.
 
 ### What Works
 - ✅ Core WASM runtime engine
@@ -134,7 +135,7 @@ To create a new extension:
 4. Test thoroughly with the target site
 5. Add documentation and examples
 
-See existing extensions in `extensions/` for reference implementations.
+See the [Extension Development Guide](./book/src/development/extension-development.md) and existing extensions in `extensions/` for reference implementations.
 
 ## License
 

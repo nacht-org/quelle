@@ -8,14 +8,13 @@
 - [Getting Started](./getting-started.md)
 - [Basic Usage](./basic-usage.md)
 
-# Store System
+# Development
 
-- [Store Overview](./store/overview.md)
-- [Store Management](./store/management.md)
-- [Extension Management](./store/extensions.md)
-- [CLI Reference](./store/cli-reference.md)
+- [Extension Development](./development/extension-development.md)
+- [Store System](./development/store-system.md)
+- [API Reference](./development/api-reference.md)
 
 # Reference
 
+- [CLI Commands](./reference/cli-commands.md)
 - [Troubleshooting](./reference/troubleshooting.md)
-- [Changelog](./reference/changelog.md)

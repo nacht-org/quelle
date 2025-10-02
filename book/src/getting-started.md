@@ -1,192 +1,211 @@
 # Getting Started
 
-This guide will help you get Quelle running on your system. Since Quelle is still in early development, you'll need to build it from source.
+This guide walks you through your first steps with Quelle after installation.
 
 ## Prerequisites
 
-You need these tools installed:
-
-- **Rust** (latest stable version)
-- **Git** for cloning the repository
-- **just** command runner: `cargo install just`
-- **cargo-component**: `cargo install cargo-component`
-
-## Installation
-
-### 1. Clone and Build
-
-```bash
-# Clone the repository
-git clone https://github.com/nacht-org/quelle
-cd quelle
-
-# Add WASM target for building extensions
-rustup target add wasm32-unknown-unknown
-
-# Build the CLI
-cargo build --release -p quelle_cli
-
-# The binary will be at target/release/quelle_cli
-```
-
-### 2. Verify Installation
-
-```bash
-# Check that it works
-./target/release/quelle_cli --help
-```
-
-You should see the main help with available commands.
+- Quelle installed and built (see [Installation](./installation.md))
+- Command line terminal
+- Internet connection
 
 ## First Steps
 
-### 1. Check Current Status
+### 1. Check Installation
 
-When you first run Quelle, nothing is configured:
+Verify Quelle is working:
 
 ```bash
-# Check stores (should be empty)
-./target/release/quelle_cli store list
-
-# Check extensions (should be empty)  
-./target/release/quelle_cli extension list
-
-# Check overall status
-./target/release/quelle_cli status
+quelle --help
 ```
 
-### 2. Build Sample Extensions
+You should see the main help menu with available commands.
 
-Build the included sample extensions:
+### 2. Check Available Extensions
+
+See what extensions are installed:
 
 ```bash
-# Build DragonTea extension
-just build-extension dragontea
-
-# Build ScribbleHub extension  
-just build-extension scribblehub
+quelle extensions list
 ```
 
-This creates WASM files in `target/wasm32-unknown-unknown/release/`.
+By default, you should have:
+- `dragontea` - For DragonTea novels
+- `scribblehub` - For ScribbleHub stories
 
-### 3. Set Up a Local Store
+### 3. Add Your First Novel
 
-Create a local store to manage your extensions:
+Let's add a novel to your library. You need a URL from a supported site:
 
 ```bash
-# Create a directory for your extensions
-mkdir -p ./my-extensions
+# Example with a DragonTea URL
+quelle add https://dragontea.ink/novel/example-novel
 
-# Add it as a store
-./target/release/quelle_cli store add local ./my-extensions --name "dev"
-
-# Verify it was added
-./target/release/quelle_cli store list
+# Example with a ScribbleHub URL  
+quelle add https://scribblehub.com/series/12345/example-story
 ```
 
-## Basic Usage
+This will:
+- Fetch novel metadata (title, author, description)
+- Download all available chapters
+- Store everything in your local library
 
-### Fetch Novel Information
+### 4. View Your Library
 
-Once you have extensions built, you can fetch novel info:
+See what novels you have:
 
 ```bash
-# Example with a DragonTea URL (replace with real URL)
-./target/release/quelle_cli fetch novel https://dragontea.ink/novel/example
-
-# Example with ScribbleHub URL
-./target/release/quelle_cli fetch novel https://scribblehub.com/series/123456/example/
+quelle library list
 ```
 
-### Fetch Chapter Content
+This shows all novels in your library with their status.
+
+### 5. Read a Chapter
+
+Read from your library:
 
 ```bash
-# Fetch a specific chapter
-./target/release/quelle_cli fetch chapter https://dragontea.ink/novel/example/chapter-1
+# List chapters for a novel
+quelle read "Novel Title" --list
+
+# Read a specific chapter
+quelle read "Novel Title" 1
 ```
 
-### Search (Basic)
+## Common Workflows
+
+### Adding Novels
 
 ```bash
-# Search for novels (if extensions support it)
-./target/release/quelle_cli search "novel title"
+# Add novel with all chapters
+quelle add https://example.com/novel
+
+# Add only metadata, no chapters
+quelle add https://example.com/novel --no-chapters
+
+# Add with chapter limit (useful for testing)
+quelle add https://example.com/novel --max-chapters 5
+```
+
+### Managing Your Library
+
+```bash
+# Check for new chapters
+quelle update
+
+# Update specific novel
+quelle update "Novel Title"
+
+# Show library statistics
+quelle library stats
+
+# Remove a novel
+quelle remove "Novel Title"
+```
+
+### Searching
+
+```bash
+# Search for novels
+quelle search "cultivation"
 
 # Search with filters
-./target/release/quelle_cli search "novel title" --author "author name"
+quelle search "magic" --author "AuthorName"
 ```
 
-### List Available Extensions
+## Configuration
+
+### Storage Location
+
+By default, Quelle stores data in:
+- **Linux/macOS**: `~/.local/share/quelle/`
+- **Windows**: `%APPDATA%\quelle\`
+
+You can override this:
 
 ```bash
-# See what extensions are available in your stores
-./target/release/quelle_cli list
-
-# Check store health
-./target/release/quelle_cli status
+# Use custom storage location
+quelle --storage-path /path/to/storage library list
 ```
 
-## Current Limitations
+### Basic Settings
 
-Keep these in mind while using Quelle:
+View current configuration:
 
-- **Manual extension setup**: You need to build extensions yourself
-- **Limited extensions**: Only DragonTea and ScribbleHub work
-- **No export formats**: Can't save as EPUB/PDF yet
-- **Basic functionality**: Missing many planned features
-- **Development tool**: Made for developers, not end users yet
+```bash
+quelle config show
+```
+
+Set configuration values:
+
+```bash
+# Set default export format
+quelle config set export.format epub
+
+# Set storage directory
+quelle config set data_dir /path/to/quelle/data
+```
+
+## Getting Help
+
+### Command Help
+
+Get help for any command:
+
+```bash
+quelle add --help
+quelle library --help
+quelle search --help
+```
+
+### Verbose Output
+
+See what Quelle is doing:
+
+```bash
+quelle --verbose add https://example.com/novel
+```
+
+### Dry Run
+
+Test commands without making changes:
+
+```bash
+quelle --dry-run add https://example.com/novel
+```
 
 ## Troubleshooting
 
-### Extension Build Fails
+### Common Issues
 
-```bash
-# Make sure you have the WASM target
-rustup target add wasm32-unknown-unknown
+1. **"Extension not found"**
+   - Check `quelle extensions list`
+   - The URL might not be supported yet
 
-# Make sure cargo-component is installed
-cargo install cargo-component
+2. **"Network timeout"**
+   - Check internet connection
+   - Some sites may be slow or blocking requests
 
-# Try building again
-just build-extension dragontea
-```
+3. **"No chapters found"**
+   - The novel might not have published chapters
+   - Try adding with `--no-chapters` first
 
-### CLI Not Found
+### Getting More Help
 
-```bash
-# Make sure you built the CLI
-cargo build --release -p quelle_cli
-
-# Run with full path
-./target/release/quelle_cli --help
-```
-
-### Store Issues
-
-```bash
-# Check store health
-./target/release/quelle_cli status
-
-# Make sure directory exists and has permissions
-ls -la ./my-extensions
-```
+- Use `quelle status` to check system health
+- Check [Troubleshooting](../reference/troubleshooting.md) for detailed solutions
+- Look at verbose output with `--verbose` flag
 
 ## Next Steps
 
-Once you have the basics working:
+Once you're comfortable with the basics:
 
-1. **Try the extensions**: Test fetching novels from DragonTea or ScribbleHub
-2. **Explore commands**: Run `--help` on different commands to see options  
-3. **Check the code**: Look at `extensions/` to understand how they work
-4. **Follow development**: Watch for updates as new features are added
+1. [Basic Usage](./basic-usage.md) - Learn more advanced workflows
+2. [CLI Commands](../reference/cli-commands.md) - Complete command reference
+3. [Extension Development](../development/extension-development.md) - Create your own scrapers
 
-## Development Notes
+## Tips
 
-If you want to contribute or modify Quelle:
-
-- Extension code is in `extensions/`
-- CLI code is in `crates/cli/`  
-- Engine code is in `crates/engine/`
-- Use `just build-extension <name>` to build extensions
-- Use `cargo run -p quelle_cli -- <args>` to run without building
-
-The project is evolving quickly, so check back often for updates!
+- Start with small novels to test functionality
+- Use `--dry-run` to preview actions
+- Check `quelle status` if something seems wrong
+- Extensions are sandboxed - they can't harm your system

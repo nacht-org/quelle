@@ -1,74 +1,82 @@
 # Introduction
 
-Quelle is an open-source e-book scraper built with Rust and WebAssembly. It downloads novels from web sources using a modular extension system.
+Quelle is an open-source e-book scraper that downloads novels from web sources using WebAssembly extensions.
 
 ## What is Quelle?
 
-Quelle uses WebAssembly (WASM) extensions to scrape different websites. Each website gets its own extension, making it easy to add new sources without changing the main program.
+Quelle uses a modular extension system where each website gets its own WebAssembly (WASM) extension. This makes it secure and easy to add support for new sources.
 
-**Key Benefits:**
-- **Secure**: Extensions run in a sandbox and can't access your system files
-- **Fast**: Built with Rust for high performance  
+**Key Features:**
+- **Secure**: Extensions run in a WebAssembly sandbox
+- **Fast**: Built with Rust for performance
 - **Cross-platform**: Works on Windows, macOS, and Linux
-- **Extensible**: Easy to add support for new websites
+- **Extensible**: Add new sources by creating extensions
 
 ## Current Status
 
-🚧 **Status**: Early Development
+🚧 **Status**: Pre-MVP Development
 
-Quelle is still being built. Here's what works now:
+Quelle is actively being developed. Here's what currently works:
 
-**✅ Working:**
-- Core WASM engine for running extensions
-- CLI with basic commands
-- Store system for managing extensions
-- Two sample extensions (DragonTea, ScribbleHub)
-- Fetching novel info and chapters
+**✅ Available Now:**
+- Core WASM runtime for extensions
+- Command-line interface
+- Extension store system
+- Two working extensions: DragonTea and ScribbleHub
+- Novel search, metadata fetching, and chapter downloading
 
 **🔄 Coming Soon:**
-- More extensions for popular sites
-- EPUB/PDF export
-- Better search across multiple sites
-- Pre-built downloads
+- More extensions for popular novel sites
+- EPUB and PDF export formats
+- Improved search across multiple sources
+- Pre-built installation packages
 
-## Basic Concepts
+## How It Works
 
-- **Extensions**: WASM modules that know how to scrape specific websites
-- **Stores**: Places where extensions are kept (like app stores)
-- **CLI**: Command-line tool to search, fetch, and manage everything
+1. **Extensions**: WASM modules that know how to scrape specific websites
+2. **Store System**: Manages and distributes extensions
+3. **CLI Tool**: Command-line interface for all operations
 
 ## Quick Example
 
-Once set up, using Quelle looks like this:
+Once installed, basic usage looks like this:
 
 ```bash
-# Search for a novel
-quelle search "novel title"
+# Add a novel to your library
+quelle add https://example.com/novel-page
 
-# Get novel info from a URL  
-quelle fetch novel https://example.com/novel-page
+# Update your library with new chapters
+quelle update
 
-# Get a specific chapter
-quelle fetch chapter https://example.com/chapter-1
+# Read a chapter
+quelle read "Novel Title" 1
+
+# Search for novels
+quelle search "cultivation"
 ```
 
 ## Current Limitations
 
-Since this is early development:
+Since this is pre-MVP software:
 
-- **Manual setup required**: No simple installer yet
-- **Limited extensions**: Only 2 working extensions
-- **Development-focused**: Mainly for developers right now
-- **Local stores only**: No online extension repositories yet
+- **Manual Setup**: No installer yet, build from source required
+- **Limited Extensions**: Only 2 working extensions (DragonTea, ScribbleHub)
+- **Developer-Focused**: Primarily for technical users right now
+- **Local Only**: No online extension repositories yet
 
-## Getting Started
+## Next Steps
 
-Ready to try it? Check out:
+Ready to try Quelle?
 
-1. [Installation](./installation.md) - How to build from source
-2. [Getting Started](./getting-started.md) - First steps and basic usage
-3. [Basic Usage](./basic-usage.md) - Common commands and workflows
+1. [Installation](./installation.md) - Build from source
+2. [Getting Started](./getting-started.md) - First steps
+3. [Basic Usage](./basic-usage.md) - Common workflows
 
-## Legal Note
+For developers interested in contributing:
 
-Quelle is a tool for accessing publicly available content. You're responsible for following website terms of service and copyright laws. Always respect content creators and website policies.
+4. [Extension Development](./development/extension-development.md) - Create new scrapers
+5. [Store System](./development/store-system.md) - Technical details
+
+## Legal Notice
+
+Quelle is a tool for accessing publicly available content. Users are responsible for complying with website terms of service and applicable laws. Always respect content creators and website policies.

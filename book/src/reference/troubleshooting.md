@@ -1,306 +1,364 @@
 # Troubleshooting
 
-This guide covers common issues you might encounter while using Quelle and how to solve them.
+This section covers common issues you might encounter while using Quelle and how to solve them.
 
 ## Installation Issues
 
-### Rust Not Found
+### Rust/Cargo Not Found
 
-**Problem**: `cargo` or `rustc` commands not found
+**Problem:** `cargo: command not found` or similar errors.
 
-**Solution**:
-```bash
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Add to PATH (add to your shell profile)
-export PATH="$HOME/.cargo/bin:$PATH"
-
-# Reload your shell
-source ~/.bashrc  # or ~/.zshrc
-```
+**Solution:**
+1. Install Rust: https://rustup.rs/
+2. Restart your terminal
+3. Verify installation: `cargo --version`
 
 ### Build Failures
 
-**Problem**: `cargo build` fails with compilation errors
+**Problem:** Compilation errors when building Quelle.
 
-**Solution**:
-```bash
-# Update Rust to latest stable
-rustup update
+**Solutions:**
+1. Make sure you have the latest Rust stable:
+   ```bash
+   rustup update stable
+   ```
 
-# Clean previous builds
-cargo clean
+2. Install required targets:
+   ```bash
+   rustup target add wasm32-unknown-unknown
+   ```
 
-# Try building again
-cargo build --release -p quelle_cli
-```
+3. Install cargo-component:
+   ```bash
+   cargo install cargo-component
+   ```
 
-### Extension Build Fails
+4. Clean and rebuild:
+   ```bash
+   cargo clean
+   cargo build --release
+   ```
 
-**Problem**: `just build-extension dragontea` fails
-
-**Solutions**:
-```bash
-# Make sure you have WASM target
-rustup target add wasm32-unknown-unknown
-
-# Install/update cargo-component
-cargo install cargo-component --force
-
-# Make sure just is installed
-cargo install just
-
-# Try building again
-just build-extension dragontea
-```
-
-## Runtime Issues
+## Extension Issues
 
 ### "No extension found for URL"
 
-**Problem**: Can't fetch from a URL that should be supported
+**Problem:** Quelle can't find an extension for a website URL.
 
-**Solutions**:
-1. Check if you have any stores configured:
+**Causes and Solutions:**
+
+1. **Extension not installed:**
+   ```bash
+   quelle extensions list
+   quelle extensions install dragontea
+   ```
+
+2. **Wrong URL format:**
+   - Check if the URL matches the expected pattern
+   - Try the novel's main page URL instead of a chapter URL
+
+3. **Extension not built:**
+   ```bash
+   just build-extension dragontea
+   # Copy to your store directory if needed
+   ```
+
+### Extension Crashes or Errors
+
+**Problem:** Extension fails with runtime errors.
+
+**Solutions:**
+
+1. **Check the URL is accessible:**
+   - Open the URL in your browser
+   - Make sure the site is working
+
+2. **Update extensions:**
+   ```bash
+   quelle extensions update all
+   ```
+
+3. **Check for site changes:**
+   - Websites sometimes change their structure
+   - Extensions may need updates
+
+4. **Use verbose mode for debugging:**
+   ```bash
+   quelle --verbose fetch novel https://example.com/novel
+   ```
+
+## Network Issues
+
+### Timeouts and Connection Errors
+
+**Problem:** Network requests fail or timeout.
+
+**Solutions:**
+
+1. **Check internet connection:**
+   - Test with other websites
+   - Try accessing the site in a browser
+
+2. **Retry the operation:**
+   - Network issues are often temporary
+   - Quelle will resume where it left off
+
+3. **Check if site is blocking requests:**
+   - Some sites may rate-limit or block automated requests
+   - Try waiting and retrying later
+
+### Download Failures
+
+**Problem:** Novel or chapter downloads fail partway through.
+
+**Solutions:**
+
+1. **Resume the download:**
+   ```bash
+   quelle update "Novel Title"
+   ```
+
+2. **Check available disk space:**
+   ```bash
+   df -h  # On Linux/macOS
+   # Check disk space on Windows
+   ```
+
+3. **Verify network stability:**
+   - Large downloads need stable connections
+   - Consider downloading in smaller batches
+
+## Library Issues
+
+### Novels Not Appearing
+
+**Problem:** Added novels don't show up in library list.
+
+**Solutions:**
+
+1. **Check library location:**
+   ```bash
+   quelle config get data_dir
+   ls -la /path/to/data/dir
+   ```
+
+2. **Check for errors during add:**
+   ```bash
+   quelle --verbose add https://example.com/novel
+   ```
+
+3. **Verify library integrity:**
+   ```bash
+   quelle library cleanup
+   quelle status
+   ```
+
+### Reading Issues
+
+**Problem:** Can't read chapters or content appears corrupted.
+
+**Solutions:**
+
+1. **List available chapters:**
+   ```bash
+   quelle library chapters "Novel Title"
+   ```
+
+2. **Re-download the chapter:**
+   ```bash
+   quelle update "Novel Title"
+   ```
+
+3. **Check file permissions:**
+   ```bash
+   ls -la ~/.local/share/quelle/  # Default location
+   ```
+
+## Store Issues
+
+### Store Not Accessible
+
+**Problem:** Can't access configured stores.
+
+**Solutions:**
+
+1. **List configured stores:**
    ```bash
    quelle store list
    ```
 
-2. Check if extensions are available:
+2. **Check store health:**
    ```bash
-   quelle list
+   quelle store info store-name
    ```
 
-3. Build and add the extension manually:
+3. **Update store data:**
    ```bash
-   # Build extension
-   just build-extension dragontea
-   
-   # Create store if needed
-   mkdir ./my-extensions
-   quelle store add local ./my-extensions --name "dev"
-   
-   # Copy extension to store
-   cp target/wasm32-unknown-unknown/release/extension_dragontea.wasm ./my-extensions/
+   quelle store update store-name
    ```
 
-### Store Health Issues
-
-**Problem**: `quelle store health` shows errors
-
-**Common causes and fixes**:
-
-- **Directory doesn't exist**:
-  ```bash
-  mkdir -p ./path/to/store
-  ```
-
-- **Permission denied**:
-  ```bash
-  chmod 755 ./path/to/store
-  ```
-
-- **Store not configured**:
-  ```bash
-  quelle store add local ./path/to/store --name "my-store"
-  ```
-
-### Extension Installation Fails
-
-**Problem**: `quelle extension install` doesn't work
-
-**Current limitation**: Extension installation from stores is limited. For now:
-
-1. Build extensions manually:
+4. **For Git stores, check authentication:**
    ```bash
-   just build-extension dragontea
+   # Re-add with correct credentials
+   quelle store remove old-store --force
+   quelle store add git new-store https://repo.git --token YOUR_TOKEN
    ```
 
-2. Copy to store directory:
+### Permission Errors
+
+**Problem:** Permission denied errors when accessing stores.
+
+**Solutions:**
+
+1. **Check directory permissions:**
    ```bash
-   cp target/wasm32-unknown-unknown/release/extension_dragontea.wasm ./my-extensions/
+   ls -la /path/to/store/directory
+   chmod 755 /path/to/store/directory  # If needed
    ```
 
-## CLI Issues
+2. **For Git stores, check repository permissions:**
+   - Make sure you have read access to the repository
+   - Check if authentication tokens are valid
 
-### Command Not Found
+## Configuration Issues
 
-**Problem**: `quelle: command not found`
+### Config File Problems
 
-**Solutions**:
-1. Use full path:
+**Problem:** Configuration errors or corrupted config.
+
+**Solutions:**
+
+1. **View current configuration:**
    ```bash
-   ./target/release/quelle_cli --help
+   quelle config show
    ```
 
-2. Add to PATH:
+2. **Reset to defaults:**
    ```bash
-   # Copy to system location
-   sudo cp target/release/quelle_cli /usr/local/bin/quelle
-   
-   # Or create alias in your shell profile
-   alias quelle="./target/release/quelle_cli"
+   quelle config reset --force
    ```
 
-### Permission Denied
+3. **Fix specific settings:**
+   ```bash
+   quelle config set data_dir /correct/path
+   ```
 
-**Problem**: Can't write to directories or execute files
+### Storage Location Issues
 
-**Solutions**:
-```bash
-# Make binary executable
-chmod +x target/release/quelle_cli
+**Problem:** Can't write to storage directory.
 
-# Create directories with proper permissions
-mkdir -p ~/.local/bin
-chmod 755 ~/.local/bin
+**Solutions:**
 
-# For system-wide install (use sudo)
-sudo cp target/release/quelle_cli /usr/local/bin/quelle
-```
+1. **Check permissions:**
+   ```bash
+   ls -la ~/.local/share/quelle/
+   mkdir -p ~/.local/share/quelle/  # Create if needed
+   ```
 
-## Data Issues
+2. **Use custom location:**
+   ```bash
+   quelle --storage-path /custom/path library list
+   # Or set permanently:
+   quelle config set data_dir /custom/path
+   ```
 
-### Config File Corruption
+## Performance Issues
 
-**Problem**: Strange errors about configuration
+### Slow Operations
 
-**Solution**:
-```bash
-# Remove config file (will recreate automatically)
-rm -rf ./data/config.json
+**Problem:** Commands take a long time to complete.
 
-# Re-add your stores
-quelle store add local ./my-extensions --name "dev"
-```
+**Solutions:**
 
-### Registry Issues
+1. **Use progress indicators:**
+   ```bash
+   quelle --verbose add https://example.com/novel
+   ```
 
-**Problem**: Extensions not showing up correctly
+2. **Limit concurrent operations:**
+   - Add novels one at a time for large libraries
+   - Use `--max-chapters` for testing
 
-**Solution**:
-```bash
-# Clear registry data
-rm -rf ./data/registry/
+3. **Check available resources:**
+   - Ensure adequate disk space
+   - Monitor memory usage
 
-# Re-add stores and extensions
-quelle store add local ./my-extensions --name "dev"
-```
+### High Memory Usage
 
-## Website/Network Issues
+**Problem:** Quelle uses too much memory.
 
-### Fetch Failures
+**Solutions:**
 
-**Problem**: Can't fetch novels or chapters from websites
+1. **Process novels individually:**
+   ```bash
+   quelle add https://example.com/novel --max-chapters 50
+   ```
 
-**Common causes**:
-- **Website is down**: Check if you can access the site in a browser
-- **Rate limiting**: The site may be blocking automated requests
-- **Changed website structure**: The extension may be outdated
-- **Network issues**: Check your internet connection
-
-**Solutions**:
-1. Verify URL in browser first
-2. Try again later (rate limiting)
-3. Check if extension needs updating (future feature)
-
-### Timeout Errors
-
-**Problem**: Requests take too long and timeout
-
-**Temporary workarounds**:
-- Try again later when the site is less busy
-- Check your internet connection speed
-- Some sites may be slow or geographically distant
-
-## Development Issues
-
-### Extension Development
-
-**Problem**: Working on your own extensions
-
-**Common issues**:
-- **WIT interface errors**: Make sure you're implementing the correct interfaces
-- **Build failures**: Check that dependencies are correct in Cargo.toml
-- **Runtime errors**: Add logging to debug issues
-
-**Resources**:
-- Look at existing extensions in `extensions/` directory
-- Check the WIT interfaces in `wit/` directory
-
-### Missing Dependencies
-
-**Problem**: Build failures due to missing crates
-
-**Solution**:
-```bash
-# Update dependencies
-cargo update
-
-# Or try a clean build
-cargo clean
-cargo build --release -p quelle_cli
-```
+2. **Clean up regularly:**
+   ```bash
+   quelle library cleanup
+   ```
 
 ## Getting Help
 
 ### Debug Information
 
-When asking for help, include:
+When reporting issues, include:
 
-1. **System information**:
+1. **Version information:**
    ```bash
-   uname -a
-   rustc --version
-   cargo --version
+   quelle --version
    ```
 
-2. **Quelle status**:
+2. **System status:**
    ```bash
    quelle status
-   quelle store list
-   quelle store health
    ```
 
-3. **Error messages**: Copy the exact error message
-4. **Steps to reproduce**: What you were trying to do
+3. **Verbose output:**
+   ```bash
+   quelle --verbose --dry-run add https://problem-url.com/novel
+   ```
 
-### Where to Get Help
+4. **Configuration:**
+   ```bash
+   quelle config show
+   quelle store list
+   quelle extensions list
+   ```
 
-- **GitHub Issues**: [https://github.com/nacht-org/quelle/issues](https://github.com/nacht-org/quelle/issues)
-- **Discussions**: Check project discussions for community help
-- **Documentation**: Review other sections of this book
+### Log Files
 
-### Filing Bug Reports
+Check log files for detailed error information:
+- **Linux/macOS:** `~/.local/share/quelle/logs/`
+- **Windows:** `%APPDATA%\quelle\logs\`
 
-Include:
-- Operating system and version
-- Rust version (`rustc --version`)
-- Exact commands that failed
-- Complete error messages
-- Steps to reproduce the issue
+### Common Error Messages
 
-## Common Error Messages
+**"Extension validation failed"**
+- Extension file is corrupted or incompatible
+- Rebuild the extension or download a fresh copy
 
-### "No such file or directory"
-- Check that file paths are correct
-- Make sure directories exist
-- Verify permissions
+**"Store sync failed"**
+- Network connectivity issues
+- Authentication problems for Git stores
+- Try updating the store manually
 
-### "Permission denied"
-- Use `chmod` to fix file permissions
-- Use `sudo` for system-wide installation
-- Check directory ownership
+**"Novel parsing failed"**
+- Website structure has changed
+- Extension needs updating
+- Try a different URL format
 
-### "Connection refused" or "Network error"
-- Check internet connection
-- Verify website URLs are correct
-- Try again later (may be temporary)
+**"Chapter download incomplete"**
+- Network interrupted during download
+- Resume with `quelle update "Novel Title"`
 
-### "WASM component error"
-- Extension may be corrupted
-- Rebuild extension: `just build-extension <name>`
-- Check extension compatibility
+### Still Need Help?
 
-Remember: Quelle is in early development, so some issues are expected. Many problems will be resolved as the project matures. When in doubt, try rebuilding everything from scratch!
+If these solutions don't work:
+
+1. **Check the project repository:** https://github.com/nacht-org/quelle
+2. **Create an issue** with detailed information about your problem
+3. **Include system information, error messages, and steps to reproduce**
+
+Remember: Quelle is in active development, so some issues may be due to ongoing changes or incomplete features.
