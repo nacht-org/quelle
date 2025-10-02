@@ -61,6 +61,94 @@ impl SyncResult {
     }
 }
 
+/// Lifecycle events that can occur during store operations
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LifecycleEvent {
+    /// An extension version was published
+    Published {
+        extension_id: String,
+        version: String,
+    },
+    /// An extension version was unpublished
+    Unpublished {
+        extension_id: String,
+        version: String,
+    },
+}
+
+impl LifecycleEvent {
+    /// Get the extension ID for this event
+    pub fn extension_id(&self) -> &str {
+        match self {
+            Self::Published { extension_id, .. } => extension_id,
+            Self::Unpublished { extension_id, .. } => extension_id,
+        }
+    }
+
+    /// Get the version for this event
+    pub fn version(&self) -> &str {
+        match self {
+            Self::Published { version, .. } => version,
+            Self::Unpublished { version, .. } => version,
+        }
+    }
+
+    /// Check if this is a publish event
+    pub fn is_publish(&self) -> bool {
+        matches!(self, Self::Published { .. })
+    }
+
+    /// Check if this is an unpublish event
+    pub fn is_unpublish(&self) -> bool {
+        matches!(self, Self::Unpublished { .. })
+    }
+}
+
+/// Provider capabilities that can be queried
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Capability {
+    /// Provider supports write operations (publish/unpublish)
+    Write,
+    /// Provider supports incremental syncing
+    IncrementalSync,
+    /// Provider supports authentication
+    Authentication,
+    /// Provider can push changes to remote
+    RemotePush,
+    /// Provider supports caching
+    Caching,
+    /// Provider supports background sync
+    BackgroundSync,
+}
+
+impl Capability {
+    /// Get the string identifier for this capability
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Write => "write",
+            Self::IncrementalSync => "incremental_sync",
+            Self::Authentication => "authentication",
+            Self::RemotePush => "remote_push",
+            Self::Caching => "caching",
+            Self::BackgroundSync => "background_sync",
+        }
+    }
+
+    /// Parse a capability from a string identifier
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "write" => Some(Self::Write),
+            "incremental_sync" => Some(Self::IncrementalSync),
+            "authentication" => Some(Self::Authentication),
+            "remote_push" => Some(Self::RemotePush),
+            "caching" => Some(Self::Caching),
+            "background_sync" => Some(Self::BackgroundSync),
+            _ => None,
+        }
+    }
+}
+
 /// Trait for providers that can sync data from various sources to local storage
 #[async_trait]
 pub trait StoreProvider: Send + Sync {
@@ -75,47 +163,46 @@ pub trait StoreProvider: Send + Sync {
     /// Check if sync is needed (based on time, changes, etc.)
     async fn needs_sync(&self) -> Result<bool>;
 
-    /// Sync only if needed - default implementation
-    async fn sync_if_needed(&self) -> Result<Option<SyncResult>> {
-        if self.needs_sync().await? {
-            Ok(Some(self.sync().await?))
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Get a human-readable description of this provider
     fn description(&self) -> String;
 
     /// Get the provider type identifier
     fn provider_type(&self) -> &'static str;
 
-    /// Check if this provider supports write operations
-    fn is_writable(&self) -> bool {
-        false // Default to read-only
-    }
+    /// Check if this provider supports a specific capability
+    ///
+    /// Returns `true` if the capability is supported, `false` otherwise.
+    /// Providers should implement this to declare their capabilities.
+    fn supports_capability(&self, capability: Capability) -> bool;
 
-    /// Post-publish hook: called after a successful publish operation
-    /// Providers can use this to commit changes, push to remotes, etc.
-    async fn post_publish(&self, extension_id: &str, version: &str) -> Result<()> {
-        // Default implementation does nothing
-        let _ = (extension_id, version);
+    /// Handle lifecycle events (publish/unpublish)
+    ///
+    /// This unified hook is called after successful publish or unpublish operations.
+    /// Providers can use this to:
+    /// - Commit changes to version control
+    /// - Push to remote repositories
+    /// - Trigger webhooks or notifications
+    /// - Update indexes or caches
+    ///
+    /// The default implementation does nothing (no-op for read-only providers).
+    async fn handle_event(&self, _event: LifecycleEvent) -> Result<()> {
         Ok(())
     }
 
-    /// Post-unpublish hook: called after a successful unpublish operation
-    /// Providers can use this to commit changes, push to remotes, etc.
-    async fn post_unpublish(&self, extension_id: &str, version: &str) -> Result<()> {
-        // Default implementation does nothing
-        let _ = (extension_id, version);
-        Ok(())
-    }
-
-    /// Check if the provider is in a state that allows publishing
-    /// Returns an error if publishing should be blocked
-    async fn check_write_status(&self) -> Result<()> {
-        // Default implementation allows writing if writable
-        if !self.is_writable() {
+    /// Ensure the provider is in a valid state for write operations
+    ///
+    /// This is called before any write operation to validate that writing is possible.
+    /// Providers should check:
+    /// - Authentication status
+    /// - Network connectivity (if needed)
+    /// - Repository state (dirty working tree, etc.)
+    /// - Permissions
+    ///
+    /// Returns `Ok(())` if writing is allowed, or an error describing why it's blocked.
+    ///
+    /// The default implementation checks if the provider supports write capability.
+    async fn ensure_writable(&self) -> Result<()> {
+        if !self.supports_capability(Capability::Write) {
             return Err(crate::error::StoreError::InvalidPackage {
                 reason: "Provider does not support write operations".to_string(),
             });

@@ -19,7 +19,7 @@ use crate::publish::{
 use crate::stores::{
     local::LocalStore,
     providers::{
-        traits::{StoreProvider, SyncResult},
+        traits::{LifecycleEvent, StoreProvider},
         GitProvider,
     },
     traits::{BaseStore, CacheableStore, ReadableStore, WritableStore},
@@ -98,11 +98,11 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
     }
 
     /// Ensure the store is synced and ready for use with time-based caching
-    pub async fn ensure_synced(&self) -> Result<Option<SyncResult>> {
+    pub async fn ensure_synced(&self) -> Result<()> {
         const SYNC_CACHE_DURATION: Duration = Duration::from_secs(30);
 
         // Acquire sync state lock - this serves as both cache check and concurrency protection
-        let mut sync_state = self.sync_state.lock().await;
+        let sync_state = self.sync_state.lock().await;
 
         // Check if we've synced recently
         if let Some(sync_time) = sync_state.last_sync {
@@ -112,9 +112,12 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
                     self.name,
                     sync_time.elapsed().as_secs()
                 );
-                return Ok(None);
+                return Ok(());
             }
         }
+
+        // Release the lock before syncing
+        drop(sync_state);
 
         debug!(
             "Checking if sync needed for store '{}' ({})",
@@ -122,37 +125,34 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
             self.provider.provider_type()
         );
 
-        match self.provider.sync_if_needed().await {
-            Ok(Some(result)) => {
-                info!(
-                    "Synced store '{}': {} changes, {} warnings",
-                    self.name,
-                    result.changes.len(),
-                    result.warnings.len()
-                );
+        // Check if sync is needed
+        if self.provider.needs_sync().await? {
+            // Perform sync
+            let result = self.provider.sync().await?;
 
-                for warning in &result.warnings {
-                    warn!("Sync warning for '{}': {}", self.name, warning);
-                }
+            info!(
+                "Synced store '{}': {} changes, {} warnings",
+                self.name,
+                result.changes.len(),
+                result.warnings.len()
+            );
 
-                // Update last sync time
-                sync_state.last_sync = Some(Instant::now());
-
-                Ok(Some(result))
+            for warning in &result.warnings {
+                warn!("Sync warning for '{}': {}", self.name, warning);
             }
-            Ok(None) => {
-                debug!("Store '{}' is up to date, no sync needed", self.name);
 
-                // Still update last sync time to prevent redundant checks
-                sync_state.last_sync = Some(Instant::now());
+            // Update last sync time
+            let mut sync_state = self.sync_state.lock().await;
+            sync_state.last_sync = Some(Instant::now());
+        } else {
+            debug!("Store '{}' is up to date, no sync needed", self.name);
 
-                Ok(None)
-            }
-            Err(e) => {
-                warn!("Failed to sync store '{}': {}", self.name, e);
-                Err(e)
-            }
+            // Update last sync time even when no sync was needed
+            let mut sync_state = self.sync_state.lock().await;
+            sync_state.last_sync = Some(Instant::now());
         }
+
+        Ok(())
     }
 }
 
@@ -171,21 +171,19 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         self.ensure_synced().await?;
 
         // Check if provider supports writing and is in valid state
-        self.provider.check_write_status().await?;
+        self.provider.ensure_writable().await?;
 
         // Delegate to local store for the actual publishing
         let result = self.local_store.publish(package.clone(), options).await?;
 
-        // Post-publish hook for provider-specific operations (git commit/push, etc.)
-        if let Err(e) = self
-            .provider
-            .post_publish(&package.manifest.id, &package.manifest.version.to_string())
-            .await
-        {
-            tracing::warn!(
-                "Post-publish workflow failed after successful publish: {}",
-                e
-            );
+        // Call lifecycle hook
+        let event = LifecycleEvent::Published {
+            extension_id: package.manifest.id.clone(),
+            version: package.manifest.version.to_string(),
+        };
+
+        if let Err(e) = self.provider.handle_event(event).await {
+            tracing::warn!("Lifecycle hook failed after successful publish: {}", e);
         }
 
         Ok(result)
@@ -201,7 +199,7 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         self.ensure_synced().await?;
 
         // Check if provider supports writing and is in valid state
-        self.provider.check_write_status().await?;
+        self.provider.ensure_writable().await?;
 
         // Delegate to local store
         let result = self
@@ -209,16 +207,14 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
             .update_published(extension_id, package.clone(), options)
             .await?;
 
-        // Post-publish hook for provider-specific operations (git commit/push, etc.)
-        if let Err(e) = self
-            .provider
-            .post_publish(extension_id, &package.manifest.version.to_string())
-            .await
-        {
-            tracing::warn!(
-                "Post-publish workflow failed after successful update: {}",
-                e
-            );
+        // Call lifecycle hook
+        let event = LifecycleEvent::Published {
+            extension_id: extension_id.to_string(),
+            version: package.manifest.version.to_string(),
+        };
+
+        if let Err(e) = self.provider.handle_event(event).await {
+            tracing::warn!("Lifecycle hook failed after successful update: {}", e);
         }
 
         Ok(result)
@@ -233,21 +229,19 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         self.ensure_synced().await?;
 
         // Check if provider supports writing and is in valid state
-        self.provider.check_write_status().await?;
+        self.provider.ensure_writable().await?;
 
         // Delegate to local store
         let result = self.local_store.unpublish(extension_id, options).await?;
 
-        // Post-unpublish hook for provider-specific operations (git commit/push, etc.)
-        if let Err(e) = self
-            .provider
-            .post_unpublish(extension_id, &result.version)
-            .await
-        {
-            tracing::warn!(
-                "Post-unpublish workflow failed after successful unpublish: {}",
-                e
-            );
+        // Call lifecycle hook
+        let event = LifecycleEvent::Unpublished {
+            extension_id: extension_id.to_string(),
+            version: result.version.clone(),
+        };
+
+        if let Err(e) = self.provider.handle_event(event).await {
+            tracing::warn!("Lifecycle hook failed after successful unpublish: {}", e);
         }
 
         Ok(result)
@@ -579,31 +573,31 @@ impl<T: StoreProvider> CacheableStore for LocallyCachedStore<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stores::providers::traits::SyncResult;
+    use crate::stores::providers::traits::{Capability, StoreProvider, SyncResult};
     use std::path::Path;
     use tempfile::TempDir;
 
     // Mock provider for testing
     struct MockProvider {
-        should_sync: bool,
-        sync_result: SyncResult,
         sync_dir: PathBuf,
+        should_sync: bool,
+        changes: Vec<String>,
     }
 
     impl MockProvider {
         fn new(sync_dir: PathBuf) -> Self {
             Self {
-                should_sync: true,
-                sync_result: SyncResult::no_changes(),
                 sync_dir,
+                should_sync: true,
+                changes: vec![],
             }
         }
 
         fn with_changes(sync_dir: PathBuf, changes: Vec<String>) -> Self {
             Self {
-                should_sync: true,
-                sync_result: SyncResult::with_changes(changes),
                 sync_dir,
+                should_sync: true,
+                changes,
             }
         }
     }
@@ -615,7 +609,11 @@ mod tests {
         }
 
         async fn sync(&self) -> Result<SyncResult> {
-            Ok(self.sync_result.clone())
+            if self.changes.is_empty() {
+                Ok(SyncResult::no_changes())
+            } else {
+                Ok(SyncResult::with_changes(self.changes.clone()))
+            }
         }
 
         async fn needs_sync(&self) -> Result<bool> {
@@ -628,6 +626,10 @@ mod tests {
 
         fn provider_type(&self) -> &'static str {
             "mock"
+        }
+
+        fn supports_capability(&self, _capability: Capability) -> bool {
+            false // Mock provider is read-only
         }
     }
 
@@ -650,13 +652,10 @@ mod tests {
         let store = LocallyCachedStore::new(provider, "test-store".to_string()).unwrap();
 
         // First sync should work
-        let result1 = store.ensure_synced().await.unwrap();
-        assert!(result1.is_some());
-        assert!(result1.unwrap().updated);
+        store.ensure_synced().await.unwrap();
 
-        // Second sync should be cached
-        let result2 = store.ensure_synced().await.unwrap();
-        assert!(result2.is_none());
+        // Second sync should be cached (will skip due to time-based caching)
+        store.ensure_synced().await.unwrap();
     }
 
     #[tokio::test]
@@ -724,7 +723,7 @@ mod tests {
     #[tokio::test]
     async fn test_provider_write_methods_available() {
         use crate::stores::providers::git::{GitAuth, GitProvider, GitReference};
-        use crate::stores::providers::traits::StoreProvider;
+        use crate::stores::providers::traits::{Capability, LifecycleEvent};
 
         let temp_dir = TempDir::new().unwrap();
         let git_url = "https://github.com/example/store.git";
@@ -736,20 +735,28 @@ mod tests {
             GitAuth::None,
         );
 
-        // Test that the provider implements the required write methods
-        assert!(!provider.is_writable()); // No write config, so read-only
+        // Test that the provider capability checking works
+        assert!(!provider.supports_capability(Capability::Write)); // No write config, so read-only
 
-        // Test that check_write_status works (should fail for read-only provider)
-        let result = provider.check_write_status().await;
+        // Test that ensure_writable works (should fail for read-only provider)
+        let result = provider.ensure_writable().await;
         assert!(result.is_err());
 
-        // Test that post_publish and post_unpublish methods exist and can be called
+        // Test that handle_event method exists and can be called
         // (they should do nothing for read-only providers)
-        let post_pub_result = provider.post_publish("test-ext", "1.0.0").await;
-        assert!(post_pub_result.is_ok());
+        let publish_event = LifecycleEvent::Published {
+            extension_id: "test-ext".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let publish_result = provider.handle_event(publish_event).await;
+        assert!(publish_result.is_ok());
 
-        let post_unpub_result = provider.post_unpublish("test-ext", "1.0.0").await;
-        assert!(post_unpub_result.is_ok());
+        let unpublish_event = LifecycleEvent::Unpublished {
+            extension_id: "test-ext".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        let unpublish_result = provider.handle_event(unpublish_event).await;
+        assert!(unpublish_result.is_ok());
     }
 
     #[tokio::test]

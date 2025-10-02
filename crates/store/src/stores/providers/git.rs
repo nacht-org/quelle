@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use tracing::{debug, info};
 
 use crate::error::{Result, StoreError};
-use crate::stores::providers::traits::{StoreProvider, SyncResult};
+use crate::stores::providers::traits::{Capability, LifecycleEvent, StoreProvider, SyncResult};
 
 /// Git authentication configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -652,12 +652,24 @@ impl StoreProvider for GitProvider {
         "git"
     }
 
-    fn is_writable(&self) -> bool {
-        self.write_config.is_some()
+    fn supports_capability(&self, capability: Capability) -> bool {
+        match capability {
+            Capability::Write => self.write_config.is_some(),
+            Capability::IncrementalSync => true,
+            Capability::Authentication => !matches!(self.auth, GitAuth::None),
+            Capability::RemotePush => self
+                .write_config
+                .as_ref()
+                .map(|c| c.auto_push)
+                .unwrap_or(false),
+            Capability::Caching => true,
+            Capability::BackgroundSync => true,
+        }
     }
 
-    async fn post_publish(&self, extension_id: &str, version: &str) -> Result<()> {
-        if !self.is_writable() {
+    async fn handle_event(&self, event: LifecycleEvent) -> Result<()> {
+        // Only handle events if we're writable
+        if self.write_config.is_none() {
             return Ok(());
         }
 
@@ -669,65 +681,46 @@ impl StoreProvider for GitProvider {
                 })?;
 
         // Add all changes in the working directory
-        // This is more robust than trying to specify exact paths that might not exist
         self.git_add_all().await?;
 
-        // Create commit message using the configured style
-        let commit_message = write_config
-            .commit_style
-            .format("Publish", extension_id, version);
+        // Create commit message based on the event type
+        let commit_message = match &event {
+            LifecycleEvent::Published {
+                extension_id,
+                version,
+            } => write_config
+                .commit_style
+                .format("Publish", extension_id, version),
+            LifecycleEvent::Unpublished {
+                extension_id,
+                version,
+            } => write_config
+                .commit_style
+                .format("Unpublish", extension_id, version),
+        };
 
         // Commit changes
         self.git_commit(&commit_message).await?;
 
-        // Push if auto-push is enabled and authentication is available
+        // Push if auto-push is enabled
         if write_config.auto_push {
             if let Err(e) = self.git_push().await {
-                tracing::warn!("Failed to push changes to remote repository: {}. Consider configuring authentication for automatic pushing.", e);
+                tracing::warn!(
+                    "Failed to push changes to remote repository: {}. \
+                     Consider configuring authentication for automatic pushing.",
+                    e
+                );
             }
         }
 
         Ok(())
     }
 
-    async fn post_unpublish(&self, extension_id: &str, version: &str) -> Result<()> {
-        if !self.is_writable() {
-            return Ok(());
-        }
-
-        let write_config =
-            self.write_config
-                .as_ref()
-                .ok_or_else(|| crate::error::StoreError::InvalidPackage {
-                    reason: "Git write configuration not available".to_string(),
-                })?;
-
-        // Add all changes in the working directory
-        // This handles removed files and directories properly
-        self.git_add_all().await?;
-
-        // Create commit message using the configured style
-        let commit_message = write_config
-            .commit_style
-            .format("Unpublish", extension_id, version);
-
-        // Commit changes
-        self.git_commit(&commit_message).await?;
-
-        // Push if auto-push is enabled and authentication is available
-        if write_config.auto_push {
-            if let Err(e) = self.git_push().await {
-                tracing::warn!("Failed to push changes to remote repository: {}. Consider configuring authentication for automatic pushing.", e);
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn check_write_status(&self) -> Result<()> {
-        if !self.is_writable() {
+    async fn ensure_writable(&self) -> Result<()> {
+        // Check if we have write config
+        if self.write_config.is_none() {
             return Err(crate::error::StoreError::InvalidPackage {
-                reason: "Git provider is read-only".to_string(),
+                reason: "Git provider is read-only (no write configuration)".to_string(),
             });
         }
 
@@ -744,6 +737,7 @@ impl StoreProvider for GitProvider {
             }
         }
 
+        // Check repository status
         let status = self.check_repository_status().await?;
         if !status.is_publishable() {
             if let Some(reason) = status.publish_blocking_reason() {
