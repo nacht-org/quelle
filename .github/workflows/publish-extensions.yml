@@ -1,0 +1,285 @@
+name: Publish Extensions
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main, master]
+    paths:
+      - "extensions/**/*.rs"
+      - "extensions/**/*.toml"
+      - "extensions/**/Cargo.lock"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      force_all:
+        description: "Publish all extensions regardless of changes"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  detect-changes:
+    name: Detect Changed Extensions
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    outputs:
+      extensions: ${{ steps.changes.outputs.extensions }}
+      has-changes: ${{ steps.changes.outputs.has-changes }}
+      trigger-reason: ${{ steps.changes.outputs.trigger-reason }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Detect changed extensions
+        id: changes
+        run: |
+          echo "🔍 Analyzing extensions to publish..."
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force_all }}" = "true" ]; then
+            # Manual trigger - publish all extensions
+            echo "Manual trigger with force_all=true - publishing all extensions"
+            extensions=$(find extensions -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | jq -R -s -c 'split("\n")[:-1] | map(select(length > 0))')
+            echo "extensions=$extensions" >> $GITHUB_OUTPUT
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+            echo "trigger-reason=Manual (all extensions)" >> $GITHUB_OUTPUT
+            echo "✅ Will publish all extensions: $extensions"
+
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            # Release trigger - publish all extensions
+            echo "Release trigger - publishing all extensions"
+            extensions=$(find extensions -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | jq -R -s -c 'split("\n")[:-1] | map(select(length > 0))')
+            echo "extensions=$extensions" >> $GITHUB_OUTPUT
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+            echo "trigger-reason=Release (${{ github.event.release.tag_name }})" >> $GITHUB_OUTPUT
+            echo "✅ Will publish all extensions for release: $extensions"
+
+          else
+            # PR merge or manual trigger - detect changes
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "PR #${{ github.event.pull_request.number }} merged - analyzing changes"
+              compare_ref="${{ github.event.pull_request.base.sha }}"
+              trigger_reason="PR #${{ github.event.pull_request.number }} merge"
+            else
+              echo "Manual trigger - analyzing recent changes"
+              compare_ref="HEAD~1"
+              trigger_reason="Manual (recent changes)"
+            fi
+
+            # Get list of changed files
+            changed_files=$(git diff --name-only "$compare_ref" HEAD)
+            echo "Changed files since $compare_ref:"
+            echo "$changed_files" | sed 's/^/  /'
+
+            # Extract extension directories that have changes
+            changed_extensions=$(echo "$changed_files" \
+              | grep '^extensions/' \
+              | cut -d'/' -f2 \
+              | sort -u \
+              | grep -v '^$' \
+              | while read ext; do
+                  if [ -n "$ext" ] && [ -d "extensions/$ext" ]; then
+                    echo "$ext"
+                  fi
+                done \
+              | jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+            echo "Detected changed extensions: $changed_extensions"
+
+            # Set outputs
+            echo "extensions=$changed_extensions" >> $GITHUB_OUTPUT
+            echo "trigger-reason=$trigger_reason" >> $GITHUB_OUTPUT
+
+            if [ "$changed_extensions" = "[]" ] || [ -z "$changed_extensions" ]; then
+              echo "has-changes=false" >> $GITHUB_OUTPUT
+              echo "❌ No extension changes detected"
+            else
+              echo "has-changes=true" >> $GITHUB_OUTPUT
+              echo "✅ Found changes in extensions: $changed_extensions"
+            fi
+          fi
+
+  build-and-publish:
+    name: Build & Publish
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has-changes == 'true'
+    strategy:
+      matrix:
+        extension: ${{ fromJson(needs.detect-changes.outputs.extensions) }}
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - name: Install cargo-component
+        run: |
+          echo "📦 Installing cargo-component..."
+          curl -L https://github.com/bytecodealliance/cargo-component/releases/latest/download/cargo-component-x86_64-unknown-linux-gnu.tar.gz | tar xzf -
+          sudo mv cargo-component /usr/local/bin/
+          cargo-component --version
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.extension }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-
+            ${{ runner.os }}-cargo-
+
+      - name: Validate extension structure
+        run: |
+          echo "🔧 Validating extension: ${{ matrix.extension }}"
+
+          if [ ! -d "extensions/${{ matrix.extension }}" ]; then
+            echo "❌ Extension directory not found: extensions/${{ matrix.extension }}"
+            exit 1
+          fi
+
+          if [ ! -f "extensions/${{ matrix.extension }}/Cargo.toml" ]; then
+            echo "❌ Cargo.toml not found for extension: ${{ matrix.extension }}"
+            exit 1
+          fi
+
+          echo "✅ Extension structure validated"
+
+      - name: Build extension
+        run: |
+          echo "🔨 Building extension: ${{ matrix.extension }}"
+          cargo component build --release \
+            --package "extension_${{ matrix.extension }}" \
+            --target wasm32-unknown-unknown
+
+      - name: Verify build artifacts
+        run: |
+          wasm_file="./target/wasm32-unknown-unknown/release/extension_${{ matrix.extension }}.wasm"
+
+          if [ ! -f "$wasm_file" ]; then
+            echo "❌ WASM file not found: $wasm_file"
+            exit 1
+          fi
+
+          if command -v stat >/dev/null 2>&1; then
+            if stat -f%z "$wasm_file" >/dev/null 2>&1; then
+              file_size=$(stat -f%z "$wasm_file")  # macOS
+            else
+              file_size=$(stat -c%s "$wasm_file")  # Linux
+            fi
+          else
+            file_size=$(wc -c < "$wasm_file" | tr -d ' ')
+          fi
+          echo "✅ Built WASM file: $wasm_file ($file_size bytes)"
+
+      - name: Setup Git credentials
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Configure Git authentication
+        env:
+          GITHUB_TOKEN: ${{ secrets.EXTENSIONS_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Publish to official store
+        env:
+          GITHUB_TOKEN: ${{ secrets.EXTENSIONS_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🚀 Publishing extension: ${{ matrix.extension }}"
+
+          # Verify CLI can be built
+          if ! cargo build --package quelle_cli --quiet; then
+            echo "❌ Failed to build CLI"
+            exit 1
+          fi
+
+          # Build publish command with error handling
+          if cargo run --package quelle_cli -- publish extension \
+            "./target/wasm32-unknown-unknown/release/extension_${{ matrix.extension }}.wasm" \
+            --store official \
+            --overwrite \
+            --notes "Auto-published from ${{ github.sha }} by ${{ github.actor }}" \
+            --timeout 300; then
+            echo "✅ Successfully published ${{ matrix.extension }}"
+          else
+            echo "❌ Failed to publish ${{ matrix.extension }}"
+            exit 1
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-${{ matrix.extension }}-${{ github.sha }}
+          path: ./target/wasm32-unknown-unknown/release/extension_${{ matrix.extension }}.wasm
+          retention-days: 7
+
+  summary:
+    name: Publishing Summary
+    runs-on: ubuntu-latest
+    needs: [detect-changes, build-and-publish]
+    if: always() && needs.detect-changes.outputs.has-changes == 'true'
+    steps:
+      - name: Generate summary
+        run: |
+          echo "# 📦 Extension Publishing Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          extensions="${{ needs.detect-changes.outputs.extensions }}"
+          trigger_reason="${{ needs.detect-changes.outputs.trigger-reason }}"
+          echo "**Extensions processed:** $extensions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          case "${{ needs.build-and-publish.result }}" in
+            "success")
+              echo "✅ **Status:** All extensions published successfully" >> $GITHUB_STEP_SUMMARY
+              ;;
+            "failure")
+              echo "❌ **Status:** Some extensions failed to publish" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Check the individual job logs for details." >> $GITHUB_STEP_SUMMARY
+              ;;
+            "cancelled")
+              echo "⚠️ **Status:** Publishing was cancelled" >> $GITHUB_STEP_SUMMARY
+              ;;
+            *)
+              echo "❓ **Status:** Unknown (${{ needs.build-and-publish.result }})" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** $trigger_reason" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Author:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+
+  no-changes:
+    name: No Changes Detected
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has-changes == 'false'
+    steps:
+      - name: Report no changes
+        run: |
+          echo "# 📦 Extension Publishing" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "ℹ️ No extension changes detected." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ needs.detect-changes.outputs.trigger-reason }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY

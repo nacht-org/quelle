@@ -1,5 +1,7 @@
 # Quelle
 
+[![Publish Extensions](https://github.com/nacht-org/quelle/actions/workflows/publish-extensions.yml/badge.svg)](https://github.com/nacht-org/quelle/actions/workflows/publish-extensions.yml)
+
 Quelle is a powerful, extensible novel scraper and library manager that enables you to search, download, and manage e-books from multiple online sources. Built with a modular WebAssembly architecture, it provides high performance and cross-platform compatibility.
 
 ## 🚀 Quick Start
@@ -210,6 +212,74 @@ cargo run -p quelle_cli -- --help
 4. Publish: `just publish <name>`
 
 See existing extensions in `extensions/` for reference implementations.
+
+### Publishing Extensions
+
+#### Automated Publishing (GitHub Actions)
+
+Extensions are automatically published to the [official store](https://github.com/nacht-org/extensions) through multiple triggers:
+
+- **PR Merge**: Triggered when pull requests with extension changes are merged
+- **Release**: Publishes all extensions when a new release is created
+- **Manual**: Workflow dispatch with options for specific or all extensions
+- **Local Testing**: Use the provided script for development
+
+The automated workflow:
+1. Detects which extensions have changed (or all for releases)
+2. Builds each extension to WebAssembly
+3. Publishes to the official store with proper authentication
+4. Creates build artifacts and summaries
+
+#### Local Publishing Script
+
+Use the provided script for local development and testing:
+
+```bash
+# Basic usage
+./scripts/publish-extension.sh scribblehub
+
+# Publish to local store with overwrite
+./scripts/publish-extension.sh --store local --overwrite scribblehub
+
+# Dry run (build but don't publish)
+./scripts/publish-extension.sh --dry-run scribblehub
+
+# With notes and tags
+./scripts/publish-extension.sh --notes "Bug fixes" --tags "manga,novels" scribblehub
+
+# Show help and available extensions
+./scripts/publish-extension.sh --help
+```
+
+#### Manual Publishing Options
+
+**GitHub Actions Workflow:**
+- **Auto-Publish Extensions**: Manual dispatch with option to publish all extensions
+
+**Local Scripts:**
+- Use for immediate testing and development iterations
+- Full control over store, notes, tags, and dry-run options
+
+#### Requirements for Official Publishing
+
+To publish extensions to the official store automatically:
+
+1. **Repository Setup**: Fork or contribute to this repository
+2. **GitHub Token**: Set `EXTENSIONS_PUBLISH_TOKEN` secret with write access to `nacht-org/extensions`
+3. **Extension Structure**: Follow the existing extension patterns in `extensions/`
+4. **Testing**: Ensure extensions build successfully with `just build-extension <name>`
+
+#### Publishing Workflow
+
+**Development → Production:**
+1. Create feature branch with extension changes
+2. Test locally with `./scripts/publish-extension.sh --dry-run <name>`
+3. Create pull request
+4. Merge PR → Automatic publishing triggered
+5. Extensions available in official store immediately
+
+**Batch Updates:**
+- Create release → All extensions published together
 
 ## 📚 Documentation
 
