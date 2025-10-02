@@ -268,6 +268,7 @@ impl ExtensionSource {
                     auth.clone(),
                     std::time::Duration::from_secs(300), // 5 minutes default
                     true,                                // shallow by default
+                    None,
                 )
                 .map_err(|e| StoreError::StoreCreationError {
                     store_type: "git".to_string(),
@@ -295,6 +296,8 @@ impl ExtensionSource {
                 reference,
                 auth,
             } => {
+                use crate::GitWriteConfig;
+
                 let git_store = GitStore::with_config(
                     self.name.clone(),
                     url.clone(),
@@ -303,6 +306,7 @@ impl ExtensionSource {
                     auth.clone(),
                     std::time::Duration::from_secs(300), // 5 minutes default
                     true,                                // shallow by default
+                    Some(GitWriteConfig::default()),
                 )
                 .map_err(|e| StoreError::StoreCreationError {
                     store_type: "git".to_string(),
@@ -339,6 +343,7 @@ impl ExtensionSource {
                     auth.clone(),
                     std::time::Duration::from_secs(300), // 5 minutes default
                     true,                                // shallow by default
+                    None, // No need for writable in cacheable context
                 )
                 .map_err(|e| StoreError::StoreCreationError {
                     store_type: "git".to_string(),
@@ -379,6 +384,7 @@ pub async fn create_readable_store_from_source(
                 auth.clone(),
                 std::time::Duration::from_secs(300), // 5 minutes default
                 true,                                // shallow by default
+                None,
             )
             .map_err(|e| StoreError::StoreCreationError {
                 store_type: "git".to_string(),

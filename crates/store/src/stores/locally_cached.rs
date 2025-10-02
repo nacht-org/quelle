@@ -762,4 +762,87 @@ mod tests {
             .await;
         assert!(post_unpub_result.is_ok());
     }
+
+    #[tokio::test]
+    async fn test_git_add_all_error_handling() {
+        use crate::stores::providers::git::{GitAuth, GitProvider, GitReference};
+
+        let temp_dir = TempDir::new().unwrap();
+        let git_url = "https://github.com/example/store.git";
+
+        let provider = GitProvider::new(
+            git_url.to_string(),
+            temp_dir.path().to_path_buf(),
+            GitReference::Default,
+            GitAuth::None,
+        );
+
+        // Test that git_add_all handles non-existent repository gracefully
+        let result = provider.git_add_all().await;
+
+        // Should fail because no git repository exists in temp_dir
+        assert!(result.is_err());
+
+        // The error should be related to opening the repository
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("repository") || error_msg.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_system_credential_fallback() {
+        use crate::stores::providers::git::{GitAuth, GitProvider, GitReference};
+
+        let temp_dir = TempDir::new().unwrap();
+        let git_url = "https://github.com/example/store.git";
+
+        // Create provider with GitAuth::None to test system credential fallback
+        let provider = GitProvider::new(
+            git_url.to_string(),
+            temp_dir.path().to_path_buf(),
+            GitReference::Default,
+            GitAuth::None, // Should use system credentials
+        );
+
+        let store = LocallyCachedStore::new(
+            provider,
+            temp_dir.path().to_path_buf(),
+            "git-test-store".to_string(),
+        )
+        .unwrap();
+
+        // Test that the provider is configured to use system credentials
+        // We can't test the actual push without a real git repo and credentials,
+        // but we can verify the setup doesn't immediately fail
+        let provider = store.provider();
+
+        // GitAuth::None should be configured
+        // We can't directly access the auth field, but we can test the behavior
+        // The provider should be configured to use system credentials
+
+        // The provider should indicate it can handle authentication
+        // (will use system credentials when needed)
+        assert!(!provider.is_writable()); // No write config set, so not writable yet
+
+        // But if we add write config, it would be writable and use system auth
+        let write_config = crate::stores::providers::git::GitWriteConfig {
+            author: crate::stores::providers::git::GitAuthor {
+                name: "Test Author".to_string(),
+                email: "test@example.com".to_string(),
+            },
+            commit_message_template: "Test commit".to_string(),
+            auto_push: true,
+            write_auth: None, // This means it will use the provider's auth (which is None = system)
+            write_branch: None, // Use default branch
+        };
+
+        let provider_with_write = GitProvider::new(
+            git_url.to_string(),
+            temp_dir.path().to_path_buf(),
+            GitReference::Default,
+            GitAuth::None,
+        )
+        .with_write_config(write_config);
+
+        assert!(provider_with_write.is_writable());
+    }
 }

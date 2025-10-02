@@ -15,6 +15,8 @@ use crate::stores::{
     locally_cached::LocallyCachedStore,
     providers::{GitAuth, GitProvider, GitReference},
 };
+#[cfg(feature = "git")]
+use crate::GitWriteConfig;
 
 /// Type alias for a git-based store
 ///
@@ -238,10 +240,16 @@ impl GitStore {
         auth: GitAuth,
         fetch_interval: Duration,
         shallow: bool,
+        write_config: Option<GitWriteConfig>,
     ) -> Result<Self> {
-        let provider = GitProvider::new(url, cache_dir.clone(), reference, auth)
+        let mut provider = GitProvider::new(url, cache_dir.clone(), reference, auth)
             .with_fetch_interval(fetch_interval)
             .with_shallow(shallow);
+
+        if let Some(write_config) = write_config {
+            provider = provider.with_write_config(write_config);
+        }
+
         LocallyCachedStore::new(provider, cache_dir, name)
     }
 
@@ -380,6 +388,7 @@ mod tests {
             auth,
             Duration::from_secs(1800),
             false,
+            None,
         )
         .unwrap();
 

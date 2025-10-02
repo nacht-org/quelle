@@ -5,6 +5,10 @@ publish NAME:
     just build-extension {{NAME}}
     cargo run -p quelle_cli -- publish extension ./target/wasm32-unknown-unknown/release/extension_{{NAME}}.wasm --store local --overwrite
 
+publish-remote NAME:
+    just build-extension {{NAME}}
+    cargo run -p quelle_cli -- publish extension ./target/wasm32-unknown-unknown/release/extension_{{NAME}}.wasm --store remote --overwrite
+
 reset-store:
     cargo run -p quelle_cli -- store remove local --force
     rm -rf ./data

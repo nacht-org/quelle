@@ -549,51 +549,11 @@ impl StoreProvider for GitProvider {
         self.write_config.is_some()
     }
 
-    async fn post_publish(&self, extension_id: &str, version: &str, sync_dir: &Path) -> Result<()> {
-        if !self.is_writable() {
-            return Ok(());
-        }
-
-        let write_config =
-            self.write_config
-                .as_ref()
-                .ok_or_else(|| crate::error::StoreError::InvalidPackage {
-                    reason: "Git write configuration not available".to_string(),
-                })?;
-
-        // Determine which files were affected
-        let extension_dir = sync_dir.join(extension_id);
-        let affected_files = vec![
-            sync_dir.join("store.json"), // Store manifest always updated
-            extension_dir,
-        ];
-
-        // Stage changes
-        self.git_add(&affected_files).await?;
-
-        // Create commit message
-        let commit_message = write_config
-            .commit_message_template
-            .replace("{action}", "Add")
-            .replace("{extension_id}", extension_id)
-            .replace("{version}", version);
-
-        // Commit changes
-        self.git_commit(&commit_message).await?;
-
-        // Push if auto-push is enabled
-        if write_config.auto_push {
-            self.git_push().await?;
-        }
-
-        Ok(())
-    }
-
-    async fn post_unpublish(
+    async fn post_publish(
         &self,
         extension_id: &str,
         version: &str,
-        sync_dir: &Path,
+        _sync_dir: &Path,
     ) -> Result<()> {
         if !self.is_writable() {
             return Ok(());
@@ -606,11 +566,50 @@ impl StoreProvider for GitProvider {
                     reason: "Git write configuration not available".to_string(),
                 })?;
 
-        // Only stage the store manifest since the extension directory was removed
-        let affected_files = vec![sync_dir.join("store.json")];
+        // Add all changes in the working directory
+        // This is more robust than trying to specify exact paths that might not exist
+        self.git_add_all().await?;
 
-        // Stage changes
-        self.git_add(&affected_files).await?;
+        // Create commit message
+        let commit_message = write_config
+            .commit_message_template
+            .replace("{action}", "Add")
+            .replace("{extension_id}", extension_id)
+            .replace("{version}", version);
+
+        // Commit changes
+        self.git_commit(&commit_message).await?;
+
+        // Push if auto-push is enabled and authentication is available
+        if write_config.auto_push {
+            if let Err(e) = self.git_push().await {
+                tracing::warn!("Failed to push changes to remote repository: {}. Consider configuring authentication for automatic pushing.", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn post_unpublish(
+        &self,
+        extension_id: &str,
+        version: &str,
+        _sync_dir: &Path,
+    ) -> Result<()> {
+        if !self.is_writable() {
+            return Ok(());
+        }
+
+        let write_config =
+            self.write_config
+                .as_ref()
+                .ok_or_else(|| crate::error::StoreError::InvalidPackage {
+                    reason: "Git write configuration not available".to_string(),
+                })?;
+
+        // Add all changes in the working directory
+        // This handles removed files and directories properly
+        self.git_add_all().await?;
 
         // Create commit message
         let commit_message = write_config
@@ -622,9 +621,11 @@ impl StoreProvider for GitProvider {
         // Commit changes
         self.git_commit(&commit_message).await?;
 
-        // Push if auto-push is enabled
+        // Push if auto-push is enabled and authentication is available
         if write_config.auto_push {
-            self.git_push().await?;
+            if let Err(e) = self.git_push().await {
+                tracing::warn!("Failed to push changes to remote repository: {}. Consider configuring authentication for automatic pushing.", e);
+            }
         }
 
         Ok(())
@@ -635,6 +636,20 @@ impl StoreProvider for GitProvider {
             return Err(crate::error::StoreError::InvalidPackage {
                 reason: "Git provider is read-only".to_string(),
             });
+        }
+
+        // Check if authentication is configured for push operations
+        if let Some(write_config) = &self.write_config {
+            if write_config.auto_push {
+                let write_auth = write_config.write_auth.as_ref().unwrap_or(&self.auth);
+                if matches!(write_auth, GitAuth::None) {
+                    tracing::debug!(
+                        "Auto-push is enabled with GitAuth::None for repository '{}'. \
+                         Will attempt to use system git credentials (SSH agent, credential manager, etc.)",
+                        self.url
+                    );
+                }
+            }
         }
 
         let status = self.check_repository_status().await?;
@@ -847,8 +862,37 @@ impl GitProvider {
         for file in files {
             let relative_path = file.strip_prefix(&self.cache_dir).unwrap_or(file);
 
+            // Skip files that don't exist
+            if !file.exists() {
+                continue;
+            }
+
             index
                 .add_path(relative_path)
+                .map_err(|e| GitStoreError::Git(e))?;
+        }
+
+        index.write().map_err(|e| GitStoreError::Git(e))?;
+
+        Ok(())
+    }
+
+    /// Add all changes (including deletions) to git staging area
+    pub async fn git_add_all(&self) -> Result<()> {
+        use crate::error::GitStoreError;
+        use git2::Repository;
+
+        let repo = Repository::open(&self.cache_dir).map_err(|e| GitStoreError::Git(e))?;
+
+        let mut index = repo.index().map_err(|e| GitStoreError::Git(e))?;
+
+        // Add all files from working directory to index
+        // This is equivalent to "git add ." - adds all tracked and untracked files
+        if let Err(e) = index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None) {
+            tracing::warn!("Failed to add all files to git index: {}", e);
+            // Fall back to updating from working tree
+            index
+                .update_all(["*"].iter(), None)
                 .map_err(|e| GitStoreError::Git(e))?;
         }
 
@@ -962,7 +1006,32 @@ impl GitProvider {
                 });
             }
             GitAuth::None => {
-                // No authentication
+                // Use system's default credential helpers (git credential manager, SSH agent, etc.)
+                callbacks.credentials(|url, username_from_url, allowed_types| {
+                    // Try SSH agent first if SSH is allowed
+                    if allowed_types.contains(CredentialType::SSH_KEY) {
+                        if let Ok(cred) = Cred::ssh_key_from_agent(username_from_url.unwrap_or("git")) {
+                            return Ok(cred);
+                        }
+                    }
+
+                    // Try credential helper for HTTPS
+                    if allowed_types.contains(CredentialType::USER_PASS_PLAINTEXT) {
+                        if let Ok(config) = git2::Config::open_default() {
+                            if let Ok(cred) = Cred::credential_helper(&config, url, username_from_url) {
+                                return Ok(cred);
+                            }
+                        }
+                    }
+
+                    // Fall back to default credentials
+                    if allowed_types.contains(CredentialType::DEFAULT) {
+                        return Cred::default();
+                    }
+
+                    // No suitable credential method found
+                    Err(git2::Error::from_str("No suitable authentication method found. Consider configuring explicit authentication."))
+                });
             }
         }
 
