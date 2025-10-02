@@ -4,7 +4,7 @@
 //! including their types, priorities, and capabilities. Extension sources are
 //! configured through the CLI and applied to the StoreManager at runtime.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -222,6 +222,17 @@ impl ExtensionSource {
             trusted: false,
             added_at: Utc::now(),
         }
+    }
+
+    #[cfg(feature = "git")]
+    pub fn official(stores_dir: &Path) -> Self {
+        ExtensionSource::git(
+            "official".to_string(),
+            "https://github.com/nacht-org/extensions".to_string(),
+            stores_dir.join("official"),
+        )
+        .with_priority(50) // Higher priority than default (100)
+        .trusted() // Mark as trusted since it's official
     }
 
     pub fn with_priority(mut self, priority: u32) -> Self {

@@ -1,6 +1,6 @@
 use directories::ProjectDirs;
 use eyre::Result;
-use quelle_store::{RegistryConfig, StoreManager};
+use quelle_store::{ExtensionSource, RegistryConfig, StoreManager};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs::{self, create_dir_all};
@@ -15,6 +15,8 @@ pub struct Config {
     pub fetch: FetchConfig,
     #[serde(default)]
     pub registry: RegistryConfig,
+    #[serde(default)]
+    pub official: OfficialConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -56,6 +58,7 @@ impl Default for Config {
             export: ExportConfig::default(),
             fetch: FetchConfig::default(),
             registry: RegistryConfig::default(),
+            official: OfficialConfig::default(),
         }
     }
 }
@@ -77,6 +80,10 @@ impl Config {
         self.get_data_dir().join("library")
     }
 
+    pub fn get_stores_dir(&self) -> PathBuf {
+        self.get_data_dir().join("stores")
+    }
+
     pub async fn load() -> Result<Self> {
         let config_path = Self::get_config_path();
 
@@ -85,7 +92,11 @@ impl Config {
         }
 
         let content = fs::read_to_string(&config_path).await?;
-        let config: Config = serde_json::from_str(&content)?;
+        let mut config: Config = serde_json::from_str(&content)?;
+
+        #[cfg(feature = "git")]
+        config.add_official_source().await?;
+
         Ok(config)
     }
 
@@ -99,6 +110,37 @@ impl Config {
 
         let content = serde_json::to_string_pretty(self)?;
         fs::write(&config_path, content).await?;
+        Ok(())
+    }
+
+    pub async fn add_official_source(&mut self) -> Result<()> {
+        if !self.official.enabled {
+            tracing::debug!("Official extensions are disabled in the configuration");
+            return Ok(());
+        }
+
+        let official_store = quelle_store::ExtensionSource::official(&self.get_stores_dir());
+
+        if self
+            .registry
+            .extension_sources
+            .iter()
+            .any(|s| s.name == official_store.name)
+        {
+            tracing::warn!("An 'official' extension source is already configured");
+            return Ok(());
+        }
+
+        if !self
+            .registry
+            .extension_sources
+            .iter()
+            .any(|s| s.name == official_store.name)
+        {
+            self.registry
+                .add_source(ExtensionSource::official(&self.get_stores_dir()));
+        }
+
         Ok(())
     }
 
@@ -155,6 +197,11 @@ impl Config {
                     .parse::<bool>()
                     .map_err(|_| eyre::eyre!("Invalid boolean value: {}", value))?;
             }
+            ["official", "enabled"] => {
+                self.official.enabled = value
+                    .parse::<bool>()
+                    .map_err(|_| eyre::eyre!("Invalid boolean value: {}", value))?;
+            }
             _ => {
                 return Err(eyre::eyre!("Unknown configuration key: {}", key));
             }
@@ -178,6 +225,7 @@ impl Config {
             ["export", "output_dir"] => self.export.output_dir.clone().unwrap_or_default(),
             ["fetch", "auto_fetch_covers"] => self.fetch.auto_fetch_covers.to_string(),
             ["fetch", "auto_fetch_assets"] => self.fetch.auto_fetch_assets.to_string(),
+            ["official", "enabled"] => self.official.enabled.to_string(),
             _ => {
                 return Err(eyre::eyre!("Unknown configuration key: {}", key));
             }
@@ -211,7 +259,9 @@ impl Config {
              ├─ auto_fetch_covers: {}\n\
              └─ auto_fetch_assets: {}\n\
              Registry:\n\
-             └─ extension_sources: {}",
+             └─ extension_sources: {}\n\
+             Official Extensions:\n\
+             └─ enabled: {}",
             self.data_dir
                 .as_ref()
                 .map(|p| p.display().to_string())
@@ -225,7 +275,8 @@ impl Config {
                 .unwrap_or(&"(not set)".to_string()),
             self.fetch.auto_fetch_covers,
             self.fetch.auto_fetch_assets,
-            registry_sources
+            registry_sources,
+            self.official.enabled
         )
     }
 
@@ -253,5 +304,16 @@ pub fn get_default_data_dir() -> PathBuf {
     } else {
         // Fallback to current directory if we can't determine project dirs
         PathBuf::from(".quelle").join("data")
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OfficialConfig {
+    pub enabled: bool,
+}
+
+impl Default for OfficialConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
