@@ -303,11 +303,17 @@ impl CachingHttpExecutor {
 #[async_trait]
 impl HttpExecutor for CachingHttpExecutor {
     async fn execute(&self, request: http::Request) -> Result<http::Response, http::ResponseError> {
-        // Only cache GET requests for now (POST, PUT, DELETE should not be cached)
-        let should_use_cache = matches!(request.method, http::Method::Get | http::Method::Head);
+        // Cache GET, HEAD, and POST requests (PUT, DELETE should not be cached)
+        let should_use_cache = matches!(
+            request.method,
+            http::Method::Get | http::Method::Head | http::Method::Post
+        );
 
         if !should_use_cache {
-            tracing::debug!("Bypassing cache for non-GET request: {}", request.method);
+            tracing::debug!(
+                "Bypassing cache for non-cacheable request: {}",
+                request.method
+            );
             return self.inner.execute(request).await;
         }
 
@@ -472,7 +478,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_non_cacheable_methods() {
+    async fn test_post_requests_are_cached() {
         let mock_response = create_test_response(200, "post response");
         let mock_executor = Arc::new(MockHttpExecutor::new(mock_response.clone()));
         let caching_executor = CachingHttpExecutor::new(mock_executor.clone());
@@ -480,7 +486,43 @@ mod tests {
         let mut request = create_test_request("https://example.com/post");
         request.method = Method::Post;
 
-        // POST requests should not be cached
+        // POST requests should be cached
+        let _response1 = caching_executor.execute(request.clone()).await.unwrap();
+        assert_eq!(mock_executor.call_count(), 1);
+
+        let response2 = caching_executor.execute(request.clone()).await.unwrap();
+        assert_eq!(mock_executor.call_count(), 1); // Should hit cache, not executor again
+        assert_eq!(response2.status, 200);
+    }
+
+    #[tokio::test]
+    async fn test_non_cacheable_methods() {
+        let mock_response = create_test_response(200, "put response");
+        let mock_executor = Arc::new(MockHttpExecutor::new(mock_response.clone()));
+        let caching_executor = CachingHttpExecutor::new(mock_executor.clone());
+
+        let mut request = create_test_request("https://example.com/put");
+        request.method = Method::Put;
+
+        // PUT requests should not be cached
+        let _response1 = caching_executor.execute(request.clone()).await.unwrap();
+        assert_eq!(mock_executor.call_count(), 1);
+
+        let response2 = caching_executor.execute(request.clone()).await.unwrap();
+        assert_eq!(mock_executor.call_count(), 2); // Should hit executor again
+        assert_eq!(response2.status, 200);
+    }
+
+    #[tokio::test]
+    async fn test_delete_requests_not_cached() {
+        let mock_response = create_test_response(200, "delete response");
+        let mock_executor = Arc::new(MockHttpExecutor::new(mock_response.clone()));
+        let caching_executor = CachingHttpExecutor::new(mock_executor.clone());
+
+        let mut request = create_test_request("https://example.com/delete");
+        request.method = Method::Delete;
+
+        // DELETE requests should not be cached
         let _response1 = caching_executor.execute(request.clone()).await.unwrap();
         assert_eq!(mock_executor.call_count(), 1);
 
