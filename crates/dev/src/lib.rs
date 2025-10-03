@@ -542,7 +542,7 @@ impl DevServer {
         let runner = self.create_runner().await?;
 
         // Fetch novel info
-        let (_, result) = runner.fetch_novel_info(&url).await.map_err(|e| {
+        let (runner, result) = runner.fetch_novel_info(&url).await.map_err(|e| {
             println!("❌ Failed to fetch novel info: {}", e);
             e
         })?;
@@ -562,15 +562,14 @@ impl DevServer {
                 println!("\n📖 Also fetching first chapter: {}", first_chapter.title);
                 let chapter_start_time = Instant::now();
 
-                // Create a new runner for chapter fetch
-                let chapter_runner = self.create_runner().await?;
-                let (_, chapter_result) = chapter_runner
-                    .fetch_chapter(&first_chapter.url)
-                    .await
-                    .map_err(|e| {
-                        println!("❌ Failed to fetch chapter content: {}", e);
-                        e
-                    })?;
+                let (_, chapter_result) =
+                    runner
+                        .fetch_chapter(&first_chapter.url)
+                        .await
+                        .map_err(|e| {
+                            println!("❌ Failed to fetch chapter content: {}", e);
+                            e
+                        })?;
 
                 let content = chapter_result.map_err(|e| {
                     println!("❌ Chapter extension error: {:?}", e);
