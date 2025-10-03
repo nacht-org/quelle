@@ -30,9 +30,6 @@ pub enum DevCommands {
     Server {
         /// Extension name to develop
         extension: String,
-        /// Port for development server (optional, for future web interface)
-        #[arg(long, default_value = "3001")]
-        port: u16,
         /// Enable verbose logging
         #[arg(long, short)]
         verbose: bool,
@@ -102,7 +99,6 @@ pub async fn handle_dev_command(cmd: DevCommands) -> Result<()> {
     match cmd {
         DevCommands::Server {
             extension,
-            port: _port,
             verbose: _verbose,
             watch,
             chrome,
@@ -543,23 +539,55 @@ impl DevServer {
         println!("🔍 Testing novel info fetch for: {}", url);
         let start_time = Instant::now();
 
-        // Create a fresh runner for this operation
         let runner = self.create_runner().await?;
 
-        match runner.fetch_novel_info(&url).await {
-            Ok((_, result)) => match result {
-                Ok(novel) => {
-                    let fetch_time = start_time.elapsed();
-                    println!("✅ Novel info fetched in {:.2}s", fetch_time.as_secs_f64());
-                    debug_novel_info(&novel);
-                }
-                Err(e) => {
-                    println!("❌ Extension error: {:?}", e);
-                }
-            },
-            Err(e) => {
-                println!("❌ Failed to fetch novel info: {}", e);
+        // Fetch novel info
+        let (_, result) = runner.fetch_novel_info(&url).await.map_err(|e| {
+            println!("❌ Failed to fetch novel info: {}", e);
+            e
+        })?;
+
+        let novel = result.map_err(|e| {
+            println!("❌ Extension error: {:?}", e);
+            eyre!("Extension error: {:?}", e)
+        })?;
+
+        let fetch_time = start_time.elapsed();
+        println!("✅ Novel info fetched in {:.2}s", fetch_time.as_secs_f64());
+        debug_novel_info(&novel);
+
+        // Try to fetch first chapter
+        if let Some(first_volume) = novel.volumes.first() {
+            if let Some(first_chapter) = first_volume.chapters.first() {
+                println!("\n📖 Also fetching first chapter: {}", first_chapter.title);
+                let chapter_start_time = Instant::now();
+
+                // Create a new runner for chapter fetch
+                let chapter_runner = self.create_runner().await?;
+                let (_, chapter_result) = chapter_runner
+                    .fetch_chapter(&first_chapter.url)
+                    .await
+                    .map_err(|e| {
+                        println!("❌ Failed to fetch chapter content: {}", e);
+                        e
+                    })?;
+
+                let content = chapter_result.map_err(|e| {
+                    println!("❌ Chapter extension error: {:?}", e);
+                    eyre!("Chapter extension error: {:?}", e)
+                })?;
+
+                let chapter_fetch_time = chapter_start_time.elapsed();
+                println!(
+                    "✅ Chapter content fetched in {:.2}s",
+                    chapter_fetch_time.as_secs_f64()
+                );
+                debug_chapter_content(&first_chapter.url, &content);
+            } else {
+                println!("⚠️ No chapters found in first volume");
             }
+        } else {
+            println!("⚠️ No volumes found in novel");
         }
 
         Ok(())
