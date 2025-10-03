@@ -21,6 +21,9 @@ use std::time::{Duration, Instant};
 use tracing::debug;
 use url::Url;
 
+pub mod http_caching;
+use http_caching::CachingHttpExecutor;
+
 #[derive(Subcommand, Debug, Clone)]
 pub enum DevCommands {
     /// Start development server with hot reload
@@ -36,6 +39,9 @@ pub enum DevCommands {
         /// Auto-rebuild on file changes
         #[arg(long, default_value = "true")]
         watch: bool,
+        /// Use Chrome HTTP executor instead of Reqwest (better for JS-heavy sites)
+        #[arg(long, default_value = "true")]
+        chrome: bool,
     },
     /// Interactive testing shell for extensions
     Test {
@@ -84,6 +90,10 @@ pub enum DevServerCommand {
     Meta,
     /// Force rebuild extension
     Rebuild,
+    /// Clear HTTP cache
+    ClearCache,
+    /// Show cache statistics
+    CacheStats,
     /// Exit development server
     Quit,
 }
@@ -92,15 +102,16 @@ pub async fn handle_dev_command(cmd: DevCommands) -> Result<()> {
     match cmd {
         DevCommands::Server {
             extension,
-            port: _,
-            verbose: _,
+            port: _port,
+            verbose: _verbose,
             watch,
-        } => start_dev_server(extension, watch).await,
+            chrome,
+        } => start_dev_server(extension, watch, chrome).await,
         DevCommands::Test {
             extension,
             url,
             query,
-            verbose: _,
+            verbose: _verbose,
         } => start_interactive_test(extension, url, query).await,
         DevCommands::Validate {
             extension,
@@ -109,14 +120,14 @@ pub async fn handle_dev_command(cmd: DevCommands) -> Result<()> {
     }
 }
 
-async fn start_dev_server(extension_name: String, watch: bool) -> Result<()> {
+async fn start_dev_server(extension_name: String, watch: bool, use_chrome: bool) -> Result<()> {
     println!(
         "🚀 Starting development server for extension: {}",
         extension_name
     );
 
     let extension_path = find_extension_path(&extension_name)?;
-    let mut dev_server = DevServer::new(extension_name.clone(), extension_path).await?;
+    let mut dev_server = DevServer::new(extension_name.clone(), extension_path, use_chrome).await?;
 
     // Initial build
     println!("📦 Building extension...");
@@ -280,7 +291,7 @@ async fn start_interactive_test(
     );
 
     let extension_path = find_extension_path(&extension_name)?;
-    let mut dev_server = DevServer::new(extension_name, extension_path).await?;
+    let mut dev_server = DevServer::new(extension_name, extension_path, false).await?;
 
     dev_server.build_extension().await?;
     dev_server.load_extension().await?;
@@ -333,7 +344,7 @@ async fn validate_extension(extension_name: String, extended: bool) -> Result<()
 
     // Try to build the extension
     println!("🔨 Building extension...");
-    let mut dev_server = DevServer::new(extension_name, extension_path).await?;
+    let mut dev_server = DevServer::new(extension_name, extension_path, false).await?;
     dev_server.build_extension().await?;
 
     println!("✅ Build validation passed");
@@ -380,9 +391,34 @@ fn find_extension_path(extension_name: &str) -> Result<PathBuf> {
     Ok(extension_path)
 }
 
-fn create_extension_engine() -> Result<ExtensionEngine> {
-    // Create engine with Reqwest executor (simpler than Chrome for dev purposes)
-    let http_executor = std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new());
+fn create_extension_engine_with_cache(
+    cache_dir: Option<std::path::PathBuf>,
+    use_chrome: bool,
+) -> Result<ExtensionEngine> {
+    // Create base executor
+    let base_executor: std::sync::Arc<dyn quelle_engine::http::HttpExecutor> = if use_chrome {
+        println!("🌐 Using Chrome HTTP executor for better JavaScript support");
+        std::sync::Arc::new(quelle_engine::http::HeadlessChromeExecutor::new())
+    } else {
+        println!("🌐 Using Reqwest HTTP executor");
+        std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new())
+    };
+
+    // Wrap with caching executor
+    let http_executor = if let Some(cache_dir) = cache_dir {
+        std::sync::Arc::new(
+            CachingHttpExecutor::with_file_cache(base_executor, cache_dir)
+                .with_ttl(600) // 10 minutes TTL for dev
+                .with_max_cache_size(500),
+        ) as std::sync::Arc<dyn quelle_engine::http::HttpExecutor>
+    } else {
+        std::sync::Arc::new(
+            CachingHttpExecutor::new(base_executor)
+                .with_ttl(300) // 5 minutes TTL for in-memory cache
+                .with_max_cache_size(200),
+        ) as std::sync::Arc<dyn quelle_engine::http::HttpExecutor>
+    };
+
     ExtensionEngine::new(http_executor)
         .map_err(|e| eyre!("Failed to create extension engine: {}", e))
 }
@@ -395,8 +431,16 @@ struct DevServer {
 }
 
 impl DevServer {
-    async fn new(extension_name: String, extension_path: PathBuf) -> Result<Self> {
-        let engine = create_extension_engine()?;
+    async fn new(
+        extension_name: String,
+        extension_path: PathBuf,
+        use_chrome: bool,
+    ) -> Result<Self> {
+        // Create cache directory for this extension
+        let cache_dir = std::env::temp_dir()
+            .join("quelle_dev_cache")
+            .join(&extension_name);
+        let engine = create_extension_engine_with_cache(Some(cache_dir), use_chrome)?;
 
         Ok(Self {
             extension_name,
@@ -480,6 +524,12 @@ impl DevServer {
                 println!("🔄 Force rebuilding extension...");
                 self.build_extension().await?;
                 self.load_extension().await?;
+            }
+            DevServerCommand::ClearCache => {
+                self.clear_cache().await?;
+            }
+            DevServerCommand::CacheStats => {
+                self.show_cache_stats().await?;
             }
             DevServerCommand::Quit => {
                 println!("👋 Goodbye!");
@@ -603,6 +653,23 @@ impl DevServer {
             }
         }
 
+        Ok(())
+    }
+
+    /// Clear the HTTP cache
+    async fn clear_cache(&mut self) -> Result<()> {
+        // We need to access the caching executor, but it's wrapped in the engine
+        // For now, we'll just print a message. In a real implementation, we'd need
+        // to expose the cache clearing functionality through the engine
+        println!(
+            "🧹 Cache clearing requested (not yet implemented - restart server to clear cache)"
+        );
+        Ok(())
+    }
+
+    /// Show cache statistics
+    async fn show_cache_stats(&mut self) -> Result<()> {
+        println!("📊 Cache statistics (not yet implemented - need engine API)");
         Ok(())
     }
 }

@@ -3101,6 +3101,7 @@ dependencies = [
 name = "quelle_dev"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "clap",
  "eyre",
@@ -3110,9 +3111,11 @@ dependencies = [
  "rustyline",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "url",
 ]
 
