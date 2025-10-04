@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use futures::future::join_all;
 use semver::Version;
-
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
@@ -249,6 +248,119 @@ impl StoreManager {
         }
 
         Ok(self.deduplicate_and_sort(all_results, &query.sort_by))
+    }
+
+    /// Search for novels using installed extensions only
+    pub async fn search_novels_with_installed_extensions(
+        &self,
+        query: &SearchQuery,
+    ) -> Result<Vec<quelle_engine::bindings::quelle::extension::novel::BasicNovel>> {
+        use quelle_engine::bindings::quelle::extension::novel::SimpleSearchQuery;
+        use quelle_engine::{http::ReqwestExecutor, ExtensionEngine};
+        use std::sync::Arc;
+
+        let installed_extensions = self.list_installed().await?;
+
+        if installed_extensions.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut search_futures = Vec::new();
+
+        for installed_ext in installed_extensions {
+            // Get WASM bytes for this extension
+            let wasm_bytes = match self
+                .registry_store
+                .get_extension_wasm_bytes(&installed_ext.id)
+                .await
+            {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    warn!(
+                        "Failed to get WASM bytes for extension '{}': {}",
+                        installed_ext.name, e
+                    );
+                    continue;
+                }
+            };
+
+            let query_clone = query.clone();
+            let ext_name = installed_ext.name.clone();
+
+            let future = async move {
+                // Create HTTP executor
+                let executor = Arc::new(ReqwestExecutor::new());
+
+                // Create engine and runner for this extension
+                let engine = match ExtensionEngine::new(executor) {
+                    Ok(engine) => engine,
+                    Err(e) => {
+                        warn!(
+                            "Failed to create engine for extension '{}': {}",
+                            ext_name, e
+                        );
+                        return Vec::new();
+                    }
+                };
+
+                let runner = match engine.new_runner_from_bytes(&wasm_bytes).await {
+                    Ok(runner) => runner,
+                    Err(e) => {
+                        warn!(
+                            "Failed to create runner for extension '{}': {}",
+                            ext_name, e
+                        );
+                        return Vec::new();
+                    }
+                };
+
+                // Convert SearchQuery to SimpleSearchQuery
+                let simple_query = SimpleSearchQuery {
+                    query: query_clone.text.unwrap_or_default(),
+                    page: Some(1),
+                    limit: query_clone.limit.map(|l| l as u32),
+                };
+
+                // Perform search
+                match runner.simple_search(&simple_query).await {
+                    Ok((_, Ok(search_result))) => {
+                        debug!(
+                            "Extension '{}' returned {} results",
+                            ext_name,
+                            search_result.novels.len()
+                        );
+                        search_result.novels
+                    }
+                    Ok((_, Err(e))) => {
+                        warn!("Search failed for extension '{}': {:?}", ext_name, e);
+                        Vec::new()
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Engine error during search for extension '{}': {}",
+                            ext_name, e
+                        );
+                        Vec::new()
+                    }
+                }
+            };
+
+            search_futures.push(future);
+        }
+
+        let results = join_all(search_futures).await;
+        let mut all_novels = Vec::new();
+
+        for mut novels in results {
+            all_novels.append(&mut novels);
+        }
+
+        // Apply limit if specified
+        if let Some(limit) = query.limit {
+            all_novels.truncate(limit);
+        }
+
+        Ok(all_novels)
     }
 
     /// List all extensions from all stores
@@ -939,5 +1051,28 @@ mod tests {
         // Both should fail since extensions don't exist
         assert!(results[0].is_err());
         assert!(results[1].is_err());
+    }
+
+    #[tokio::test]
+    async fn test_search_novels_with_no_installed_extensions() {
+        let temp_dir = TempDir::new().unwrap();
+        let registry_dir = temp_dir.path().join("registry");
+
+        let registry_store = Box::new(
+            crate::registry::LocalRegistryStore::new(registry_dir)
+                .await
+                .unwrap(),
+        );
+        let manager = StoreManager::new(registry_store).await.unwrap();
+
+        // Test search with no installed extensions
+        let query = SearchQuery::new().with_text("test query".to_string());
+        let results = manager
+            .search_novels_with_installed_extensions(&query)
+            .await
+            .unwrap();
+
+        // Should return empty results when no extensions are installed
+        assert_eq!(results.len(), 0);
     }
 }

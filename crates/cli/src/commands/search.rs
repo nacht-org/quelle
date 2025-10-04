@@ -1,4 +1,4 @@
-//! Search command handlers for finding novels across extension sources.
+//! Search command handlers for finding novels across installed extension sources.
 
 use eyre::Result;
 use quelle_store::{SearchQuery, StoreManager};
@@ -21,9 +21,6 @@ pub async fn handle_search_command(
         return Ok(());
     }
 
-    // Determine if we should use simple or complex search
-    let is_complex = !tags.is_empty() || !categories.is_empty() || author.is_some();
-
     // Build search query
     let mut search_query = SearchQuery::new().with_text(query.clone());
 
@@ -41,8 +38,10 @@ pub async fn handle_search_command(
         search_query = search_query.limit(20); // Default limit
     }
 
-    // Search across all stores
-    match store_manager.search_all_stores(&search_query).await {
+    match store_manager
+        .search_novels_with_installed_extensions(&search_query)
+        .await
+    {
         Ok(results) => {
             if results.is_empty() {
                 println!("No results found for: {}", query);
@@ -51,9 +50,10 @@ pub async fn handle_search_command(
                 println!("Found {} results:", results.len());
 
                 for (i, result) in results.iter().enumerate().take(display_limit) {
-                    println!("{}. {} by {}", i + 1, result.name, result.author);
-                    if let Some(homepage) = &result.homepage {
-                        println!("   {}", homepage);
+                    println!("{}. {}", i + 1, result.title);
+                    println!("   {}", result.url);
+                    if let Some(cover) = &result.cover {
+                        println!("   Cover: {}", cover);
                     }
                 }
 
