@@ -255,8 +255,11 @@ impl StoreManager {
         &self,
         query: &SearchQuery,
     ) -> Result<Vec<quelle_engine::bindings::quelle::extension::novel::BasicNovel>> {
-        use quelle_engine::bindings::quelle::extension::novel::SimpleSearchQuery;
+        use quelle_engine::bindings::quelle::extension::novel::{
+            AppliedFilter, ComplexSearchQuery, FilterValue, SimpleSearchQuery,
+        };
         use quelle_engine::{http::ReqwestExecutor, ExtensionEngine};
+        use std::collections::HashMap;
         use std::sync::Arc;
 
         let installed_extensions = self.list_installed().await?;
@@ -314,15 +317,65 @@ impl StoreManager {
                     }
                 };
 
-                // Convert SearchQuery to SimpleSearchQuery
-                let simple_query = SimpleSearchQuery {
-                    query: query_clone.text.unwrap_or_default(),
-                    page: Some(1),
-                    limit: query_clone.limit.map(|l| l as u32),
+                // Determine if we need complex or simple search
+                let has_complex_filters = query_clone.author.is_some()
+                    || !query_clone.tags.is_empty()
+                    || !query_clone.categories.is_empty();
+
+                let search_result = if has_complex_filters {
+                    // Build complex search query
+                    let mut filters = Vec::new();
+
+                    if let Some(ref author) = query_clone.author {
+                        filters.push(AppliedFilter {
+                            filter_id: "author".to_string(),
+                            value: FilterValue::Text(author.clone()),
+                        });
+                    }
+
+                    if !query_clone.tags.is_empty() {
+                        filters.push(AppliedFilter {
+                            filter_id: "tags".to_string(),
+                            value: FilterValue::MultiSelect(query_clone.tags.clone()),
+                        });
+                    }
+
+                    if !query_clone.categories.is_empty() {
+                        filters.push(AppliedFilter {
+                            filter_id: "categories".to_string(),
+                            value: FilterValue::MultiSelect(query_clone.categories.clone()),
+                        });
+                    }
+
+                    if let Some(ref text) = query_clone.text {
+                        filters.push(AppliedFilter {
+                            filter_id: "query".to_string(),
+                            value: FilterValue::Text(text.clone()),
+                        });
+                    }
+
+                    let complex_query = ComplexSearchQuery {
+                        filters,
+                        page: Some(1),
+                        limit: query_clone.limit.map(|l| l as u32),
+                        sort_by: None,
+                        sort_order: None,
+                    };
+
+                    runner.complex_search(&complex_query).await
+                } else {
+                    // Use simple search for basic queries
+                    let simple_query = SimpleSearchQuery {
+                        query: query_clone.text.unwrap_or_default(),
+                        page: Some(1),
+                        limit: query_clone.limit.map(|l| l as u32),
+                    };
+
+                    runner.simple_search(&simple_query).await
                 };
 
-                // Perform search
-                match runner.simple_search(&simple_query).await {
+                // Process search result
+                match search_result {
                     Ok((_, Ok(search_result))) => {
                         debug!(
                             "Extension '{}' returned {} results",
@@ -355,12 +408,33 @@ impl StoreManager {
             all_novels.append(&mut novels);
         }
 
-        // Apply limit if specified
-        if let Some(limit) = query.limit {
-            all_novels.truncate(limit);
+        // Deduplicate novels by URL
+        let mut seen_urls = HashMap::new();
+        let mut deduplicated = Vec::new();
+
+        for novel in all_novels {
+            if !seen_urls.contains_key(&novel.url) {
+                seen_urls.insert(novel.url.clone(), true);
+                deduplicated.push(novel);
+            }
         }
 
-        Ok(all_novels)
+        // Sort results by title for consistency
+        deduplicated.sort_by(|a, b| a.title.cmp(&b.title));
+
+        // Apply limit and offset
+        let start_index = query.offset.unwrap_or(0);
+        let end_index = if let Some(limit) = query.limit {
+            std::cmp::min(start_index + limit, deduplicated.len())
+        } else {
+            deduplicated.len()
+        };
+
+        if start_index >= deduplicated.len() {
+            Ok(Vec::new())
+        } else {
+            Ok(deduplicated[start_index..end_index].to_vec())
+        }
     }
 
     /// List all extensions from all stores
