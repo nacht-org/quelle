@@ -257,13 +257,6 @@ pub async fn generate_typst_content(
         content.len()
     );
 
-    // Save debug output
-    if let Err(e) = std::fs::write("debug_typst_output.typ", &content) {
-        log::warn!("Failed to write debug Typst file: {}", e);
-    } else {
-        log::info!("Typst content saved to debug_typst_output.typ for inspection");
-    }
-
     Ok(content)
 }
 
