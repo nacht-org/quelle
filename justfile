@@ -1,5 +1,9 @@
 # === Core Development Commands ===
 
+# Generate a new extension interactively
+generate-extension:
+    cargo run -p quelle_cli -- dev generate
+
 build-extension NAME:
     cargo component build -r -p extension_{{NAME}} --target wasm32-unknown-unknown
 

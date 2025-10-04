@@ -215,11 +215,33 @@ The development server provides:
 
 ### Creating New Extensions
 
-1. Copy an existing extension as template
-2. Implement the required WIT interfaces
-3. Test with development tools: `just dev-validate <name>`
-4. Publish: `just publish <name>`
+**Interactive Mode (Recommended)**
+```bash
+# Interactive generation - prompts for all information
+cargo run -p quelle_cli -- dev generate
 
+# Or using just
+just generate-extension
+```
+
+**Command Line Mode**
+```bash
+# All parameters specified
+cargo run -p quelle_cli -- dev generate mysite --display-name "My Site" --base-url "https://mysite.com"
+
+# Shortcuts for common cases
+just generate-en mysite "My Site" "https://mysite.com"
+just generate-rtl arabsite "Arab Site" "https://arabsite.com" ar
+```
+
+Development workflow:
+1. **Generate extension**: Interactive mode guides you through setup
+2. **Customize selectors**: Update CSS selectors for your target site  
+3. **Test iteratively**: `just dev-server <name>` for hot reload testing
+4. **Validate**: `just dev-validate <name>` before publishing
+5. **Publish**: `just publish <name>`
+
+📖 **[Extension Generation Guide](./docs/EXTENSION_GENERATION.md)**
 📖 **[Complete Extension Development Guide](./docs/EXTENSION_DEVELOPMENT.md)**
 
 ### Publishing Extensions

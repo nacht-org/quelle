@@ -56,6 +56,26 @@ pub enum DevCommands {
         #[arg(long, short)]
         verbose: bool,
     },
+    /// Generate a new extension from template
+    Generate {
+        /// Extension name (lowercase, no spaces)
+        name: Option<String>,
+        /// Display name for the extension
+        #[arg(long)]
+        display_name: Option<String>,
+        /// Base URL of the target website
+        #[arg(long)]
+        base_url: Option<String>,
+        /// Primary language code (default: en)
+        #[arg(long)]
+        language: Option<String>,
+        /// Reading direction (ltr or rtl)
+        #[arg(long)]
+        reading_direction: Option<String>,
+        /// Force overwrite if extension already exists
+        #[arg(long)]
+        force: bool,
+    },
     /// Validate extension without publishing
     Validate {
         /// Extension name to validate
@@ -111,6 +131,24 @@ pub async fn handle_dev_command(cmd: DevCommands) -> Result<()> {
             query,
             verbose: _verbose,
         } => start_interactive_test(extension, url, query).await,
+        DevCommands::Generate {
+            name,
+            display_name,
+            base_url,
+            language,
+            reading_direction,
+            force,
+        } => {
+            handle_generate_command(
+                name,
+                display_name,
+                base_url,
+                language,
+                reading_direction,
+                force,
+            )
+            .await
+        }
         DevCommands::Validate {
             extension,
             extended,
@@ -709,6 +747,542 @@ impl DevServer {
         }
         Ok(())
     }
+}
+
+async fn handle_generate_command(
+    name: Option<String>,
+    display_name: Option<String>,
+    base_url: Option<String>,
+    language: Option<String>,
+    reading_direction: Option<String>,
+    force: bool,
+) -> Result<()> {
+    use std::collections::HashMap;
+    use std::fs;
+
+    // Collect parameters interactively if needed
+    let extension_name = match name {
+        Some(n) if !n.is_empty() => validate_extension_name(n)?,
+        _ => prompt_for_extension_name()?,
+    };
+
+    let display_name = match display_name {
+        Some(d) if !d.is_empty() => d,
+        _ => prompt_for_display_name(&extension_name)?,
+    };
+
+    let base_url = match base_url {
+        Some(u) if !u.is_empty() => validate_base_url(u)?,
+        _ => prompt_for_base_url()?,
+    };
+
+    let language = match language {
+        Some(l) if !l.is_empty() => validate_language(l)?,
+        _ => prompt_for_language()?,
+    };
+
+    let reading_direction = match reading_direction {
+        Some(r) if !r.is_empty() => validate_reading_direction(r)?,
+        _ => prompt_for_reading_direction()?,
+    };
+
+    let force = if !force {
+        check_force_needed(&extension_name)?
+    } else {
+        force
+    };
+
+    println!("🏗️  Generating extension '{}'...", extension_name);
+
+    // Find project root
+    let current_dir = std::env::current_dir()?;
+    let project_root = find_project_root(&current_dir)?;
+    let extensions_dir = project_root.join("extensions");
+    let output_dir = extensions_dir.join(&extension_name);
+
+    // Check if extension exists
+    if output_dir.exists() && !force {
+        return Err(eyre!(
+            "Extension '{}' already exists! Use --force to overwrite",
+            extension_name
+        ));
+    }
+
+    if output_dir.exists() && force {
+        println!("🗑️  Removing existing extension '{}'...", extension_name);
+        fs::remove_dir_all(&output_dir)?;
+    }
+
+    // Create extension directory
+    fs::create_dir_all(&output_dir)?;
+    fs::create_dir_all(output_dir.join("src"))?;
+
+    // Template replacements
+    let mut replacements = HashMap::new();
+    replacements.insert("EXTENSION_NAME", extension_name.as_str());
+    replacements.insert("EXTENSION_DISPLAY_NAME", display_name.as_str());
+    replacements.insert("BASE_URL", base_url.trim_end_matches('/'));
+    replacements.insert("LANGUAGE", language.as_str());
+    replacements.insert("READING_DIRECTION", &reading_direction);
+
+    // Create Cargo.toml
+    let cargo_toml_content = create_cargo_toml_template(&replacements);
+    fs::write(output_dir.join("Cargo.toml"), cargo_toml_content)?;
+    println!("   ✓ Cargo.toml");
+
+    // Create lib.rs
+    let lib_rs_content = create_lib_rs_template(&replacements);
+    fs::write(output_dir.join("src/lib.rs"), lib_rs_content)?;
+    println!("   ✓ src/lib.rs");
+
+    println!("✅ Extension '{}' generated successfully!", extension_name);
+    println!("   Location: {}", output_dir.display());
+    println!("\n📋 Next steps:");
+    println!("   1. Edit the selectors in src/lib.rs");
+    println!("   2. Build: just build-extension {}", extension_name);
+    println!("   3. Test: just dev-server {}", extension_name);
+    println!("   4. Publish: just publish {}", extension_name);
+
+    Ok(())
+}
+
+fn prompt_for_extension_name() -> Result<String> {
+    print!("📝 Extension name (lowercase, no spaces): ");
+    std::io::stdout().flush()?;
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    validate_extension_name(input.trim().to_string())
+}
+
+fn prompt_for_display_name(extension_name: &str) -> Result<String> {
+    let suggested = extension_name
+        .split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => {
+                    first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    print!("✨ Display name [{}]: ", suggested);
+    std::io::stdout().flush()?;
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+
+    if input.is_empty() {
+        Ok(suggested)
+    } else {
+        Ok(input.to_string())
+    }
+}
+
+fn prompt_for_base_url() -> Result<String> {
+    print!("🌐 Base URL (https://example.com): ");
+    std::io::stdout().flush()?;
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    validate_base_url(input.trim().to_string())
+}
+
+fn prompt_for_language() -> Result<String> {
+    print!("🌍 Language code [en]: ");
+    std::io::stdout().flush()?;
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+
+    if input.is_empty() {
+        Ok("en".to_string())
+    } else {
+        validate_language(input.to_string())
+    }
+}
+
+fn prompt_for_reading_direction() -> Result<String> {
+    print!("📖 Reading direction (ltr/rtl) [ltr]: ");
+    std::io::stdout().flush()?;
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+
+    if input.is_empty() {
+        Ok("Ltr".to_string())
+    } else {
+        validate_reading_direction(input.to_string())
+    }
+}
+
+fn check_force_needed(extension_name: &str) -> Result<bool> {
+    let current_dir = std::env::current_dir()?;
+    let project_root = find_project_root(&current_dir)?;
+    let extensions_dir = project_root.join("extensions");
+    let output_dir = extensions_dir.join(extension_name);
+
+    if output_dir.exists() {
+        print!(
+            "⚠️  Extension '{}' already exists. Overwrite? (y/N): ",
+            extension_name
+        );
+        std::io::stdout().flush()?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+        Ok(input == "y" || input == "yes")
+    } else {
+        Ok(false)
+    }
+}
+
+fn validate_extension_name(name: String) -> Result<String> {
+    let extension_name = name.to_lowercase().replace("-", "_");
+    if !extension_name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_')
+    {
+        return Err(eyre!(
+            "Extension name must contain only letters, numbers, and underscores"
+        ));
+    }
+
+    if extension_name.len() < 2 {
+        return Err(eyre!("Extension name must be at least 2 characters long"));
+    }
+
+    Ok(extension_name)
+}
+
+fn validate_base_url(url: String) -> Result<String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(eyre!("Base URL must start with http:// or https://"));
+    }
+    Ok(url)
+}
+
+fn validate_language(lang: String) -> Result<String> {
+    if lang.len() != 2 {
+        return Err(eyre!(
+            "Language code must be exactly 2 characters (ISO 639-1)"
+        ));
+    }
+    Ok(lang.to_lowercase())
+}
+
+fn validate_reading_direction(dir: String) -> Result<String> {
+    match dir.to_lowercase().as_str() {
+        "ltr" => Ok("Ltr".to_string()),
+        "rtl" => Ok("Rtl".to_string()),
+        _ => Err(eyre!("Reading direction must be 'ltr' or 'rtl'")),
+    }
+}
+
+fn find_project_root(start_dir: &std::path::Path) -> Result<std::path::PathBuf> {
+    let mut current = start_dir;
+    loop {
+        let cargo_toml = current.join("Cargo.toml");
+        if cargo_toml.exists() {
+            if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
+                if content.contains("[workspace]") && content.contains("extensions") {
+                    return Ok(current.to_path_buf());
+                }
+            }
+        }
+        if let Some(parent) = current.parent() {
+            current = parent;
+        } else {
+            return Err(eyre!("Could not find Quelle project root"));
+        }
+    }
+}
+
+fn create_cargo_toml_template(replacements: &HashMap<&str, &str>) -> String {
+    let template = r#"[package]
+name = "extension_{{EXTENSION_NAME}}"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+quelle_extension = { path = "../../crates/extension" }
+chrono = { workspace = true }
+once_cell = { workspace = true }
+tracing = { workspace = true }
+eyre = { workspace = true }
+scraper = { workspace = true }
+ego-tree = { workspace = true }
+url = { workspace = true }
+
+[lib]
+crate-type = ["cdylib"]
+"#;
+
+    apply_replacements(template, replacements)
+}
+
+fn create_lib_rs_template(replacements: &HashMap<&str, &str>) -> String {
+    let template = r#"use eyre::{eyre, OptionExt};
+use once_cell::sync::Lazy;
+use quelle_extension::prelude::*;
+
+register_extension!(Extension);
+
+const BASE_URL: &str = "{{BASE_URL}}";
+
+const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
+    id: String::from("{{LANGUAGE}}.{{EXTENSION_NAME}}"),
+    name: String::from("{{EXTENSION_DISPLAY_NAME}}"),
+    langs: vec![String::from("{{LANGUAGE}}")],
+    version: String::from(env!("CARGO_PKG_VERSION")),
+    base_urls: vec![BASE_URL.to_string()],
+    rds: vec![ReadingDirection::{{READING_DIRECTION}}],
+    attrs: vec![],
+    capabilities: SourceCapabilities {
+        search: Some(SearchCapabilities {
+            supports_simple_search: true,
+            supports_complex_search: false,
+            ..Default::default()
+        }),
+    },
+});
+
+pub struct Extension {
+    client: Client,
+}
+
+impl QuelleExtension for Extension {
+    fn new() -> Self {
+        Self {
+            client: Client::new(),
+        }
+    }
+
+    fn meta(&self) -> SourceMeta {
+        META.clone()
+    }
+
+    fn fetch_novel_info(&self, url: String) -> Result<Novel, eyre::Report> {
+        let response = Request::get(&url)
+            .send(&self.client)
+            .map_err(|e| eyre!(e))?
+            .error_for_status()?;
+
+        let text = response
+            .text()?
+            .ok_or_else(|| eyre!("Failed to get response text"))?;
+
+        let doc = Html::new(&text);
+
+        // TODO: Customize these selectors for your target website
+        let title = doc.select_first("h1.title").text()?; // Update selector
+        let authors = doc.select(".author").text_all()?;   // Update selector
+        let description = doc.select(".description").text_all()?.join("\n"); // Update selector
+
+        let cover = doc
+            .select_first_opt(".cover img")? // Update selector
+            .and_then(|img| img.attr_opt("src"))
+            .map(|src| make_absolute_url(&src, BASE_URL));
+
+        let status = doc
+            .select_first_opt(".status")? // Update selector
+            .map(|node| {
+                let text = node.text_or_empty().to_lowercase();
+                match text.as_str() {
+                    "completed" | "complete" => NovelStatus::Completed,
+                    "ongoing" | "publishing" => NovelStatus::Ongoing,
+                    "hiatus" | "on hiatus" => NovelStatus::Hiatus,
+                    "cancelled" | "dropped" => NovelStatus::Dropped,
+                    _ => NovelStatus::Unknown,
+                }
+            })
+            .unwrap_or(NovelStatus::Unknown);
+
+        let novel = Novel {
+            title,
+            authors,
+            description: vec![description],
+            langs: META.langs.clone(),
+            cover,
+            status,
+            volumes: self.fetch_volumes(&url)?,
+            metadata: self.fetch_metadata(&doc)?,
+            url,
+        };
+
+        Ok(novel)
+    }
+
+    fn fetch_chapter(&self, url: String) -> Result<ChapterContent, eyre::Report> {
+        let response = Request::get(&url)
+            .send(&self.client)
+            .map_err(|e| eyre!(e))?
+            .error_for_status()?;
+
+        let text = response
+            .text()?
+            .ok_or_else(|| eyre!("Failed to get response text"))?;
+
+        let doc = Html::new(&text);
+
+        // TODO: Update this selector for your target website
+        let content = doc.select_first(".chapter-content").html()?; // Update selector
+
+        Ok(ChapterContent { data: content })
+    }
+
+    fn simple_search(&self, query: SimpleSearchQuery) -> Result<SearchResult, eyre::Report> {
+        let current_page = query.page();
+
+        // TODO: Customize search endpoint and parameters for your target website
+        let response = Request::get(&format!("{}/search", BASE_URL)) // Update endpoint
+            .param("q", &query.query)                                 // Update param name
+            .param("page", current_page.to_string())                 // Update param name
+            .send(&self.client)
+            .map_err(|e| eyre!(e))?
+            .error_for_status()?;
+
+        let text = response
+            .text()?
+            .ok_or_else(|| eyre!("Failed to get search results"))?;
+
+        let doc = Html::new(&text);
+        let mut novels = Vec::new();
+
+        // TODO: Update these selectors for your target website
+        for element in doc.select(".search-result")? { // Update selector
+            let title = element
+                .select_first(".result-title")? // Update selector
+                .text_opt()
+                .ok_or_eyre("Failed to get title")?;
+
+            let url = element
+                .select_first("a")? // Update selector
+                .attr_opt("href")
+                .map(|href| make_absolute_url(&href, BASE_URL))
+                .ok_or_eyre("Failed to get url")?;
+
+            let cover = element
+                .select_first_opt(".result-cover img")? // Update selector
+                .and_then(|img| img.attr_opt("src"))
+                .map(|src| make_absolute_url(&src, BASE_URL));
+
+            novels.push(BasicNovel { title, cover, url });
+        }
+
+        // TODO: Update pagination selector
+        let total_pages = doc
+            .select(".pagination a")? // Update selector
+            .into_iter()
+            .filter_map(|element| element.text_opt())
+            .filter_map(|s| s.parse::<u32>().ok())
+            .max()
+            .unwrap_or(current_page);
+
+        Ok(SearchResult {
+            novels,
+            total_count: None,
+            current_page,
+            total_pages: Some(total_pages),
+            has_next_page: current_page < total_pages,
+            has_previous_page: current_page > 1,
+        })
+    }
+}
+
+impl Extension {
+    fn fetch_volumes(&self, novel_url: &str) -> Result<Vec<Volume>, eyre::Report> {
+        let mut volume = Volume::default();
+
+        // TODO: Customize chapter list fetching for your target website
+        // This might be on the same page or require an additional request
+        let response = Request::get(&format!("{}/chapters", novel_url)) // Update endpoint
+            .send(&self.client)
+            .map_err(|e| eyre!(e))?
+            .error_for_status()?;
+
+        let text = response
+            .text()?
+            .ok_or_else(|| eyre!("Failed to get chapters"))?;
+
+        let doc = Html::new(&text);
+
+        // TODO: Update these selectors for your target website
+        for (index, element) in doc
+            .select(".chapter-item")? // Update selector
+            .into_iter()
+            .enumerate()
+        {
+            let title = element
+                .select_first(".chapter-title")? // Update selector
+                .text_or_empty();
+
+            let url = element
+                .select_first("a")? // Update selector
+                .attr_opt("href")
+                .map(|href| make_absolute_url(&href, BASE_URL))
+                .ok_or_eyre("Failed to get chapter url")?;
+
+            let chapter = Chapter {
+                index: index as i32,
+                title,
+                url,
+                updated_at: None, // TODO: Parse chapter dates if available
+            };
+
+            volume.chapters.push(chapter);
+        }
+
+        Ok(vec![volume])
+    }
+
+    fn fetch_metadata(&self, doc: &Html) -> Result<Vec<Metadata>, eyre::Report> {
+        let mut metadata = vec![];
+
+        // TODO: Update these selectors for your target website
+        // Parse genres
+        for element in doc.select(".genre")? { // Update selector
+            metadata.push(Metadata::new(
+                String::from("subject"),
+                element.text_or_empty(),
+                None,
+            ));
+        }
+
+        // Parse tags
+        for element in doc.select(".tag")? { // Update selector
+            metadata.push(Metadata::new(
+                String::from("tag"),
+                element.text_or_empty(),
+                None,
+            ));
+        }
+
+        // Parse rating
+        if let Some(rating_element) = doc.select_first_opt(".rating")? { // Update selector
+            metadata.push(Metadata::new(
+                String::from("rating"),
+                rating_element.text_or_empty(),
+                None,
+            ));
+        }
+
+        Ok(metadata)
+    }
+}
+"#;
+
+    apply_replacements(template, replacements)
+}
+
+fn apply_replacements(template: &str, replacements: &HashMap<&str, &str>) -> String {
+    let mut result = template.to_string();
+    for (key, value) in replacements {
+        result = result.replace(&format!("{{{{{}}}}}", key), value);
+    }
+    result
 }
 
 /// Debug output functions for development server
