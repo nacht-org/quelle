@@ -26,10 +26,10 @@ async fn handle_set_config(key: String, value: String, dry_run: bool) -> Result<
     match config.set_value(&key, &value).await {
         Ok(_) => {
             config.save().await?;
-            println!("✅ Configuration updated: {} = {}", key, value);
+            println!("Set {} = {}", key, value);
         }
         Err(e) => {
-            println!("❌ Failed to set configuration: {}", e);
+            println!("Failed to set: {}", e);
             return Err(e);
         }
     }
@@ -45,7 +45,7 @@ async fn handle_get_config(key: String) -> Result<()> {
             println!("{}: {}", key, value);
         }
         Err(e) => {
-            println!("❌ Failed to get configuration: {}", e);
+            println!("Failed to get: {}", e);
             return Err(e);
         }
     }
@@ -71,12 +71,12 @@ async fn handle_reset_config(force: bool, dry_run: bool) -> Result<()> {
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
         if !input.trim().to_lowercase().starts_with('y') {
-            println!("❌ Cancelled");
+            println!("Cancelled");
             return Ok(());
         }
     }
 
     Config::reset().await?;
-    println!("✅ Configuration reset to defaults");
+    println!("Configuration reset");
     Ok(())
 }

@@ -148,21 +148,13 @@ async fn handle_publish_extension(
         println!("  Tags: {}", options.tags.join(", "));
     }
 
+    // Store package name before moving package to publish
+    let package_name = package.manifest.name.clone();
+
     // Actually publish the extension
     match store.publish(package, options).await {
         Ok(publish_result) => {
-            println!("✅ Successfully published extension:");
-            println!("  Version: {}", publish_result.version);
-            println!("  Download URL: {}", publish_result.download_url);
-            println!(
-                "  Published at: {}",
-                publish_result.published_at.format("%Y-%m-%d %H:%M:%S")
-            );
-            println!("  Publication ID: {}", publish_result.publication_id);
-            println!(
-                "  Package size: {}",
-                format_size(publish_result.package_size)
-            );
+            println!("Published {} v{}", package_name, publish_result.version);
             println!("  Content hash: {}", publish_result.content_hash);
             if !publish_result.warnings.is_empty() {
                 println!("  Warnings:");
@@ -229,22 +221,7 @@ async fn handle_unpublish_extension(
     // Actually unpublish the extension
     match store.unpublish(&id, unpublish_options).await {
         Ok(unpublish_result) => {
-            println!("✅ Successfully unpublished extension version:");
-            println!("  ID: {}", id);
-            println!("  Version: {}", unpublish_result.version);
-            println!(
-                "  Unpublished at: {}",
-                unpublish_result.unpublished_at.format("%Y-%m-%d %H:%M:%S")
-            );
-            println!(
-                "  Tombstone created: {}",
-                unpublish_result.tombstone_created
-            );
-            if let Some(users_notified) = unpublish_result.users_notified {
-                if users_notified > 0 {
-                    println!("  Users notified: {}", users_notified);
-                }
-            }
+            println!("Unpublished {} v{}", id, unpublish_result.version);
         }
         Err(e) => {
             error!("Failed to unpublish extension: {}", e);
@@ -297,15 +274,12 @@ async fn handle_validate_extension(
     match validator.validate(&package).await {
         Ok(report) => {
             if report.passed {
-                println!("✅ Validation passed!");
-                println!("  Duration: {:?}", report.validation_duration);
-                println!("  Rules run: {}", report.summary.rules_run);
-
+                println!("Validation passed");
                 if !report.issues.is_empty() {
-                    println!("  Warnings: {}", report.issues.len());
+                    println!("Warnings: {}", report.issues.len());
                     if verbose {
                         for issue in &report.issues {
-                            println!("    - {:?}: {}", issue.severity, issue.description);
+                            println!("  {:?}: {}", issue.severity, issue.description);
                         }
                     }
                 }
@@ -512,22 +486,5 @@ async fn load_extension_package(package_path: &PathBuf) -> Result<ExtensionPacka
                 "File has no extension. Currently supported: .wasm files and directories with manifest.json"
             ));
         }
-    }
-}
-
-fn format_size(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
-    let mut size = bytes as f64;
-    let mut unit_index = 0;
-
-    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit_index += 1;
-    }
-
-    if unit_index == 0 {
-        format!("{} {}", bytes, UNITS[unit_index])
-    } else {
-        format!("{:.1} {}", size, UNITS[unit_index])
     }
 }

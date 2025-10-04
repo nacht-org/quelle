@@ -19,10 +19,10 @@ pub async fn handle_export(
 ) -> Result<()> {
     let export_manager = default_export_manager()?;
     if !export_manager.supports_format(&format) {
-        println!("❌ Unsupported export format: {}", format);
+        println!("Unsupported format: {}", format);
         let available_formats = export_manager.available_formats();
         println!(
-            "💡 Supported formats: {}",
+            "Supported: {}",
             available_formats
                 .iter()
                 .map(|f| f.id.as_str())
@@ -40,8 +40,7 @@ pub async fn handle_export(
     let novel_id = match resolve_novel_id(&novel_input, storage).await? {
         Some(id) => id,
         None => {
-            println!("❌ Novel not found: {}", novel_input);
-            println!("💡 Use 'quelle search <query>' to find novels");
+            println!("Novel not found: {}", novel_input);
             return Ok(());
         }
     };
@@ -49,24 +48,19 @@ pub async fn handle_export(
     let novel = match storage.get_novel(&novel_id).await? {
         Some(novel) => novel,
         None => {
-            println!("❌ Novel not found: {}", novel_id.as_str());
+            println!("Novel not found: {}", novel_id.as_str());
             return Ok(());
         }
     };
 
-    println!("📚 Exporting novel: {}", novel.title);
-    println!("  Authors: {}", novel.authors.join(", "));
+    println!("Exporting: {}", novel.title);
 
     // List chapters to export
     let chapter_list = storage.list_chapters(&novel_id).await?;
     let available_chapters: Vec<_> = chapter_list.iter().filter(|c| c.has_content()).collect();
 
     if available_chapters.is_empty() {
-        println!("❌ No chapter content available for export");
-        println!(
-            "💡 Use 'quelle update {}' to download content first",
-            novel_input
-        );
+        println!("No content available for export");
         return Ok(());
     }
 
@@ -83,7 +77,7 @@ pub async fn handle_export(
         PathBuf::from(filename)
     };
 
-    println!("  Output: {}", output_path.display());
+    println!("Output: {}", output_path.display());
 
     let export_options = if include_images {
         ExportOptions::new()
@@ -91,7 +85,7 @@ pub async fn handle_export(
         ExportOptions::new().without_images()
     };
 
-    println!("📖 Starting {} export...", format.to_uppercase());
+    println!("Exporting to {}...", format);
 
     let file = tokio::fs::File::create(&output_path).await?;
     let writer = Box::new(file);
@@ -101,13 +95,14 @@ pub async fn handle_export(
         .await
     {
         Ok(result) => {
-            println!("✅ Successfully exported to: {}", output_path.display());
-            println!("  📄 Chapters processed: {}", result.chapters_processed);
-            println!("  📁 File size: {} bytes", result.total_size);
-            println!("  ⏱️  Export time: {:?}", result.export_duration);
+            println!(
+                "Exported {} chapters to {}",
+                result.chapters_processed,
+                output_path.display()
+            );
         }
         Err(e) => {
-            eprintln!("❌ Export failed: {}", e);
+            eprintln!("Export failed: {}", e);
             return Err(e.into());
         }
     }
@@ -124,7 +119,7 @@ async fn export_all_novels(
 ) -> Result<()> {
     let novels = storage.list_novels(&NovelFilter::default()).await?;
     if novels.is_empty() {
-        println!("📚 No novels found in library");
+        println!("No novels in library");
         return Ok(());
     }
 
@@ -139,7 +134,7 @@ async fn export_all_novels(
     let output_path = PathBuf::from(&output_dir);
 
     std::fs::create_dir_all(&output_path)?;
-    println!("  📁 Output directory: {}", output_path.display());
+    println!("Output directory: {}", output_path.display());
 
     let mut exported_count = 0;
     let mut failed_count = 0;
@@ -150,7 +145,6 @@ async fn export_all_novels(
         let available_chapters = chapter_list.iter().filter(|c| c.has_content()).count();
 
         if available_chapters == 0 {
-            println!("  ⏭️ {} (no content, skipped)", novel.title);
             skipped_count += 1;
             continue;
         }
@@ -172,7 +166,7 @@ async fn export_all_novels(
         let file = match tokio::fs::File::create(&novel_output_path).await {
             Ok(f) => f,
             Err(e) => {
-                eprintln!("    ❌ Failed to create file: {}", e);
+                eprintln!("Failed to create file: {}", e);
                 failed_count += 1;
                 continue;
             }
@@ -192,18 +186,16 @@ async fn export_all_novels(
                 exported_count += 1;
             }
             Err(e) => {
-                eprintln!("    ❌ Failed: {}", e);
+                eprintln!("Failed: {}", e);
                 failed_count += 1;
             }
         }
     }
 
-    println!("\n📊 Bulk export complete:");
-    println!("  ✅ Exported: {}", exported_count);
-    println!("  ⏭️ Skipped (no content): {}", skipped_count);
-    if failed_count > 0 {
-        println!("  ❌ Failed: {}", failed_count);
-    }
+    println!(
+        "Export complete: {} exported, {} skipped, {} failed",
+        exported_count, skipped_count, failed_count
+    );
 
     Ok(())
 }

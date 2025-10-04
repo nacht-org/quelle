@@ -64,10 +64,7 @@ async fn main() -> Result<()> {
     // Handle store loading errors gracefully - invalid stores shouldn't prevent CLI startup
     if let Err(e) = config.apply(&mut store_manager).await {
         if !cli.quiet {
-            eprintln!("⚠️  Warning: Some extension stores could not be loaded:");
-            eprintln!("   {}", e);
-            eprintln!("💡 Use 'quelle store list' to see configured stores");
-            eprintln!("   Invalid stores can be removed with 'quelle store remove <name>'");
+            eprintln!("Warning: Some extension stores could not be loaded: {}", e);
         }
     }
 

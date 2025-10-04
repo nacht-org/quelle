@@ -42,21 +42,11 @@ async fn handle_list_novels(source: Option<String>, storage: &FilesystemStorage)
 
     let novels = storage.list_novels(&filter).await?;
     if novels.is_empty() {
-        println!("📚 No novels found in library.");
-        println!("💡 Use 'quelle fetch novel <url>' to add novels to your library.");
+        println!("No novels in library");
     } else {
-        println!("📚 Library ({} novels):", novels.len());
+        println!("Library ({} novels):", novels.len());
         for novel in novels {
-            println!("  📖 {} by {}", novel.title, novel.authors.join(", "));
-            println!("     ID: {}", novel.id.as_str());
-            println!("     Status: {:?}", novel.status);
-            if novel.total_chapters > 0 {
-                println!(
-                    "     Chapters: {} total, {} downloaded",
-                    novel.total_chapters, novel.stored_chapters
-                );
-            }
-            println!();
+            println!("{} - {} chapters", novel.title, novel.total_chapters);
         }
     }
     Ok(())
@@ -66,22 +56,12 @@ async fn handle_show_novel(novel_input: String, storage: &FilesystemStorage) -> 
     match resolve_novel_id(&novel_input, storage).await? {
         Some(novel_id) => match storage.get_novel(&novel_id).await? {
             Some(novel) => {
-                println!("📖 {}", novel.title);
+                println!("{}", novel.title);
                 println!("Authors: {}", novel.authors.join(", "));
-                println!("URL: {}", novel.url);
                 println!("Status: {:?}", novel.status);
-                if !novel.langs.is_empty() {
-                    println!("Languages: {}", novel.langs.join(", "));
-                }
-                if !novel.description.is_empty() {
-                    println!("Description: {}", novel.description.join(" "));
-                }
-                if let Some(cover) = &novel.cover {
-                    println!("Cover: {}", cover);
-                }
             }
             None => {
-                println!("❌ Novel data not found: {}", novel_id.as_str());
+                println!("Novel not found: {}", novel_id.as_str());
             }
         },
         None => {
@@ -101,16 +81,16 @@ pub async fn handle_list_chapters(
             let chapters = storage.list_chapters(&novel_id).await?;
 
             if chapters.is_empty() {
-                println!("📄 No chapters found for novel: {}", novel_input);
+                println!("No chapters found");
                 return Ok(());
             }
 
-            println!("📄 Chapters for {}:", novel_input);
+            println!("Chapters ({}):", chapters.len());
             for chapter in chapters {
                 if !downloaded_only || chapter.has_content() {
-                    let status = if chapter.has_content() { "✅" } else { "⬜" };
+                    let status = if chapter.has_content() { "Y" } else { "N" };
                     println!(
-                        "  {} {} - {}",
+                        "  [{}] Ch.{} {}",
                         status, chapter.chapter_index, chapter.chapter_title
                     );
                 }
@@ -164,7 +144,7 @@ pub async fn handle_read_chapter(
                     }
                 }
             } else {
-                println!("❌ Chapter not found: {}", chapter);
+                println!("Chapter not found: {}", chapter);
             }
         }
         None => {
@@ -190,11 +170,9 @@ pub async fn handle_sync_novels(
     }
 
     if novel_input == "all" {
-        println!("🔄 Syncing all novels for new chapters...");
-
         let novels = storage.list_novels(&NovelFilter::default()).await?;
         if novels.is_empty() {
-            println!("📚 No novels in library to sync");
+            println!("No novels to sync");
             return Ok(());
         }
 
@@ -211,8 +189,6 @@ pub async fn handle_sync_novels(
                             novel_summary.title, new_chapters
                         );
                         total_new_chapters += new_chapters;
-                    } else {
-                        println!("  📖 {} - up to date", novel_summary.title);
                     }
                     synced_count += 1;
                 }
@@ -222,40 +198,25 @@ pub async fn handle_sync_novels(
                 }
             }
         }
-
-        println!("\n📊 Sync Summary:");
-        println!("  🔄 Novels synced: {}", synced_count);
-        println!("  📄 New chapters found: {}", total_new_chapters);
-        if failed_count > 0 {
-            println!("  ❌ Failed syncs: {}", failed_count);
-        }
-
-        if total_new_chapters > 0 {
-            println!("\n💡 Use 'quelle library update all' to download new chapters");
-        }
+        println!(
+            "Synced: {}, new chapters: {}, failed: {}",
+            synced_count, total_new_chapters, failed_count
+        );
     } else {
         match resolve_novel_id(&novel_input, storage).await? {
-            Some(novel_id) => {
-                println!("🔄 Syncing novel {} for new chapters...", novel_input);
-
-                match sync_single_novel(&novel_id, storage, store_manager).await {
-                    Ok(new_chapters) => {
-                        if new_chapters > 0 {
-                            println!("✅ Found {} new chapters", new_chapters);
-                            println!(
-                                "💡 Use 'quelle library update {}' to download them",
-                                novel_input
-                            );
-                        } else {
-                            println!("✅ Novel is up to date - no new chapters found");
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Failed to sync novel: {}", e);
-                        return Err(e);
+            Some(novel_id) => match sync_single_novel(&novel_id, storage, store_manager).await {
+                Ok(new_chapters) => {
+                    if new_chapters > 0 {
+                        println!("Found {} new chapters", new_chapters);
+                    } else {
+                        println!("Up to date");
                     }
                 }
-            }
+                Err(e) => {
+                    eprintln!("Failed to sync: {}", e);
+                    return Err(e);
+                }
+            },
             None => {
                 show_novel_not_found_help(&novel_input, storage).await;
             }
@@ -286,7 +247,7 @@ pub async fn handle_update_novels(
 
         let novels = storage.list_novels(&NovelFilter::default()).await?;
         if novels.is_empty() {
-            println!("📚 No novels in library to update");
+            println!("No novels to update");
             return Ok(());
         }
 
@@ -304,8 +265,6 @@ pub async fn handle_update_novels(
                             novel_summary.title, downloaded
                         );
                         total_downloaded += downloaded;
-                    } else {
-                        println!("  📖 {} - no new chapters to download", novel_summary.title);
                     }
                     updated_count += 1;
                 }
@@ -315,13 +274,10 @@ pub async fn handle_update_novels(
                 }
             }
         }
-
-        println!("\n📊 Update Summary:");
-        println!("  📖 Novels processed: {}", updated_count);
-        println!("  📄 Chapters downloaded: {}", total_downloaded);
-        if failed_count > 0 {
-            println!("  ❌ Failed updates: {}", failed_count);
-        }
+        println!(
+            "Updated: {}, downloaded: {}, failed: {}",
+            updated_count, total_downloaded, failed_count
+        );
     } else {
         match resolve_novel_id(&novel_input, storage).await? {
             Some(novel_id) => {
@@ -330,13 +286,13 @@ pub async fn handle_update_novels(
                 match update_single_novel(&novel_id, storage, &mut store_manager, &engine).await {
                     Ok(downloaded) => {
                         if downloaded > 0 {
-                            println!("✅ Downloaded {} new chapters", downloaded);
+                            println!("Downloaded {} chapters", downloaded);
                         } else {
-                            println!("✅ No new chapters to download - novel is up to date");
+                            println!("Up to date");
                         }
                     }
                     Err(e) => {
-                        eprintln!("❌ Failed to update novel: {}", e);
+                        eprintln!("Failed to update: {}", e);
                         return Err(e);
                     }
                 }
@@ -479,16 +435,16 @@ pub async fn handle_remove_novel(
                     let mut input = String::new();
                     io::stdin().read_line(&mut input)?;
                     if !input.trim().to_lowercase().starts_with('y') {
-                        println!("❌ Cancelled");
+                        println!("Cancelled");
                         return Ok(());
                     }
                 }
 
                 storage.delete_novel(&novel_id).await?;
-                println!("✅ Removed novel: {}", novel.title);
+                println!("Removed: {}", novel.title);
             }
             None => {
-                println!("❌ Novel data not found: {}", novel_id.as_str());
+                println!("Novel not found: {}", novel_id.as_str());
             }
         },
         None => {
@@ -504,14 +460,12 @@ async fn handle_cleanup_library(storage: &FilesystemStorage, dry_run: bool) -> R
         return Ok(());
     }
 
-    println!("🧹 Cleaning up library...");
     let report = storage.cleanup_dangling_data().await?;
-    println!("✅ Cleanup completed:");
     println!(
-        "  Removed {} orphaned chapters",
+        "Cleanup: {} orphaned chapters removed",
         report.orphaned_chapters_removed
     );
-    println!("  Updated {} novel metadata", report.novels_fixed);
+    println!("Updated {} novel metadata", report.novels_fixed);
     if !report.errors_encountered.is_empty() {
         println!("  {} errors encountered:", report.errors_encountered.len());
         for error in &report.errors_encountered {
@@ -527,10 +481,9 @@ async fn handle_library_stats(storage: &FilesystemStorage) -> Result<()> {
     let total_chapters: u32 = novels.iter().map(|n| n.total_chapters).sum();
     let downloaded_chapters: u32 = novels.iter().map(|n| n.stored_chapters).sum();
 
-    println!("📊 Library Statistics:");
-    println!("  📖 Novels: {}", total_novels);
+    println!("Novels: {}", total_novels);
     println!(
-        "  📄 Chapters: {} total, {} downloaded",
+        "Chapters: {} total, {} downloaded",
         total_chapters, downloaded_chapters
     );
 

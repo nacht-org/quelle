@@ -85,8 +85,7 @@ async fn handle_add_store(
 
     // Check if store already exists
     if config.registry.has_source(&name) {
-        println!("❌ Store '{}' already exists", name);
-        println!("💡 Use 'quelle store remove {}' to remove it first", name);
+        println!("Store '{}' already exists", name);
         return Ok(());
     }
 
@@ -95,16 +94,13 @@ async fn handle_add_store(
     // Save CLI configuration
     config.save().await?;
 
-    println!("✅ Added store '{}'", name);
+    println!("Added store '{}'", name);
 
     // Try to apply the updated registry config to store manager
     // If it fails (e.g., store doesn't have proper manifest), warn but don't fail
     store_manager.clear_extension_stores().await?;
     if let Err(e) = config.registry.apply(store_manager).await {
-        println!("⚠️  Warning: Store added to configuration but could not be loaded:");
-        println!("   {}", e);
-        println!("💡 Make sure the store contains a valid manifest file");
-        println!("   The store will be retried on next CLI startup");
+        println!("Warning: Store added but could not be loaded: {}", e);
     }
 
     Ok(())
@@ -401,7 +397,7 @@ async fn handle_remove_store(
 ) -> Result<()> {
     // Check if store exists
     if !config.registry.has_source(&name) {
-        println!("❌ Store '{}' not found", name);
+        println!("Store '{}' not found", name);
         return Ok(());
     }
 
@@ -411,7 +407,7 @@ async fn handle_remove_store(
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
         if !input.trim().to_lowercase().starts_with('y') {
-            println!("❌ Cancelled");
+            println!("Cancelled");
             return Ok(());
         }
     }
@@ -419,32 +415,27 @@ async fn handle_remove_store(
     // Remove the store from CLI configuration
     let removed = config.registry.remove_source(&name);
     if !removed {
-        println!("❌ Failed to remove store '{}'", name);
+        println!("Failed to remove store '{}'", name);
         return Ok(());
     }
 
     // Save CLI configuration
     config.save().await?;
 
-    println!("✅ Removed store '{}'", name);
+    println!("Removed store '{}'", name);
 
     // Try to apply the updated registry config to store manager
     // If it fails, warn but don't fail the removal operation
     store_manager.clear_extension_stores().await?;
     if let Err(e) = config.registry.apply(store_manager).await {
-        println!(
-            "⚠️  Warning: Store removed from configuration but error reloading remaining stores:"
-        );
-        println!("   {}", e);
-        println!("💡 Remaining stores will be retried on next CLI startup");
+        println!("Warning: Error reloading remaining stores: {}", e);
     }
     Ok(())
 }
 
 async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
     if registry_config.extension_sources.is_empty() {
-        println!("📦 No extension stores configured");
-        println!("💡 Use 'quelle store add <name> <location>' to add stores");
+        println!("No extension stores configured");
         return Ok(());
     }
 
@@ -467,7 +458,7 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
                     }
                 );
                 if source.trusted {
-                    println!("     Trusted: ✅ Yes");
+                    println!("     Trusted: Yes");
                 }
             }
             StoreType::Git {
@@ -498,7 +489,7 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
                     }
                 );
                 if source.trusted {
-                    println!("     Trusted: ✅ Yes");
+                    println!("     Trusted: Yes");
                 }
             }
         }
@@ -509,10 +500,8 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
 
 async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> Result<()> {
     if name == "all" {
-        println!("🔄 Refreshing all extension stores...");
-
         if registry_config.extension_sources.is_empty() {
-            println!("📦 No stores configured");
+            println!("No stores configured");
             return Ok(());
         }
 
@@ -530,20 +519,20 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
             match source.as_cacheable() {
                 Ok(Some(cacheable_store)) => match cacheable_store.refresh_cache().await {
                     Ok(_) => {
-                        println!(" ✅ Refreshed");
+                        println!(" Refreshed");
                         updated_count += 1;
                     }
                     Err(e) => {
-                        println!(" ❌ Failed: {}", e);
+                        println!(" Failed: {}", e);
                         failed_count += 1;
                     }
                 },
                 Ok(None) => {
-                    println!(" ℹ️ Store does not support caching");
+                    println!(" No caching support");
                     updated_count += 1;
                 }
                 Err(e) => {
-                    println!(" ❌ Failed to create store: {}", e);
+                    println!(" Failed to create store: {}", e);
                     failed_count += 1;
                 }
             }
@@ -554,8 +543,6 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
             updated_count, failed_count
         );
     } else {
-        println!("🔄 Refreshing store '{}'...", name);
-
         let source = registry_config
             .extension_sources
             .iter()
@@ -565,22 +552,21 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
             Some(source) => match source.as_cacheable() {
                 Ok(Some(cacheable_store)) => match cacheable_store.refresh_cache().await {
                     Ok(_) => {
-                        println!("✅ Store '{}' refreshed successfully", name);
+                        println!("Store '{}' refreshed", name);
                     }
                     Err(e) => {
-                        println!("❌ Failed to refresh store '{}': {}", name, e);
+                        println!("Failed to refresh store '{}': {}", name, e);
                     }
                 },
                 Ok(None) => {
-                    println!("ℹ️ Store '{}' does not support caching", name);
+                    println!("Store '{}' has no caching support", name);
                 }
                 Err(e) => {
-                    println!("❌ Failed to create store '{}': {}", name, e);
+                    println!("Failed to create store '{}': {}", name, e);
                 }
             },
             None => {
-                println!("❌ Store '{}' not found or disabled", name);
-                println!("💡 Use 'quelle store list' to see available stores");
+                println!("Store '{}' not found or disabled", name);
             }
         }
     }
@@ -600,7 +586,7 @@ async fn handle_store_info(
 
     match source {
         Some(source) => {
-            println!("📍 Store: {}", source.name);
+            println!("Store: {}", source.name);
             println!("Type: {:?}", source.store_type);
             println!("Priority: {}", source.priority);
             println!("Enabled: {}", source.enabled);
@@ -652,9 +638,9 @@ async fn handle_store_info(
                                 println!(
                                     "Status: {}",
                                     if health.healthy {
-                                        "✅ Healthy"
+                                        "Healthy"
                                     } else {
-                                        "❌ Unhealthy"
+                                        "Unhealthy"
                                     }
                                 );
                                 if let Some(count) = health.extension_count {
@@ -669,7 +655,7 @@ async fn handle_store_info(
                                 );
                             }
                             Err(e) => {
-                                println!("Status: ❌ Health check failed: {}", e);
+                                println!("Status: Health check failed: {}", e);
                             }
                         }
 

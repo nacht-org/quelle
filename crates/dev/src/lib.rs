@@ -117,21 +117,17 @@ pub async fn handle_dev_command(cmd: DevCommands) -> Result<()> {
 }
 
 async fn start_dev_server(extension_name: String, watch: bool, use_chrome: bool) -> Result<()> {
-    println!(
-        "🚀 Starting development server for extension: {}",
-        extension_name
-    );
+    println!("Starting dev server: {}", extension_name);
 
     let extension_path = find_extension_path(&extension_name)?;
     let mut dev_server = DevServer::new(extension_name.clone(), extension_path, use_chrome).await?;
 
-    // Initial build
-    println!("📦 Building extension...");
+    println!("Building...");
     dev_server.build_extension().await?;
     dev_server.load_extension().await?;
 
     if watch {
-        println!("👀 Watching for file changes...");
+        println!("Watching for changes...");
         let (tx, rx) = mpsc::channel();
         let mut watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
@@ -159,33 +155,25 @@ async fn start_dev_server(extension_name: String, watch: bool, use_chrome: bool)
                     continue;
                 }
 
-                println!("📝 Files changed, rebuilding...");
+                println!("Rebuilding...");
                 let rt = tokio::runtime::Handle::current();
                 if let Ok(mut server) = server_for_watcher.lock() {
                     match rt.block_on(server.build_extension()) {
                         Ok(_) => {
                             if let Err(e) = rt.block_on(server.load_extension()) {
-                                println!("❌ Failed to reload extension: {}", e);
+                                println!("Failed to reload: {}", e);
                             } else {
-                                println!("✅ Extension reloaded successfully");
+                                println!("Reloaded");
                             }
                         }
-                        Err(e) => println!("❌ Build failed: {}", e),
+                        Err(e) => println!("Build failed: {}", e),
                     }
                     last_build = Instant::now();
                 }
             }
         });
 
-        // Interactive command loop
-        println!("💻 Development server ready! Available commands:");
-        println!("  test <url>     - Test novel info fetching");
-        println!("  search <query> - Test search functionality");
-        println!("  chapter <url>  - Test chapter content fetching");
-        println!("  meta          - Show extension metadata");
-        println!("  rebuild       - Force rebuild extension");
-        println!("  quit          - Exit development server");
-        println!("  (Use ↑/↓ arrow keys for command history)");
+        println!("Commands: test <url>, search <query>, chapter <url>, meta, rebuild, quit");
 
         // Create readline editor with history
         let mut rl =
@@ -218,7 +206,7 @@ async fn start_dev_server(extension_name: String, watch: bool, use_chrome: bool)
                         Ok(cmd) => {
                             if let Ok(mut server) = dev_server.lock() {
                                 if let Err(e) = server.handle_parsed_command(cmd).await {
-                                    println!("❌ Command failed: {}", e);
+                                    println!("Command failed: {}", e);
                                 }
                             }
                         }
@@ -242,10 +230,10 @@ async fn start_dev_server(extension_name: String, watch: bool, use_chrome: bool)
                                     println!("{}", e);
                                 } else {
                                     println!(
-                                        "❌ Invalid command. Type 'help' for available commands."
+                                        "Invalid command. Type 'help' for available commands."
                                     );
                                     if !e.to_string().contains("clap") {
-                                        println!("   Error: {}", e);
+                                        println!("Error: {}", e);
                                     }
                                 }
                             }
@@ -272,7 +260,7 @@ async fn start_dev_server(extension_name: String, watch: bool, use_chrome: bool)
         }
     }
 
-    println!("👋 Development server stopped");
+    println!("Server stopped");
     Ok(())
 }
 
@@ -281,10 +269,7 @@ async fn start_interactive_test(
     url: Option<Url>,
     query: Option<String>,
 ) -> Result<()> {
-    println!(
-        "🧪 Starting interactive test for extension: {}",
-        extension_name
-    );
+    println!("Testing extension: {}", extension_name);
 
     let extension_path = find_extension_path(&extension_name)?;
     let mut dev_server = DevServer::new(extension_name, extension_path, false).await?;
@@ -293,26 +278,24 @@ async fn start_interactive_test(
     dev_server.load_extension().await?;
 
     if let Some(ref test_url) = url {
-        println!("🔍 Testing novel info fetch for: {}", test_url);
+        println!("Testing novel: {}", test_url);
         dev_server.test_novel_info(test_url.to_string()).await?;
     }
 
     if let Some(ref search_query) = query {
-        println!("🔍 Testing search for: {}", search_query);
+        println!("Testing search: {}", search_query);
         dev_server.test_search(search_query.clone()).await?;
     }
 
     if url.is_none() && query.is_none() {
-        println!(
-            "💡 No test URL or query provided. Use --url or --query flags to test specific functionality."
-        );
+        println!("No test URL or query provided. Use --url or --query flags.");
     }
 
     Ok(())
 }
 
 async fn validate_extension(extension_name: String, extended: bool) -> Result<()> {
-    println!("✅ Validating extension: {}", extension_name);
+    println!("Validating: {}", extension_name);
 
     let extension_path = find_extension_path(&extension_name)?;
 
@@ -336,43 +319,42 @@ async fn validate_extension(extension_name: String, extended: bool) -> Result<()
         return Err(eyre!("lib.rs not found in src directory"));
     }
 
-    println!("✅ Basic structure validation passed");
+    println!("Structure OK");
 
     // Try to build the extension
-    println!("🔨 Building extension...");
+    println!("Building...");
     let mut dev_server = DevServer::new(extension_name, extension_path, false).await?;
     dev_server.build_extension().await?;
 
-    println!("✅ Build validation passed");
+    println!("Build OK");
 
     // Try to load and validate metadata
-    println!("📋 Loading extension metadata...");
+    println!("Loading metadata...");
     dev_server.load_extension().await?;
 
     let runner = dev_server.create_runner().await?;
     match runner.meta().await {
         Ok((_, meta)) => {
-            println!("✅ Extension metadata loaded");
+            println!("Metadata OK");
             debug_extension_meta(&meta);
 
             if extended {
-                println!("🔍 Running extended validation...");
+                println!("Running extended validation...");
 
-                // Test that required methods are implemented
                 if meta.capabilities.search.is_some() {
-                    println!("   ✅ Search capability declared");
+                    println!("  Search capability declared");
                 }
 
                 // TODO: Add more extended validation tests
-                println!("✅ Extended validation completed");
+                println!("Extended validation completed");
             }
         }
         Err(e) => {
-            println!("❌ Failed to get extension metadata: {}", e);
+            println!("Failed to get metadata: {}", e);
         }
     }
 
-    println!("🎉 Extension validation completed successfully");
+    println!("Validation completed");
     Ok(())
 }
 
@@ -393,10 +375,8 @@ fn create_extension_engine_with_cache(
 ) -> Result<ExtensionEngine> {
     // Create base executor
     let base_executor: std::sync::Arc<dyn quelle_engine::http::HttpExecutor> = if use_chrome {
-        println!("🌐 Using Chrome HTTP executor for better JavaScript support");
         std::sync::Arc::new(quelle_engine::http::HeadlessChromeExecutor::new())
     } else {
-        println!("🌐 Using Reqwest HTTP executor");
         std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new())
     };
 
@@ -449,7 +429,7 @@ impl DevServer {
     async fn build_extension(&mut self) -> Result<()> {
         let start_time = Instant::now();
 
-        println!("🔨 Building extension '{}'...", self.extension_name);
+        println!("Building '{}'...", self.extension_name);
 
         let output = tokio::process::Command::new("cargo")
             .args(&[
@@ -470,7 +450,7 @@ impl DevServer {
         }
 
         let build_time = start_time.elapsed();
-        println!("✅ Build completed in {:.2}s", build_time.as_secs_f64());
+        println!("Build completed ({:.2}s)", build_time.as_secs_f64());
 
         self.build_cache
             .insert(self.extension_name.clone(), Instant::now());
@@ -497,7 +477,7 @@ impl DevServer {
 
         // Test that the extension loads properly - get metadata
         let (_, _meta) = runner.meta().await?;
-        debug!("✅ Extension loaded successfully");
+        debug!("Extension loaded successfully");
         Ok(())
     }
 
@@ -517,7 +497,7 @@ impl DevServer {
                 self.show_metadata().await?;
             }
             DevServerCommand::Rebuild => {
-                println!("🔄 Force rebuilding extension...");
+                println!("Rebuilding...");
                 self.build_extension().await?;
                 self.load_extension().await?;
             }
@@ -528,7 +508,7 @@ impl DevServer {
                 self.show_cache_stats().await?;
             }
             DevServerCommand::Quit => {
-                println!("👋 Goodbye!");
+                println!("Goodbye!");
             }
         }
 
@@ -536,30 +516,30 @@ impl DevServer {
     }
 
     async fn test_novel_info(&mut self, url: String) -> Result<()> {
-        println!("🔍 Testing novel info fetch for: {}", url);
+        println!("Testing novel: {}", url);
         let start_time = Instant::now();
 
         let runner = self.create_runner().await?;
 
         // Fetch novel info
         let (runner, result) = runner.fetch_novel_info(&url).await.map_err(|e| {
-            println!("❌ Failed to fetch novel info: {}", e);
+            println!("Failed to fetch novel: {}", e);
             e
         })?;
 
         let novel = result.map_err(|e| {
-            println!("❌ Extension error: {:?}", e);
+            println!("Extension error: {:?}", e);
             eyre!("Extension error: {:?}", e)
         })?;
 
         let fetch_time = start_time.elapsed();
-        println!("✅ Novel info fetched in {:.2}s", fetch_time.as_secs_f64());
+        println!("Novel fetched ({:.2}s)", fetch_time.as_secs_f64());
         debug_novel_info(&novel);
 
         // Try to fetch first chapter
         if let Some(first_volume) = novel.volumes.first() {
             if let Some(first_chapter) = first_volume.chapters.first() {
-                println!("\n📖 Also fetching first chapter: {}", first_chapter.title);
+                println!("Testing first chapter: {}", first_chapter.title);
                 let chapter_start_time = Instant::now();
 
                 let (_, chapter_result) =
@@ -567,26 +547,23 @@ impl DevServer {
                         .fetch_chapter(&first_chapter.url)
                         .await
                         .map_err(|e| {
-                            println!("❌ Failed to fetch chapter content: {}", e);
+                            println!("Failed to fetch chapter: {}", e);
                             e
                         })?;
 
                 let content = chapter_result.map_err(|e| {
-                    println!("❌ Chapter extension error: {:?}", e);
+                    println!("Chapter extension error: {:?}", e);
                     eyre!("Chapter extension error: {:?}", e)
                 })?;
 
                 let chapter_fetch_time = chapter_start_time.elapsed();
-                println!(
-                    "✅ Chapter content fetched in {:.2}s",
-                    chapter_fetch_time.as_secs_f64()
-                );
+                println!("Chapter fetched ({:.2}s)", chapter_fetch_time.as_secs_f64());
                 debug_chapter_content(&first_chapter.url, &content);
             } else {
-                println!("⚠️ No chapters found in first volume");
+                println!("No chapters in first volume");
             }
         } else {
-            println!("⚠️ No volumes found in novel");
+            println!("No volumes found");
         }
 
         Ok(())
@@ -604,7 +581,7 @@ impl DevServer {
     }
 
     async fn test_search(&mut self, query: String) -> Result<()> {
-        println!("🔍 Testing search for: '{}'", query);
+        println!("Testing search: '{}'", query);
         let start_time = Instant::now();
 
         let search_query = SimpleSearchQuery {
@@ -619,15 +596,15 @@ impl DevServer {
             Ok((_, result)) => match result {
                 Ok(results) => {
                     let search_time = start_time.elapsed();
-                    println!("✅ Search completed in {:.2}s", search_time.as_secs_f64());
+                    println!("Search completed ({:.2}s)", search_time.as_secs_f64());
                     debug_search_results(&query, &results);
                 }
                 Err(e) => {
-                    println!("❌ Extension error: {:?}", e);
+                    println!("Extension error: {:?}", e);
                 }
             },
             Err(e) => {
-                println!("❌ Search failed: {}", e);
+                println!("Search failed: {}", e);
             }
         }
 
@@ -635,7 +612,7 @@ impl DevServer {
     }
 
     async fn test_chapter_content(&mut self, url: String) -> Result<()> {
-        println!("📖 Testing chapter content fetch for: {}", url);
+        println!("Testing chapter: {}", url);
         let start_time = Instant::now();
 
         let runner = self.create_runner().await?;
@@ -644,18 +621,15 @@ impl DevServer {
             Ok((_, result)) => match result {
                 Ok(content) => {
                     let fetch_time = start_time.elapsed();
-                    println!(
-                        "✅ Chapter content fetched in {:.2}s",
-                        fetch_time.as_secs_f64()
-                    );
+                    println!("Chapter fetched ({:.2}s)", fetch_time.as_secs_f64());
                     debug_chapter_content(&url, &content);
                 }
                 Err(e) => {
-                    println!("❌ Extension error: {:?}", e);
+                    println!("Extension error: {:?}", e);
                 }
             },
             Err(e) => {
-                println!("❌ Failed to fetch chapter content: {}", e);
+                println!("Failed to fetch chapter: {}", e);
             }
         }
 
@@ -672,11 +646,11 @@ impl DevServer {
                 // Show recent build info if available
                 if let Some(build_time) = self.build_cache.get(&self.extension_name) {
                     let age = build_time.elapsed();
-                    println!("   Last built: {:.1} minutes ago", age.as_secs_f64() / 60.0);
+                    println!("  Last built: {:.1} minutes ago", age.as_secs_f64() / 60.0);
                 }
             }
             Err(e) => {
-                println!("❌ Failed to get metadata: {}", e);
+                println!("Failed to get metadata: {}", e);
             }
         }
 
@@ -688,30 +662,28 @@ impl DevServer {
         // We need to access the caching executor, but it's wrapped in the engine
         // For now, we'll just print a message. In a real implementation, we'd need
         // to expose the cache clearing functionality through the engine
-        println!(
-            "🧹 Cache clearing requested (not yet implemented - restart server to clear cache)"
-        );
+        println!("Cache clearing not implemented - restart server to clear cache");
         Ok(())
     }
 
     /// Show cache statistics
     async fn show_cache_stats(&mut self) -> Result<()> {
-        println!("📊 Cache statistics (not yet implemented - need engine API)");
+        println!("Cache statistics not implemented");
         Ok(())
     }
 }
 
 /// Debug output functions for development server
 fn debug_novel_info(novel: &Novel) {
-    println!("📚 Novel Info:");
-    println!("   Title: {}", novel.title);
-    println!("   Authors: {:?}", novel.authors);
-    println!("   Status: {:?}", novel.status);
-    println!("   Languages: {:?}", novel.langs);
-    println!("   Volumes: {}", novel.volumes.len());
+    println!("Novel Info:");
+    println!("  Title: {}", novel.title);
+    println!("  Authors: {:?}", novel.authors);
+    println!("  Status: {:?}", novel.status);
+    println!("  Languages: {:?}", novel.langs);
+    println!("  Volumes: {}", novel.volumes.len());
 
     for (i, volume) in novel.volumes.iter().enumerate() {
-        println!("   Volume {}: {} chapters", i, volume.chapters.len());
+        println!("  Volume {}: {} chapters", i, volume.chapters.len());
     }
 
     if let Some(description) = novel.description.first() {
@@ -720,57 +692,53 @@ fn debug_novel_info(novel: &Novel) {
         } else {
             description.clone()
         };
-        println!("   Description: {}", desc_preview);
+        println!("  Description: {}", desc_preview);
     }
 
-    println!("   Metadata entries: {}", novel.metadata.len());
+    println!("  Metadata entries: {}", novel.metadata.len());
 }
 
 fn debug_search_results(query: &str, results: &SearchResult) {
-    println!("🔍 Search Results for '{}':", query);
-    println!("   Found: {} novels", results.novels.len());
-    println!("   Current page: {}", results.current_page);
+    println!("Search Results for '{}':", query);
+    println!("  Found: {} novels", results.novels.len());
+    println!("  Page: {}", results.current_page);
     if let Some(total_pages) = results.total_pages {
-        println!("   Total pages: {}", total_pages);
+        println!("  Total pages: {}", total_pages);
     }
-    println!("   Has next: {}", results.has_next_page);
+    println!("  Has next: {}", results.has_next_page);
 
     for (i, novel) in results.novels.iter().take(5).enumerate() {
-        println!("   {}. {} - {}", i + 1, novel.title, novel.url);
+        println!("  {}. {} - {}", i + 1, novel.title, novel.url);
     }
 
     if results.novels.len() > 5 {
-        println!("   ... and {} more results", results.novels.len() - 5);
+        println!("  ... and {} more results", results.novels.len() - 5);
     }
 }
 
 fn debug_chapter_content(url: &str, content: &ChapterContent) {
-    println!("📖 Chapter Content from {}:", url);
-    println!("   Content length: {} characters", content.data.len());
+    println!("Chapter Content from {}:", url);
+    println!("  Length: {} characters", content.data.len());
 
-    // Show content preview
     let preview = if content.data.len() > 200 {
         format!("{}...", &content.data[..197])
     } else {
         content.data.clone()
     };
-    println!("   Preview: {}", preview.replace('\n', " "));
+    println!("  Preview: {}", preview.replace('\n', " "));
 }
 
 fn debug_extension_meta(meta: &SourceMeta) {
-    println!("📋 Extension Metadata:");
-    println!("   ID: {}", meta.id);
-    println!("   Name: {}", meta.name);
-    println!("   Version: {}", meta.version);
-    println!("   Languages: {:?}", meta.langs);
-    println!("   Base URLs: {:?}", meta.base_urls);
-    println!("   Reading Directions: {:?}", meta.rds);
+    println!("Extension Metadata:");
+    println!("  ID: {}", meta.id);
+    println!("  Name: {}", meta.name);
+    println!("  Version: {}", meta.version);
+    println!("  Languages: {:?}", meta.langs);
+    println!("  Base URLs: {:?}", meta.base_urls);
+    println!("  Reading Directions: {:?}", meta.rds);
 
     if let Some(search_caps) = &meta.capabilities.search {
-        println!("   Search Capabilities:");
-        println!(
-            "     - Simple search: {}",
-            search_caps.supports_simple_search
-        );
+        println!("  Search Capabilities:");
+        println!("    Simple search: {}", search_caps.supports_simple_search);
     }
 }

@@ -33,19 +33,19 @@ pub async fn handle_add_command(
         return Ok(());
     }
 
-    println!("📚 Adding novel from: {}", url);
+    println!("Adding novel: {}", url);
 
     let fetch_novel_cmd = FetchCommands::Novel { url: url.clone() };
     handle_fetch_command(fetch_novel_cmd, store_manager, storage, false).await?;
 
     if !no_chapters {
-        println!("📄 Fetching chapters...");
+        println!("Fetching chapters...");
 
         handle_fetch_chapters_with_limit(url.to_string(), max_chapters, store_manager, storage)
             .await?;
     }
 
-    println!("✅ Novel added successfully!");
+    println!("Novel added");
     Ok(())
 }
 
@@ -66,10 +66,10 @@ pub async fn handle_update_command(
 
     if novel == "all" {
         if check_only {
-            println!("🔍 Checking all novels for new chapters");
+            println!("Checking for updates...");
             return handle_sync_novels("all".to_string(), storage, store_manager, false).await;
         } else {
-            println!("🔄 Updating all novels with new chapters");
+            println!("Updating all novels...");
             return handle_update_novels("all".to_string(), storage, false).await;
         }
     }
@@ -78,10 +78,8 @@ pub async fn handle_update_command(
         Some(novel_id) => {
             let novel_id_str = novel_id.as_str().to_string();
             if check_only {
-                println!("🔍 Checking for new chapters in: {}", novel);
                 handle_sync_novels(novel_id_str, storage, store_manager, false).await
             } else {
-                println!("🔄 Updating novel: {}", novel);
                 handle_update_novels(novel_id_str, storage, false).await
             }
         }
@@ -113,18 +111,14 @@ pub async fn handle_read_command(
             use crate::commands::library::{handle_list_chapters, handle_read_chapter};
 
             if list {
-                println!("📚 Listing chapters for: {}", novel);
                 handle_list_chapters(novel_id_str, true, storage).await
             } else {
                 match chapter {
                     Some(chapter_id) => {
-                        println!("📖 Reading chapter: {}", chapter_id);
                         handle_read_chapter(novel_id_str, chapter_id, storage).await
                     }
                     None => {
-                        println!(
-                            "📚 Please specify a chapter to read, or use --list to see available chapters"
-                        );
+                        println!("Specify chapter number or use --list");
                         handle_list_chapters(novel_id_str, true, storage).await
                     }
                 }
@@ -154,7 +148,6 @@ pub async fn handle_remove_command(
 
     match resolve_novel_id(&novel, storage).await? {
         Some(novel_id) => {
-            println!("🗑️  Removing novel: {}", novel);
             handle_remove_novel(novel_id.as_str().to_string(), force, storage, false).await
         }
         None => {
@@ -176,13 +169,13 @@ async fn handle_fetch_chapters_with_limit(
     };
     use quelle_storage::{ChapterContent, traits::BookStorage, types::NovelId};
 
-    println!("📚 Fetching chapters for novel: {}", novel_id);
+    println!("Fetching chapters...");
 
     let (novel, novel_storage_id) = if novel_id.starts_with("http") {
         let novel = match storage.find_novel_by_url(&novel_id).await? {
             Some(novel) => novel,
             None => {
-                println!("❌ Novel not found with URL: {}", novel_id);
+                println!("Novel not found: {}", novel_id);
                 return Ok(());
             }
         };
@@ -199,7 +192,7 @@ async fn handle_fetch_chapters_with_limit(
         let novel = match storage.get_novel(&id).await? {
             Some(novel) => novel,
             None => {
-                println!("❌ Novel not found with ID: {}", novel_id);
+                println!("Novel not found: {}", novel_id);
                 return Ok(());
             }
         };
@@ -220,10 +213,7 @@ async fn handle_fetch_chapters_with_limit(
     if let Some(limit) = max_chapters {
         if chapters.len() > limit {
             chapters.truncate(limit);
-            println!(
-                "📏 Limited to {} chapters (out of {} available)",
-                limit, original_count
-            );
+            println!("Limited to {} of {} chapters", limit, original_count);
         }
     }
 
@@ -231,16 +221,15 @@ async fn handle_fetch_chapters_with_limit(
     let mut failed_count = 0;
     let mut skipped_count = 0;
 
-    println!("📄 Processing {} chapters", chapters.len());
+    println!("Processing {} chapters", chapters.len());
 
     for chapter_info in chapters {
         if chapter_info.has_content() {
-            println!("  ⏭️ {} (already downloaded)", chapter_info.chapter_title);
             skipped_count += 1;
             continue;
         }
 
-        println!("📥 Fetching: {}", chapter_info.chapter_title);
+        print!(".");
 
         let chapter_content = match fetch_chapter_with_extension(
             &extension,
@@ -271,7 +260,6 @@ async fn handle_fetch_chapters_with_limit(
             .await
         {
             Ok(_updated_chapter) => {
-                println!("  ✅ {}", chapter_info.chapter_title);
                 success_count += 1;
             }
             Err(e) => {
@@ -281,12 +269,10 @@ async fn handle_fetch_chapters_with_limit(
         }
     }
 
-    println!("📊 Fetch complete:");
-    println!("  ✅ Successfully fetched: {}", success_count);
-    println!("  ⏭️ Already downloaded: {}", skipped_count);
-    if failed_count > 0 {
-        println!("  ❌ Failed: {}", failed_count);
-    }
+    println!(
+        "\nFetched: {}, skipped: {}, failed: {}",
+        success_count, skipped_count, failed_count
+    );
 
     Ok(())
 }
@@ -303,8 +289,8 @@ pub async fn handle_export_command(
     match format.as_str() {
         "epub" | "pdf" => {}
         _ => {
-            eprintln!("❌ Unsupported export format: {}", format);
-            eprintln!("💡 Supported formats: epub, pdf");
+            eprintln!("Unsupported format: {}", format);
+            eprintln!("Supported: epub, pdf");
             return Ok(());
         }
     }

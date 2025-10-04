@@ -49,27 +49,19 @@ async fn handle_fetch_novel(
     // Find extension that can handle this URL
     match find_extension_for_url(url.as_ref(), store_manager).await? {
         Some((extension_id, _store_name)) => {
-            println!("📦 Found extension: {}", extension_id);
-
-            // Install extension if not already installed
             if store_manager.get_installed(&extension_id).await?.is_none() {
-                println!("📥 Installing extension {}...", extension_id);
                 match store_manager.install(&extension_id, None, None).await {
                     Ok(installed) => {
-                        println!(
-                            "✅ Installed {} ({}) v{}",
-                            installed.name, installed.id, installed.version
-                        );
+                        println!("Installed {} v{}", installed.name, installed.version);
                     }
                     Err(e) => {
-                        eprintln!("❌ Failed to install {}: {}", extension_id, e);
+                        eprintln!("Failed to install {}: {}", extension_id, e);
                         return Err(e.into());
                     }
                 }
             }
 
-            // Use the installed extension to fetch novel info
-            println!("📖 Fetching novel info from: {}", url);
+            println!("Fetching novel...");
 
             if let Some(installed) = store_manager.get_installed(&extension_id).await? {
                 match fetch_novel_with_extension(
@@ -80,28 +72,12 @@ async fn handle_fetch_novel(
                 .await
                 {
                     Ok(novel) => {
-                        println!("✅ Successfully fetched novel information:");
-                        println!("  📖 Title: {}", novel.title);
-                        println!("  👤 Authors: {}", novel.authors.join(", "));
-
-                        if !novel.description.is_empty() {
-                            let desc = novel.description.join(" ");
-                            let short_desc = if desc.len() > 200 {
-                                format!("{}...", &desc[..197])
-                            } else {
-                                desc
-                            };
-                            println!("  📄 Description: {}", short_desc);
-                        }
-
-                        if let Some(cover) = &novel.cover {
-                            println!("  🎨 Cover URL: {}", cover);
-                        }
+                        println!("{}", novel.title);
+                        println!("Authors: {}", novel.authors.join(", "));
 
                         let total_chapters: u32 =
                             novel.volumes.iter().map(|v| v.chapters.len() as u32).sum();
-                        println!("  📚 Total chapters: {}", total_chapters);
-                        println!("  📊 Status: {:?}", novel.status);
+                        println!("Chapters: {}", total_chapters);
 
                         // Save to local storage
                         match storage.store_novel(&novel).await {
@@ -113,35 +89,30 @@ async fn handle_fetch_novel(
 
                                 // Fetch cover image if available
                                 if let Some(cover_url) = &novel.cover {
-                                    println!("📷 Checking cover image...");
                                     match fetch_and_store_asset(&novel_id, cover_url, storage).await
                                     {
-                                        Ok(_) => {} // Message handled by fetch_and_store_asset
-                                        Err(e) => warn!("⚠️ Failed to fetch cover: {}", e),
+                                        Ok(_) => {}
+                                        Err(e) => warn!("Failed to fetch cover: {}", e),
                                     }
                                 }
                             }
                             Err(e) => {
-                                eprintln!("❌ Failed to save to library: {}", e);
+                                eprintln!("Failed to save: {}", e);
                                 return Err(e.into());
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("❌ Failed to fetch novel info: {}", e);
+                        eprintln!("Failed to fetch novel: {}", e);
                         return Err(e);
                     }
                 }
             } else {
-                eprintln!("❌ Extension {} not found in registry", extension_id);
+                eprintln!("Extension {} not found", extension_id);
             }
         }
         None => {
-            eprintln!("❌ No extension found that can handle URL: {}", url);
-            eprintln!("💡 Try:");
-            eprintln!("  • Adding more extension stores with: quelle store add");
-            eprintln!("  • Installing a compatible extension manually");
-            eprintln!("  • Checking if the URL is correct");
+            eprintln!("No compatible extension found for: {}", url);
         }
     }
     Ok(())
@@ -162,36 +133,25 @@ async fn handle_fetch_chapter(
         match find_extension_for_url(url.as_ref(), store_manager).await? {
             Some(ext) => ext,
             None => {
-                eprintln!("❌ No extension found that can handle URL: {}", url);
-                eprintln!("💡 Try adding more extension stores with: quelle store add");
+                eprintln!("No compatible extension found for: {}", url);
                 return Ok(());
             }
         };
-
-    println!("📦 Found extension: {}", extension_id);
-
-    // Install extension if not already installed
     if store_manager.get_installed(&extension_id).await?.is_none() {
-        println!("📥 Installing extension {}...", extension_id);
         let installed = match store_manager.install(&extension_id, None, None).await {
             Ok(installed) => installed,
             Err(e) => {
-                eprintln!("❌ Failed to install {}: {}", extension_id, e);
+                eprintln!("Failed to install {}: {}", extension_id, e);
                 return Err(e.into());
             }
         };
-        println!(
-            "✅ Installed {} ({}) v{}",
-            installed.name, installed.id, installed.version
-        );
+        println!("Installed {} v{}", installed.name, installed.version);
     }
-
-    println!("📄 Fetching chapter from: {}", url);
 
     let installed = match store_manager.get_installed(&extension_id).await? {
         Some(installed) => installed,
         None => {
-            eprintln!("❌ Extension {} not found in registry", extension_id);
+            eprintln!("Extension {} not found", extension_id);
             return Ok(());
         }
     };
@@ -205,28 +165,21 @@ async fn handle_fetch_chapter(
     {
         Ok(chapter) => chapter,
         Err(e) => {
-            eprintln!("❌ Failed to fetch chapter: {}", e);
+            eprintln!("Failed to fetch chapter: {}", e);
             return Err(e);
         }
     };
 
-    println!("✅ Successfully fetched chapter:");
-    println!("  📄 Content length: {} characters", chapter.data.len());
-
-    // Show first few lines of content
+    println!("Chapter fetched ({} chars)", chapter.data.len());
     let preview = if chapter.data.len() > 200 {
         format!("{}...", &chapter.data[..200])
     } else {
         chapter.data.clone()
     };
-    println!("  📖 Preview: {}", preview.replace('\n', " ").trim());
-
-    // Try to save chapter to storage if we can find the novel
     let novel = match storage.find_novel_by_url(url.as_ref()).await {
         Ok(Some(novel)) => novel,
         _ => {
-            println!("ℹ️ Chapter not saved - novel not found in library");
-            println!("💡 Fetch the novel first with: quelle fetch novel <novel_url>");
+            println!("Chapter not saved - novel not in library");
             return Ok(());
         }
     };
@@ -240,7 +193,7 @@ async fn handle_fetch_chapter(
             let novels = match storage.list_novels(&filter).await {
                 Ok(novels) => novels,
                 Err(e) => {
-                    eprintln!("❌ Failed to list novels: {}", e);
+                    eprintln!("Failed to list novels: {}", e);
                     break;
                 }
             };
@@ -394,12 +347,12 @@ async fn handle_fetch_all(
         return Ok(());
     }
 
-    println!("🚀 Fetching everything from: {}", url);
+    println!("Fetching novel and chapters...");
 
     handle_fetch_novel(url.clone(), store_manager, storage, false).await?;
     handle_fetch_chapters(url.to_string(), store_manager, storage, false).await?;
 
-    println!("🎉 Complete! Novel and all chapters fetched successfully");
+    println!("Complete");
     Ok(())
 }
 
@@ -486,12 +439,11 @@ async fn fetch_and_store_asset(
     storage: &FilesystemStorage,
 ) -> Result<AssetId> {
     if let Some(existing_asset_id) = storage.find_asset_by_url(asset_url).await? {
-        println!("✅ Cover image already downloaded");
+        println!("Cover already downloaded");
         return Ok(existing_asset_id);
     }
 
-    println!("📷 Downloading cover image...");
-    info!("📷 Fetching asset from: {}", asset_url);
+    println!("Downloading cover...");
     let response = reqwest::get(asset_url).await?;
 
     if !response.status().is_success() {
