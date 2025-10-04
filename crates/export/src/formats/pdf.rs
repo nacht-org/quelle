@@ -76,7 +76,7 @@ impl Exporter for PdfExporter {
                 .map(|e| format!("{}", e.message))
                 .collect::<Vec<_>>()
                 .join(", ");
-            eprintln!("Typst compilation errors: {}", error_msg);
+            tracing::error!("Typst compilation errors: {}", error_msg);
             ExportError::FormatError {
                 message: format!("Typst compilation failed: {}", error_msg),
             }
@@ -85,9 +85,9 @@ impl Exporter for PdfExporter {
         // Check for warnings
         let warnings = warned.warnings;
         if !warnings.is_empty() {
-            eprintln!("Typst compilation warnings:");
+            tracing::warn!("Typst compilation warnings:");
             for warning in warnings {
-                eprintln!("  {}", warning.message);
+                tracing::warn!("  {}", warning.message);
             }
         }
 
@@ -165,7 +165,7 @@ pub async fn generate_typst_content(
 ) -> Result<String> {
     let mut content = String::new();
 
-    log::info!(
+    tracing::info!(
         "Generating Typst content for novel '{}' with {} chapters",
         novel.title,
         chapters.len()
@@ -263,7 +263,7 @@ pub async fn generate_typst_content(
         content.push_str("\n\n");
     }
 
-    log::info!(
+    tracing::info!(
         "Generated Typst content: {} characters total",
         content.len()
     );
