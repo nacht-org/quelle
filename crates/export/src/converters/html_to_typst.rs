@@ -137,21 +137,23 @@ impl HtmlToTypstConverter {
 
             // Emphasis and strong
             "em" | "i" => {
-                result.push_str("_");
+                result.push_str("#emph[");
                 self.convert_element(element, result)?;
-                result.push_str("_");
+                result.push_str("]");
             }
             "strong" | "b" => {
-                result.push_str("*");
+                result.push_str("#strong[");
                 self.convert_element(element, result)?;
-                result.push_str("*");
+                result.push_str("]");
             }
 
             // Code
             "code" => {
-                result.push_str("`");
-                self.convert_element(element, result)?;
-                result.push_str("`");
+                result.push_str("#raw(\"");
+                // For raw text, we need to get the text content directly without escaping
+                let code_text = element.text().collect::<String>();
+                result.push_str(&code_text.replace("\"", "\\\""));
+                result.push_str("\")");
             }
             "pre" => {
                 result.push_str("\n```\n");
@@ -199,9 +201,9 @@ impl HtmlToTypstConverter {
             // Images
             "img" => {
                 if let Some(alt) = element.value().attr("alt") {
-                    result.push_str(&format!("_{}_", self.escape_typst_text(alt)));
+                    result.push_str(&format!("#emph[{}]", self.escape_typst_text(alt)));
                 } else {
-                    result.push_str("_[Image]_");
+                    result.push_str("#emph[[Image]]");
                 }
             }
 
@@ -317,7 +319,12 @@ impl HtmlToTypstConverter {
 
     /// Escape special Typst characters in text
     fn escape_typst_text(&self, text: &str) -> String {
+        // Important: backslashes must be escaped first to avoid double-escaping
+        // the escape sequences we add for other characters
         text.replace('\\', "\\\\")
+            .replace('_', "\\_")
+            .replace('*', "\\*")
+            .replace('`', "\\`")
             .replace('[', "\\[")
             .replace(']', "\\]")
             .replace('{', "\\{")
@@ -386,8 +393,8 @@ mod tests {
         "#;
 
         let result = convert_html_to_typst(html).unwrap();
-        assert!(result.contains("*paragraph*"));
-        assert!(result.contains("_emphasis_"));
+        assert!(result.contains("#strong[paragraph]"));
+        assert!(result.contains("#emph[emphasis]"));
         assert!(result.contains("#link("));
     }
 
@@ -434,15 +441,17 @@ example</pre>
         "#;
 
         let result = convert_html_to_typst(html).unwrap();
-        assert!(result.contains("`code`"));
+        assert!(result.contains("#raw(\"code\")"));
         assert!(result.contains("```"));
     }
 
     #[test]
     fn test_escape_special_chars() {
         let converter = HtmlToTypstConverter::new();
-        let result = converter.escape_typst_text("Test [brackets] and #hash");
-        assert_eq!(result, "Test \\[brackets\\] and \\#hash");
+        let result = converter.escape_typst_text(
+            "Test [brackets] and #hash with _underscores_ and *asterisks* plus `backticks`",
+        );
+        assert_eq!(result, "Test \\[brackets\\] and \\#hash with \\_underscores\\_ and \\*asterisks\\* plus \\`backticks\\`");
     }
 
     #[test]
@@ -468,6 +477,117 @@ example</pre>
     fn test_image_alt_text() {
         let html = r#"<img src="image.jpg" alt="A beautiful sunset" />"#;
         let result = convert_html_to_typst(html).unwrap();
-        assert!(result.contains("_A beautiful sunset_"));
+        assert!(result.contains("#emph[A beautiful sunset]"));
+    }
+
+    #[test]
+    fn test_problematic_underscore_text() {
+        // Test the specific case that was causing issues
+        let html =
+            r#"<p>[Fractured] was_hard_—the average stat for a healthy adult male was 1.0.</p>"#;
+        let result = convert_html_to_typst(html).unwrap();
+
+        // Should escape underscores in regular text
+        assert!(result.contains("was\\_hard\\_—the"));
+        // Should escape brackets
+        assert!(result.contains("\\[Fractured\\]"));
+
+        println!("Result: {}", result);
+    }
+
+    #[test]
+    fn test_mixed_formatting_with_underscores() {
+        let html = r#"<p>This has <em>emphasis_with_underscores</em> and normal_text_with_underscores.</p>"#;
+        let result = convert_html_to_typst(html).unwrap();
+
+        // Underscores in emphasized text should be escaped
+        assert!(result.contains("#emph[emphasis\\_with\\_underscores]"));
+        // Underscores in normal text should be escaped
+        assert!(result.contains("normal\\_text\\_with\\_underscores"));
+
+        println!("Mixed formatting result: {}", result);
+    }
+
+    #[test]
+    fn test_html_parsing_vs_plain_text() {
+        // Test 1: Pure HTML with the problematic text
+        let html_wrapped = r#"<p>[Fractured] was_hard_—the average stat</p>"#;
+        let result1 = convert_html_to_typst(html_wrapped).unwrap();
+        println!("HTML wrapped: {}", result1);
+
+        // Test 2: Mixed HTML and plain text (simulating real content)
+        let mixed_content = r#"
+        <div>
+            <p>Some paragraph</p>
+            [Fractured] was_hard_—the average stat for a healthy adult male was 1.0.
+            <p>Another paragraph</p>
+        </div>
+        "#;
+        let result2 = convert_html_to_typst(mixed_content).unwrap();
+        println!("Mixed content: {}", result2);
+
+        // Test 3: Plain text only
+        let plain_text = "[Fractured] was_hard_—the average stat";
+        let result3 = convert_html_to_typst(plain_text).unwrap();
+        println!("Plain text: {}", result3);
+
+        // All should have escaped underscores
+        assert!(result1.contains("was\\_hard\\_"));
+        assert!(result2.contains("was\\_hard\\_"));
+        assert!(result3.contains("was\\_hard\\_"));
+    }
+
+    #[test]
+    fn test_escape_function_directly() {
+        let converter = HtmlToTypstConverter::new();
+
+        // Test the exact problematic text
+        let test_text = "[Fractured] was_hard_—the average stat";
+        let escaped = converter.escape_typst_text(test_text);
+        println!("Direct escape test:");
+        println!("Input:  {}", test_text);
+        println!("Output: {}", escaped);
+
+        // Check each character type
+        assert!(
+            escaped.contains("\\[Fractured\\]"),
+            "Brackets should be escaped"
+        );
+        assert!(
+            escaped.contains("was\\_hard\\_"),
+            "Underscores should be escaped"
+        );
+
+        // Test individual characters
+        assert_eq!(converter.escape_typst_text("_"), "\\_");
+        assert_eq!(converter.escape_typst_text("["), "\\[");
+        assert_eq!(converter.escape_typst_text("]"), "\\]");
+        assert_eq!(converter.escape_typst_text("*"), "\\*");
+        assert_eq!(converter.escape_typst_text("`"), "\\`");
+    }
+
+    #[test]
+    fn test_exact_problematic_html() {
+        // Test HTML content that contains the problematic text
+        let html = r#"<p>If it weren't for his current situation, Maria would've burst into birdsong from excitement.</p>
+<p>[Fractured] was_hard_—the average stat for a healthy adult male was 1.0. Maria's starting attributes? Off the charts. Her race? Totally broken. Her talents? Literally game-changing.</p>"#;
+
+        let result = convert_html_to_typst(html).unwrap();
+        println!("Exact problematic HTML test:");
+        println!("Input HTML (relevant part): [Fractured] was_hard_—the average stat...");
+        println!("Result: {}", result);
+
+        // Should have escaped underscores
+        assert!(
+            result.contains("was\\_hard\\_"),
+            "Expected escaped underscores, got: {}",
+            result
+        );
+        // Should have escaped brackets
+        assert!(
+            result.contains("\\[Fractured\\]"),
+            "Expected escaped brackets, got: {}",
+            result
+        );
     }
 }

@@ -230,18 +230,20 @@ pub async fn generate_typst_content(
         match use_fallback_converter(&chapter_content.data) {
             Ok(typst_content) => {
                 if !typst_content.trim().is_empty() {
-                    // Apply additional sanitization to ensure safety
+                    // Apply light sanitization only for Unicode characters
                     let safe_content = sanitize_for_typst(&typst_content);
                     content.push_str(&safe_content);
                 } else {
                     content.push_str("_No content available_");
                 }
             }
-            Err(_) => {
+            Err(_e) => {
                 // Fallback to simple HTML tag stripping
                 let plain_text = strip_html_tags(&chapter_content.data);
                 if !plain_text.trim().is_empty() {
-                    let safe_text = sanitize_for_typst(&plain_text);
+                    // For fallback text, we need full escaping since it wasn't processed by the converter
+                    let escaped_text = escape_typst(&plain_text);
+                    let safe_text = sanitize_for_typst(&escaped_text);
                     content.push_str(&safe_text);
                 } else {
                     content.push_str("_No content available_");
@@ -280,22 +282,13 @@ fn sanitize_title(title: &str) -> String {
 }
 
 /// Sanitize text content for safe use in Typst documents
+/// This is a light safety layer that only handles special Unicode characters
+/// and whitespace cleanup. Regular Typst escaping should be done by the converter.
 fn sanitize_for_typst(text: &str) -> String {
     text
-        // Remove or replace problematic Typst characters
+        // Only handle special Unicode characters that might not be escaped properly
         .replace('【', "[")
         .replace('】', "]")
-        .replace('#', "\\#")
-        .replace('$', "\\$")
-        .replace('@', "\\@")
-        .replace('\\', "\\\\")
-        .replace('{', "\\{")
-        .replace('}', "\\}")
-        .replace('[', "\\[")
-        .replace(']', "\\]")
-        .replace('*', "\\*")
-        .replace('_', "\\_")
-        .replace('`', "\\`")
         // Clean up excessive whitespace
         .lines()
         .map(|line| line.trim())
