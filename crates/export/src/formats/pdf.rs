@@ -2,11 +2,11 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use comemo::Prehashed;
 use std::collections::HashMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
-use typst::foundations::{Bytes, Datetime, Smart};
+use comemo::Prehashed;
+use typst::foundations::{Bytes, Datetime};
 use typst::syntax::{FileId, Source, VirtualPath};
 use typst::text::{Font, FontBook};
 use typst::{Library, World};
@@ -92,7 +92,7 @@ impl Exporter for PdfExporter {
         }
 
         // Convert to PDF bytes
-        let pdf_bytes = typst_pdf::pdf(&document, Smart::Auto, None);
+        let pdf_bytes = typst_pdf::pdf(&document, typst::foundations::Smart::Auto, None);
 
         // Write PDF to output
         writer.write_all(&pdf_bytes).await?;
@@ -366,11 +366,12 @@ struct TypstWorld {
 
 impl TypstWorld {
     fn new(content: String, font_book: Prehashed<FontBook>, fonts: Vec<Font>) -> Self {
-        let main_source = Source::new(FileId::new(None, VirtualPath::new("main.typ")), content);
+        let main_id = FileId::new(None, VirtualPath::new("main.typ"));
+        let main_source = Source::new(main_id, content);
 
         let library = Prehashed::new(Library::builder().build());
         let mut files = HashMap::new();
-        files.insert(main_source.id(), main_source.clone());
+        files.insert(main_id, main_source.clone());
 
         Self {
             main_source,
