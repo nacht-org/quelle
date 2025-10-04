@@ -1787,6 +1787,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "extension_royalroad"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "eyre",
+ "once_cell",
+ "quelle_extension",
+ "regex",
+ "tracing",
+]
+
+[[package]]
 name = "extension_scribblehub"
 version = "0.1.0"
 dependencies = [
