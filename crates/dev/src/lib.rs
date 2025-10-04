@@ -381,34 +381,35 @@ fn find_extension_path(extension_name: &str) -> Result<PathBuf> {
     Ok(extension_path)
 }
 
-fn create_extension_engine_with_cache(
-    cache_dir: Option<std::path::PathBuf>,
+fn create_extension_engine_with_cache_ref(
+    cache_dir: Option<PathBuf>,
     use_chrome: bool,
-) -> Result<ExtensionEngine> {
-    // Create base executor
+) -> Result<(ExtensionEngine, Option<Arc<CachingHttpExecutor>>)> {
     let base_executor: std::sync::Arc<dyn quelle_engine::http::HttpExecutor> = if use_chrome {
         std::sync::Arc::new(quelle_engine::http::HeadlessChromeExecutor::new())
     } else {
         std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new())
     };
 
-    // Wrap with caching executor
-    let http_executor = if let Some(cache_dir) = cache_dir {
-        std::sync::Arc::new(
+    let caching_executor = if let Some(cache_dir) = cache_dir {
+        Arc::new(
             CachingHttpExecutor::with_file_cache(base_executor, cache_dir)
                 .with_ttl(600) // 10 minutes TTL for dev
                 .with_max_cache_size(500),
-        ) as std::sync::Arc<dyn quelle_engine::http::HttpExecutor>
+        )
     } else {
-        std::sync::Arc::new(
+        Arc::new(
             CachingHttpExecutor::new(base_executor)
                 .with_ttl(300) // 5 minutes TTL for in-memory cache
                 .with_max_cache_size(200),
-        ) as std::sync::Arc<dyn quelle_engine::http::HttpExecutor>
+        )
     };
 
-    ExtensionEngine::new(http_executor)
-        .map_err(|e| eyre!("Failed to create extension engine: {}", e))
+    let executor_clone =
+        caching_executor.clone() as std::sync::Arc<dyn quelle_engine::http::HttpExecutor>;
+    let engine = quelle_engine::ExtensionEngine::new(executor_clone)?;
+
+    Ok((engine, Some(caching_executor)))
 }
 
 struct DevServer {
@@ -416,6 +417,7 @@ struct DevServer {
     extension_path: PathBuf,
     engine: ExtensionEngine,
     build_cache: HashMap<String, Instant>,
+    caching_executor: Option<Arc<CachingHttpExecutor>>,
 }
 
 impl DevServer {
@@ -428,13 +430,16 @@ impl DevServer {
         let cache_dir = std::env::temp_dir()
             .join("quelle_dev_cache")
             .join(&extension_name);
-        let engine = create_extension_engine_with_cache(Some(cache_dir), use_chrome)?;
+
+        let (engine, caching_executor) =
+            create_extension_engine_with_cache_ref(Some(cache_dir), use_chrome)?;
 
         Ok(Self {
             extension_name,
             extension_path,
             engine,
             build_cache: HashMap::new(),
+            caching_executor,
         })
     }
 
@@ -683,16 +688,25 @@ impl DevServer {
 
     /// Clear the HTTP cache
     async fn clear_cache(&mut self) -> Result<()> {
-        // We need to access the caching executor, but it's wrapped in the engine
-        // For now, we'll just print a message. In a real implementation, we'd need
-        // to expose the cache clearing functionality through the engine
-        println!("Cache clearing not implemented - restart server to clear cache");
+        if let Some(caching_executor) = &self.caching_executor {
+            caching_executor.clear_cache().await;
+            println!("✅ Cache cleared successfully");
+        } else {
+            println!("ℹ️  No cache to clear (using non-caching HTTP executor)");
+        }
         Ok(())
     }
 
     /// Show cache statistics
     async fn show_cache_stats(&mut self) -> Result<()> {
-        println!("Cache statistics not implemented");
+        if let Some(caching_executor) = &self.caching_executor {
+            let (memory_count, file_count) = caching_executor.cache_stats().await;
+            println!("📊 Cache Statistics:");
+            println!("  Memory cache entries: {}", memory_count);
+            println!("  File cache entries: {}", file_count);
+        } else {
+            println!("ℹ️  No cache statistics available (using non-caching HTTP executor)");
+        }
         Ok(())
     }
 }

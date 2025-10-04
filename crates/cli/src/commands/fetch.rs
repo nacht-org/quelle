@@ -171,7 +171,7 @@ async fn handle_fetch_chapter(
     };
 
     println!("Chapter fetched ({} chars)", chapter.data.len());
-    let preview = if chapter.data.len() > 200 {
+    let _preview = if chapter.data.len() > 200 {
         format!("{}...", &chapter.data[..200])
     } else {
         chapter.data.clone()

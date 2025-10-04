@@ -170,6 +170,7 @@ pub struct LocalStore {
     cache: RwLock<HashMap<String, Vec<ExtensionInfo>>>,
     cache_timestamp: RwLock<Option<Instant>>,
     validator: ValidationEngine,
+    #[allow(dead_code)]
     name: String,
     cache_enabled: bool,
     readonly: bool,
@@ -1660,8 +1661,7 @@ impl WritableStore for LocalStore {
         let enhanced_manifest = package.manifest.clone();
 
         // Write WASM component using path from manifest
-        let wasm_path =
-            version_dir.join(enhanced_manifest.wasm_file.path.trim_start_matches("./"));
+        let wasm_path = version_dir.join(enhanced_manifest.wasm_file.path.trim_start_matches("./"));
         if let Some(parent) = wasm_path.parent() {
             fs::create_dir_all(parent).await?;
         }

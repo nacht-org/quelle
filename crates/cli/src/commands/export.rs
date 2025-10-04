@@ -201,6 +201,7 @@ async fn export_all_novels(
 }
 
 // Backward compatibility function for EPUB export
+#[allow(dead_code)]
 pub async fn handle_export_epub(
     novel_input: String,
     output: Option<String>,

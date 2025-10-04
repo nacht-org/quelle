@@ -16,7 +16,7 @@ use crate::utils::{resolve_novel_id, show_novel_not_found_help};
 pub async fn handle_library_command(
     cmd: LibraryCommands,
     storage: &FilesystemStorage,
-    store_manager: &mut StoreManager,
+    _store_manager: &mut StoreManager,
     dry_run: bool,
 ) -> Result<()> {
     match cmd {
@@ -349,7 +349,7 @@ async fn update_single_novel(
     novel_id: &NovelId,
     storage: &FilesystemStorage,
     store_manager: &mut quelle_store::StoreManager,
-    engine: &quelle_engine::ExtensionEngine,
+    _engine: &quelle_engine::ExtensionEngine,
 ) -> Result<u32> {
     let stored_novel = storage
         .get_novel(novel_id)

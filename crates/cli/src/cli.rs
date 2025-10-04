@@ -246,6 +246,9 @@ pub enum ExtensionCommands {
         /// Force update even if no new version
         #[arg(long)]
         force: bool,
+        /// Only check for updates, don't install them
+        #[arg(long)]
+        check_only: bool,
     },
     /// Remove an extension
     Remove {
