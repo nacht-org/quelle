@@ -183,17 +183,16 @@ pub async fn generate_typst_content(
     content.push_str("  numbering: \"1\",\n");
     content.push_str(")\n\n");
 
-    // Text formatting
+    // Text formatting - use default fonts for compatibility
+    let language = novel.langs.first().map(|s| s.as_str()).unwrap_or("en");
     content.push_str("#set text(\n");
-    content.push_str("  font: \"Linux Libertine\",\n");
-    content.push_str("  size: 11pt,\n");
-    content.push_str("  lang: \"en\",\n");
+    content.push_str("  size: 12pt,\n");
+    content.push_str(&format!("  lang: \"{}\",\n", language));
     content.push_str(")\n\n");
 
     // Paragraph formatting
     content.push_str("#set par(\n");
     content.push_str("  justify: true,\n");
-    content.push_str("  first-line-indent: 1em,\n");
     content.push_str(")\n\n");
 
     // Title page
