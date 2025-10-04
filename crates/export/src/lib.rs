@@ -8,6 +8,7 @@ pub mod manager;
 pub mod traits;
 pub mod types;
 
+pub mod converters;
 pub mod formats;
 
 // Re-export main types
@@ -16,8 +17,14 @@ pub use manager::ExportManager;
 pub use traits::Exporter;
 pub use types::{ExportOptions, ExportProgress, ExportResult, FormatInfo};
 
-// Re-export EPUB exporter
-pub use formats::EpubExporter;
+// Re-export exporters
+pub use formats::{EpubExporter, PdfExporter};
+
+// Re-export converters
+pub use converters::{
+    convert_html_to_typst, convert_html_to_typst_with_config, ConversionConfig,
+    HtmlToTypstConverter,
+};
 
 // Re-export storage types we work with
 pub use quelle_storage::{BookStorage, ChapterContent, Novel, NovelId};
@@ -26,9 +33,10 @@ pub use quelle_storage::{BookStorage, ChapterContent, Novel, NovelId};
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const NAME: &str = env!("CARGO_PKG_NAME");
 
-/// Create an export manager with EPUB exporter registered
+/// Create an export manager with all exporters registered
 pub fn default_export_manager() -> Result<ExportManager> {
     let mut manager = ExportManager::new();
     manager.register(EpubExporter::new())?;
+    manager.register(PdfExporter::new())?;
     Ok(manager)
 }

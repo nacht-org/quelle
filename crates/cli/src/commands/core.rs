@@ -4,7 +4,7 @@ use quelle_store::StoreManager;
 use url::Url;
 
 use crate::{
-    commands::export::handle_export_epub,
+    commands::export::handle_export,
     utils::{resolve_novel_id, show_novel_not_found_help},
 };
 
@@ -309,12 +309,12 @@ pub async fn handle_export_command(
 ) -> Result<()> {
     // Validate format first
     match format.as_str() {
-        "epub" => {
+        "epub" | "pdf" => {
             // Format is valid, proceed with export
         }
         _ => {
             eprintln!("❌ Unsupported export format: {}", format);
-            eprintln!("💡 Supported formats: epub");
+            eprintln!("💡 Supported formats: epub, pdf");
             return Ok(());
         }
     }
@@ -329,9 +329,14 @@ pub async fn handle_export_command(
         return Ok(());
     }
 
-    // Proceed with actual export based on format
-    match format.as_str() {
-        "epub" => handle_export_epub(novel_input, output, include_images, storage, dry_run).await,
-        _ => unreachable!(), // This should never be reached due to validation above
-    }
+    // Proceed with actual export
+    handle_export(
+        novel_input,
+        format,
+        output,
+        include_images,
+        storage,
+        dry_run,
+    )
+    .await
 }

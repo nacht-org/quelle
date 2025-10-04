@@ -7,8 +7,9 @@ use std::path::PathBuf;
 
 use crate::utils::resolve_novel_id;
 
-pub async fn handle_export_epub(
+pub async fn handle_export(
     novel_input: String,
+    format: String,
     output: Option<String>,
     include_images: bool,
     storage: &FilesystemStorage,
@@ -19,9 +20,24 @@ pub async fn handle_export_epub(
     // Initialize export manager
     let export_manager = default_export_manager()?;
 
+    // Validate format
+    if !export_manager.supports_format(&format) {
+        println!("❌ Unsupported export format: {}", format);
+        let available_formats = export_manager.available_formats();
+        println!(
+            "💡 Supported formats: {}",
+            available_formats
+                .iter()
+                .map(|f| f.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        return Ok(());
+    }
+
     // Handle "all" novels case
     if novel_input == "all" {
-        return export_all_novels(output, include_images, storage, &export_manager).await;
+        return export_all_novels(&format, output, include_images, storage, &export_manager).await;
     }
 
     // Resolve novel input (ID, URL, or title)
@@ -65,7 +81,7 @@ pub async fn handle_export_epub(
     );
 
     // Determine output path
-    let filename = format!("{}.epub", sanitize_filename(&novel.title));
+    let filename = format!("{}.{}", sanitize_filename(&novel.title), format);
     let output_path = if let Some(output_dir) = &output {
         PathBuf::from(output_dir).join(filename)
     } else {
@@ -82,14 +98,14 @@ pub async fn handle_export_epub(
     };
 
     // Export the novel
-    println!("📖 Starting EPUB export...");
+    println!("📖 Starting {} export...", format.to_uppercase());
 
     // Create the output file
     let file = tokio::fs::File::create(&output_path).await?;
     let writer = Box::new(file);
 
     match export_manager
-        .export("epub", storage, &novel_id, writer, &export_options)
+        .export(&format, storage, &novel_id, writer, &export_options)
         .await
     {
         Ok(result) => {
@@ -108,6 +124,7 @@ pub async fn handle_export_epub(
 }
 
 async fn export_all_novels(
+    format: &str,
     output: Option<String>,
     include_images: bool,
     storage: &FilesystemStorage,
@@ -119,7 +136,11 @@ async fn export_all_novels(
         return Ok(());
     }
 
-    println!("📚 Exporting {} novels to EPUB", novels.len());
+    println!(
+        "📚 Exporting {} novels to {}",
+        novels.len(),
+        format.to_uppercase()
+    );
 
     // Determine output directory
     let output_dir = output.unwrap_or_else(|| "./exports".to_string());
@@ -169,7 +190,7 @@ async fn export_all_novels(
         let writer = Box::new(file);
 
         match export_manager
-            .export("epub", storage, &novel.id, writer, &export_options)
+            .export(format, storage, &novel.id, writer, &export_options)
             .await
         {
             Ok(result) => {
@@ -195,6 +216,25 @@ async fn export_all_novels(
     }
 
     Ok(())
+}
+
+// Backward compatibility function for EPUB export
+pub async fn handle_export_epub(
+    novel_input: String,
+    output: Option<String>,
+    include_images: bool,
+    storage: &FilesystemStorage,
+    dry_run: bool,
+) -> Result<()> {
+    handle_export(
+        novel_input,
+        "epub".to_string(),
+        output,
+        include_images,
+        storage,
+        dry_run,
+    )
+    .await
 }
 
 fn sanitize_filename(name: &str) -> String {

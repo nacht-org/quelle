@@ -1,6 +1,8 @@
-//! EPUB export format implementation.
+//! Export format implementations.
 
 pub mod epub;
+pub mod pdf;
 
-// Re-export EPUB exporter
+// Re-export exporters
 pub use epub::EpubExporter;
+pub use pdf::PdfExporter;
