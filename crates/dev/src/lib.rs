@@ -1024,8 +1024,7 @@ crate-type = ["cdylib"]
 }
 
 fn create_lib_rs_template(replacements: &HashMap<&str, &str>) -> String {
-    let template = r#"use eyre::{eyre, OptionExt};
-use once_cell::sync::Lazy;
+    let template = r#"use once_cell::sync::Lazy;
 use quelle_extension::prelude::*;
 
 register_extension!(Extension);
@@ -1065,211 +1064,33 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_novel_info(&self, url: String) -> Result<Novel, eyre::Report> {
-        let response = Request::get(&url)
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get response text"))?;
-
-        let doc = Html::new(&text);
-
-        // TODO: Customize these selectors for your target website
-        let title = doc.select_first("h1.title").text()?; // Update selector
-        let authors = doc.select(".author").text_all()?;   // Update selector
-        let description = doc.select(".description").text_all()?.join("\n"); // Update selector
-
-        let cover = doc
-            .select_first_opt(".cover img")? // Update selector
-            .and_then(|img| img.attr_opt("src"))
-            .map(|src| make_absolute_url(&src, BASE_URL));
-
-        let status = doc
-            .select_first_opt(".status")? // Update selector
-            .map(|node| {
-                let text = node.text_or_empty().to_lowercase();
-                match text.as_str() {
-                    "completed" | "complete" => NovelStatus::Completed,
-                    "ongoing" | "publishing" => NovelStatus::Ongoing,
-                    "hiatus" | "on hiatus" => NovelStatus::Hiatus,
-                    "cancelled" | "dropped" => NovelStatus::Dropped,
-                    _ => NovelStatus::Unknown,
-                }
-            })
-            .unwrap_or(NovelStatus::Unknown);
-
-        let novel = Novel {
-            title,
-            authors,
-            description: vec![description],
-            langs: META.langs.clone(),
-            cover,
-            status,
-            volumes: self.fetch_volumes(&url)?,
-            metadata: self.fetch_metadata(&doc)?,
-            url,
-        };
-
-        Ok(novel)
+        // TODO: Implement novel info scraping for your target website
+        // 1. Make HTTP request to the URL
+        // 2. Parse HTML response
+        // 3. Extract novel information (title, authors, description, etc.)
+        // 4. Extract chapters and organize into volumes
+        // 5. Extract additional metadata (genres, tags, ratings, etc.)
+        todo!("Implement novel info scraping for your target website")
     }
 
     fn fetch_chapter(&self, url: String) -> Result<ChapterContent, eyre::Report> {
-        let response = Request::get(&url)
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get response text"))?;
-
-        let doc = Html::new(&text);
-
-        // TODO: Update this selector for your target website
-        let content = doc.select_first(".chapter-content").html()?; // Update selector
-
-        Ok(ChapterContent { data: content })
+        // TODO: Implement chapter content scraping for your target website
+        // 1. Make HTTP request to the chapter URL
+        // 2. Parse HTML response
+        // 3. Extract chapter content using appropriate selectors
+        // 4. Return ChapterContent with the extracted data
+        todo!("Implement chapter content scraping for your target website")
     }
 
     fn simple_search(&self, query: SimpleSearchQuery) -> Result<SearchResult, eyre::Report> {
-        let current_page = query.page();
-
-        // TODO: Customize search endpoint and parameters for your target website
-        let response = Request::get(&format!("{}/search", BASE_URL)) // Update endpoint
-            .param("q", &query.query)                                 // Update param name
-            .param("page", current_page.to_string())                 // Update param name
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get search results"))?;
-
-        let doc = Html::new(&text);
-        let mut novels = Vec::new();
-
-        // TODO: Update these selectors for your target website
-        for element in doc.select(".search-result")? { // Update selector
-            let title = element
-                .select_first(".result-title")? // Update selector
-                .text_opt()
-                .ok_or_eyre("Failed to get title")?;
-
-            let url = element
-                .select_first("a")? // Update selector
-                .attr_opt("href")
-                .map(|href| make_absolute_url(&href, BASE_URL))
-                .ok_or_eyre("Failed to get url")?;
-
-            let cover = element
-                .select_first_opt(".result-cover img")? // Update selector
-                .and_then(|img| img.attr_opt("src"))
-                .map(|src| make_absolute_url(&src, BASE_URL));
-
-            novels.push(BasicNovel { title, cover, url });
-        }
-
-        // TODO: Update pagination selector
-        let total_pages = doc
-            .select(".pagination a")? // Update selector
-            .into_iter()
-            .filter_map(|element| element.text_opt())
-            .filter_map(|s| s.parse::<u32>().ok())
-            .max()
-            .unwrap_or(current_page);
-
-        Ok(SearchResult {
-            novels,
-            total_count: None,
-            current_page,
-            total_pages: Some(total_pages),
-            has_next_page: current_page < total_pages,
-            has_previous_page: current_page > 1,
-        })
-    }
-}
-
-impl Extension {
-    fn fetch_volumes(&self, novel_url: &str) -> Result<Vec<Volume>, eyre::Report> {
-        let mut volume = Volume::default();
-
-        // TODO: Customize chapter list fetching for your target website
-        // This might be on the same page or require an additional request
-        let response = Request::get(&format!("{}/chapters", novel_url)) // Update endpoint
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get chapters"))?;
-
-        let doc = Html::new(&text);
-
-        // TODO: Update these selectors for your target website
-        for (index, element) in doc
-            .select(".chapter-item")? // Update selector
-            .into_iter()
-            .enumerate()
-        {
-            let title = element
-                .select_first(".chapter-title")? // Update selector
-                .text_or_empty();
-
-            let url = element
-                .select_first("a")? // Update selector
-                .attr_opt("href")
-                .map(|href| make_absolute_url(&href, BASE_URL))
-                .ok_or_eyre("Failed to get chapter url")?;
-
-            let chapter = Chapter {
-                index: index as i32,
-                title,
-                url,
-                updated_at: None, // TODO: Parse chapter dates if available
-            };
-
-            volume.chapters.push(chapter);
-        }
-
-        Ok(vec![volume])
-    }
-
-    fn fetch_metadata(&self, doc: &Html) -> Result<Vec<Metadata>, eyre::Report> {
-        let mut metadata = vec![];
-
-        // TODO: Update these selectors for your target website
-        // Parse genres
-        for element in doc.select(".genre")? { // Update selector
-            metadata.push(Metadata::new(
-                String::from("subject"),
-                element.text_or_empty(),
-                None,
-            ));
-        }
-
-        // Parse tags
-        for element in doc.select(".tag")? { // Update selector
-            metadata.push(Metadata::new(
-                String::from("tag"),
-                element.text_or_empty(),
-                None,
-            ));
-        }
-
-        // Parse rating
-        if let Some(rating_element) = doc.select_first_opt(".rating")? { // Update selector
-            metadata.push(Metadata::new(
-                String::from("rating"),
-                rating_element.text_or_empty(),
-                None,
-            ));
-        }
-
-        Ok(metadata)
+        // TODO: Implement search functionality for your target website
+        // 1. Build search URL with query parameters
+        // 2. Make HTTP request to search endpoint
+        // 3. Parse HTML response
+        // 4. Extract search results (novels list)
+        // 5. Handle pagination if supported
+        // 6. Return SearchResult with novels and pagination info
+        todo!("Implement search functionality for your target website")
     }
 }
 "#;
