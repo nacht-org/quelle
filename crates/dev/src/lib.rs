@@ -14,6 +14,7 @@ use quelle_engine::{ExtensionEngine, ExtensionRunner};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -147,6 +148,8 @@ async fn start_dev_server(extension_name: String, watch: bool, use_chrome: bool)
         // File watcher thread
         let server_for_watcher = dev_server.clone();
         std::thread::spawn(move || {
+            // Create a new tokio runtime for this thread
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             let mut last_build = Instant::now();
 
             while let Ok(_event) = rx.recv() {
@@ -155,21 +158,29 @@ async fn start_dev_server(extension_name: String, watch: bool, use_chrome: bool)
                     continue;
                 }
 
-                println!("Rebuilding...");
-                let rt = tokio::runtime::Handle::current();
+                let rebuild_start = Instant::now();
+                // Clear current line and show rebuild message
+                print!("\r\x1b[K"); // Clear current line
+                print!("Rebuilding... ");
+                std::io::stdout().flush().unwrap();
+
                 if let Ok(mut server) = server_for_watcher.lock() {
-                    match rt.block_on(server.build_extension()) {
+                    match rt.block_on(server.build_extension_silent()) {
                         Ok(_) => {
                             if let Err(e) = rt.block_on(server.load_extension()) {
-                                println!("Failed to reload: {}", e);
+                                println!("failed to reload: {}", e);
                             } else {
-                                println!("Reloaded");
+                                let rebuild_time = rebuild_start.elapsed();
+                                println!("done ({:.2}s)", rebuild_time.as_secs_f64());
                             }
                         }
-                        Err(e) => println!("Build failed: {}", e),
+                        Err(e) => println!("failed: {}", e),
                     }
                     last_build = Instant::now();
                 }
+                // Print prompt again for clarity
+                print!("dev> ");
+                std::io::stdout().flush().unwrap();
             }
         });
 
@@ -427,9 +438,19 @@ impl DevServer {
     }
 
     async fn build_extension(&mut self) -> Result<()> {
+        self.build_extension_with_options(false).await
+    }
+
+    async fn build_extension_silent(&mut self) -> Result<()> {
+        self.build_extension_with_options(true).await
+    }
+
+    async fn build_extension_with_options(&mut self, silent: bool) -> Result<()> {
         let start_time = Instant::now();
 
-        println!("Building '{}'...", self.extension_name);
+        if !silent {
+            println!("Building '{}'...", self.extension_name);
+        }
 
         let output = tokio::process::Command::new("cargo")
             .args(&[
@@ -450,7 +471,9 @@ impl DevServer {
         }
 
         let build_time = start_time.elapsed();
-        println!("Build completed ({:.2}s)", build_time.as_secs_f64());
+        if !silent {
+            println!("Build completed ({:.2}s)", build_time.as_secs_f64());
+        }
 
         self.build_cache
             .insert(self.extension_name.clone(), Instant::now());
