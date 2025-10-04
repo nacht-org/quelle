@@ -5,10 +5,10 @@ use chrono::Utc;
 use std::collections::HashMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
-use comemo::Prehashed;
 use typst::foundations::{Bytes, Datetime};
 use typst::syntax::{FileId, Source, VirtualPath};
 use typst::text::{Font, FontBook};
+use typst::utils::LazyHash;
 use typst::{Library, World};
 
 use crate::converters::HtmlToTypstConverter;
@@ -19,7 +19,7 @@ use quelle_storage::{BookStorage, ChapterContent, Novel, NovelId};
 
 /// PDF exporter using Typst.
 pub struct PdfExporter {
-    font_book: Prehashed<FontBook>,
+    font_book: LazyHash<FontBook>,
     fonts: Vec<Font>,
 }
 
@@ -28,7 +28,7 @@ impl PdfExporter {
     pub fn new() -> Self {
         let mut font_book = FontBook::new();
         let fonts: Vec<Font> = typst_assets::fonts()
-            .map(|data| Font::new(Bytes::from_static(data), 0).unwrap())
+            .map(|data| Font::new(Bytes::new(data), 0).unwrap())
             .collect();
 
         // Register fonts in the font book
@@ -37,7 +37,7 @@ impl PdfExporter {
         }
 
         Self {
-            font_book: Prehashed::new(font_book),
+            font_book: LazyHash::new(font_book),
             fonts,
         }
     }
@@ -69,8 +69,8 @@ impl Exporter for PdfExporter {
         let world = TypstWorld::new(typst_content, self.font_book.clone(), self.fonts.clone());
 
         // Compile to PDF
-        let mut tracer = typst::eval::Tracer::new();
-        let document = typst::compile(&world, &mut tracer).map_err(|errors| {
+        let warned = typst::compile(&world);
+        let document = warned.output.map_err(|errors| {
             let error_msg = errors
                 .into_iter()
                 .map(|e| format!("{}", e.message))
@@ -83,7 +83,7 @@ impl Exporter for PdfExporter {
         })?;
 
         // Check for warnings
-        let warnings = tracer.warnings();
+        let warnings = warned.warnings;
         if !warnings.is_empty() {
             eprintln!("Typst compilation warnings:");
             for warning in warnings {
@@ -92,7 +92,18 @@ impl Exporter for PdfExporter {
         }
 
         // Convert to PDF bytes
-        let pdf_bytes = typst_pdf::pdf(&document, typst::foundations::Smart::Auto, None);
+        let pdf_options = typst_pdf::PdfOptions::default();
+        let pdf_result = typst_pdf::pdf(&document, &pdf_options);
+        let pdf_bytes = pdf_result.map_err(|errors| {
+            let error_msg = errors
+                .into_iter()
+                .map(|e| format!("{}", e.message))
+                .collect::<Vec<_>>()
+                .join(", ");
+            ExportError::FormatError {
+                message: format!("PDF generation failed: {}", error_msg),
+            }
+        })?;
 
         // Write PDF to output
         writer.write_all(&pdf_bytes).await?;
@@ -357,24 +368,24 @@ fn strip_html_tags(html: &str) -> String {
 
 /// Minimal Typst World implementation for compiling documents.
 struct TypstWorld {
-    main_source: Source,
-    library: Prehashed<Library>,
-    font_book: Prehashed<FontBook>,
+    main_id: FileId,
+    library: LazyHash<Library>,
+    font_book: LazyHash<FontBook>,
     fonts: Vec<Font>,
     files: HashMap<FileId, Source>,
 }
 
 impl TypstWorld {
-    fn new(content: String, font_book: Prehashed<FontBook>, fonts: Vec<Font>) -> Self {
+    fn new(content: String, font_book: LazyHash<FontBook>, fonts: Vec<Font>) -> Self {
         let main_id = FileId::new(None, VirtualPath::new("main.typ"));
         let main_source = Source::new(main_id, content);
 
-        let library = Prehashed::new(Library::builder().build());
+        let library = LazyHash::new(Library::builder().build());
         let mut files = HashMap::new();
         files.insert(main_id, main_source.clone());
 
         Self {
-            main_source,
+            main_id,
             library,
             font_book,
             fonts,
@@ -384,16 +395,16 @@ impl TypstWorld {
 }
 
 impl World for TypstWorld {
-    fn library(&self) -> &Prehashed<Library> {
+    fn library(&self) -> &LazyHash<Library> {
         &self.library
     }
 
-    fn book(&self) -> &Prehashed<FontBook> {
+    fn book(&self) -> &LazyHash<FontBook> {
         &self.font_book
     }
 
-    fn main(&self) -> Source {
-        self.main_source.clone()
+    fn main(&self) -> FileId {
+        self.main_id
     }
 
     fn source(&self, id: FileId) -> typst::diag::FileResult<Source> {
