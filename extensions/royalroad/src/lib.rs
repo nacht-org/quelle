@@ -110,32 +110,65 @@ impl QuelleExtension for Extension {
             .text()?
             .ok_or_else(|| eyre!("Failed to get data"))?;
 
-        let doc = Html::new(&text);
+        let mut doc = Html::new(&text);
 
         // Find hidden class patterns from CSS (anti-scraping protection)
         let mut hidden_classes = Vec::new();
         for style_element in doc.select("head > style")? {
             let css_text = style_element.text_or_empty();
-            // Look for patterns like .abc123{display:none;speak:never;}
-            let re = regex::Regex::new(r"(\.[a-zA-Z0-9]+)\{display:none;speak:never;\}")
-                .map_err(|e| eyre!("Regex error: {}", e))?;
+            // Remove whitespace and newlines for easier parsing
+            let clean_css = css_text.replace(&[' ', '\n', '\r', '\t'][..], "");
 
-            for cap in re.captures_iter(&css_text) {
+            // Look for patterns like .abc123{display:none;speak:never;}
+            // More robust regex to handle various CSS patterns
+            let re = regex::Regex::new(
+                r"(\.[a-zA-Z][a-zA-Z0-9_-]*)\{[^}]*display:none[^}]*speak:never[^}]*\}",
+            )
+            .map_err(|e| eyre!("Regex error: {}", e))?;
+
+            for cap in re.captures_iter(&clean_css) {
                 if let Some(class) = cap.get(1) {
                     hidden_classes.push(class.as_str().to_string());
                 }
             }
         }
 
-        // Get chapter content and extract HTML
-        let content_element = doc.select_first(".chapter .chapter-content")?;
-        let content_html = content_element.html_opt().unwrap_or_default();
+        tracing::debug!(
+            "Found {} hidden classes: {:?}",
+            hidden_classes.len(),
+            hidden_classes
+        );
 
-        // For now, we'll return the content as-is since removing hidden elements
-        // requires DOM manipulation which isn't easily available in the scraper API
-        // The anti-scraping protection removal would need a different approach
+        // Remove hidden elements based on CSS patterns (anti-scraping protection)
+        if !hidden_classes.is_empty() {
+            // Create selector string for all hidden classes
+            let hidden_selector = hidden_classes.join(", ");
 
-        Ok(ChapterContent { data: content_html })
+            if let Ok(hidden_elements) = doc.select(&hidden_selector) {
+                // Collect node IDs of elements to remove
+                let mut node_ids_to_remove = Vec::new();
+                for element in hidden_elements {
+                    node_ids_to_remove.push(element.element.id());
+                }
+
+                tracing::debug!(
+                    "Removing {} hidden elements from chapter content",
+                    node_ids_to_remove.len()
+                );
+
+                // Remove each hidden element using proper node detachment
+                for node_id in node_ids_to_remove {
+                    doc.detach(node_id);
+                }
+            }
+        }
+
+        // Get chapter content after hidden element removal
+        let cleaned_content = doc.select_first(".chapter .chapter-content").html()?;
+
+        Ok(ChapterContent {
+            data: cleaned_content,
+        })
     }
 
     fn simple_search(&self, query: SimpleSearchQuery) -> Result<SearchResult, eyre::Report> {

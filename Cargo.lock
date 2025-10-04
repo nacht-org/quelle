@@ -4100,6 +4100,7 @@ name = "quelle_extension"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "ego-tree 0.10.0",
  "eyre",
  "parse_datetime",
  "scraper 0.24.0",

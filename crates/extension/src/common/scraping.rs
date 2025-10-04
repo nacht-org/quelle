@@ -1,3 +1,4 @@
+use ego_tree::NodeId;
 use eyre::eyre;
 use scraper::{ElementRef, Selector};
 
@@ -5,6 +6,15 @@ use scraper::{ElementRef, Selector};
 /// Think of this as your starting point for querying any web page.
 pub struct Html {
     pub doc: scraper::Html,
+}
+
+impl Html {
+    /// Detaches a node from the document tree.
+    pub fn detach(&mut self, id: NodeId) {
+        if let Some(mut node) = self.doc.tree.get_mut(id) {
+            node.detach();
+        }
+    }
 }
 
 /// A collection of HTML elements, typically the result of a selection query
