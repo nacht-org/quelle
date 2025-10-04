@@ -26,9 +26,7 @@ regex = "1.0"
 # HTML parsing
 scraper = "0.18"
 
-[[example]]
-name = "html_to_typst_demo"
-path = "examples/html_to_typst_demo.rs"
+
 
 [dev-dependencies]
 quelle_engine = { path = "../engine" }

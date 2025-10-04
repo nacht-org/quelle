@@ -5,13 +5,13 @@ use chrono::Utc;
 use comemo::Prehashed;
 use std::collections::HashMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use tokio::process::Command;
+
 use typst::foundations::{Bytes, Datetime, Smart};
 use typst::syntax::{FileId, Source, VirtualPath};
 use typst::text::{Font, FontBook};
 use typst::{Library, World};
 
-use crate::converters::{convert_html_to_typst, HtmlToTypstConverter};
+use crate::converters::HtmlToTypstConverter;
 use crate::error::{ExportError, Result};
 use crate::traits::Exporter;
 use crate::types::{ExportOptions, ExportResult, FormatInfo};
@@ -154,16 +154,22 @@ pub async fn generate_typst_content(
 ) -> Result<String> {
     let mut content = String::new();
 
+    log::info!(
+        "Generating Typst content for novel '{}' with {} chapters",
+        novel.title,
+        chapters.len()
+    );
+
     // Document setup
     content.push_str("#set document(\n");
-    content.push_str(&format!("  title: \"{}\",\n", escape_typst(&novel.title)));
+    content.push_str(&format!("  title: \"{}\",\n", sanitize_title(&novel.title)));
     if !novel.authors.is_empty() {
         content.push_str(&format!(
             "  author: ({}),\n",
             novel
                 .authors
                 .iter()
-                .map(|a| format!("\"{}\"", escape_typst(a)))
+                .map(|a| format!("\"{}\"", sanitize_title(a)))
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
@@ -190,83 +196,112 @@ pub async fn generate_typst_content(
     content.push_str("  first-line-indent: 1em,\n");
     content.push_str(")\n\n");
 
-    // Heading formatting
-    content.push_str("#show heading: it => {\n");
-    content.push_str("  set text(font: \"Linux Biolinum\")\n");
-    content.push_str("  it\n");
-    content.push_str("}\n\n");
-
     // Title page
-    content.push_str("#align(center)[\n");
-    content.push_str(&format!("= {}\n\n", escape_typst(&novel.title)));
+    content.push_str(&format!("= {}\n\n", sanitize_title(&novel.title)));
 
     if !novel.authors.is_empty() {
-        content.push_str("#v(1em)\n");
-        content.push_str(&format!(
-            "#text(size: 14pt)[{}]\n\n",
-            escape_typst(&novel.authors.join(", "))
-        ));
+        content.push_str(&format!("*By: {}*\n\n", novel.authors.join(", ")));
     }
 
     if !novel.description.is_empty() {
-        content.push_str("#v(2em)\n");
-        content.push_str("#text(size: 12pt, style: \"italic\")[\n");
-        content.push_str(&escape_typst(&novel.description.join(" ")));
-        content.push_str("\n]\n\n");
+        let description_text = novel.description.join(" ");
+        let clean_description = sanitize_title(&description_text);
+        content.push_str(&format!("_{}_\n\n", clean_description));
     }
-    content.push_str("]\n\n");
 
-    // Page break before content
     content.push_str("#pagebreak()\n\n");
 
     // Table of contents
     if chapters.len() > 1 {
-        content.push_str("#outline(\n");
-        content.push_str("  title: \"Table of Contents\",\n");
-        content.push_str("  indent: true,\n");
-        content.push_str(")\n\n");
+        content.push_str("#outline()\n\n");
         content.push_str("#pagebreak()\n\n");
     }
 
-    // Chapters
+    // Chapters with HTML conversion
     for (index, (title, chapter_content)) in chapters.iter().enumerate() {
         if index > 0 {
             content.push_str("#pagebreak()\n\n");
         }
 
         // Chapter heading
-        content.push_str(&format!("== {}\n\n", escape_typst(title)));
+        content.push_str(&format!("== {}\n\n", sanitize_title(title)));
 
-        // Convert HTML to Typst using Pandoc
-        match html_to_typst(&chapter_content.data).await {
+        // Try HTML converter first, with safe fallback
+        match use_fallback_converter(&chapter_content.data) {
             Ok(typst_content) => {
                 if !typst_content.trim().is_empty() {
-                    // Clean up the Pandoc output to avoid file references
-                    let cleaned_content = clean_pandoc_output(&typst_content);
-                    content.push_str(&cleaned_content);
+                    // Apply additional sanitization to ensure safety
+                    let safe_content = sanitize_for_typst(&typst_content);
+                    content.push_str(&safe_content);
                 } else {
-                    content.push_str("_[No content available]_");
+                    content.push_str("_No content available_");
                 }
             }
-            Err(e) => {
-                eprintln!(
-                    "Warning: Failed to convert HTML to Typst for chapter '{}': {}",
-                    title, e
-                );
-                eprintln!("Falling back to basic HTML sanitization...");
-                // Fallback to sanitized HTML
-                let chapter_text = sanitize_html(&chapter_content.data);
-                if !chapter_text.trim().is_empty() {
-                    content.push_str(&escape_typst(&chapter_text));
+            Err(_) => {
+                // Fallback to simple HTML tag stripping
+                let plain_text = strip_html_tags(&chapter_content.data);
+                if !plain_text.trim().is_empty() {
+                    let safe_text = sanitize_for_typst(&plain_text);
+                    content.push_str(&safe_text);
                 } else {
-                    content.push_str("_[No content available]_");
+                    content.push_str("_No content available_");
                 }
             }
         }
         content.push_str("\n\n");
     }
 
+    log::info!(
+        "Generated Typst content: {} characters total",
+        content.len()
+    );
+
+    // Save debug output
+    if let Err(e) = std::fs::write("debug_typst_output.typ", &content) {
+        log::warn!("Failed to write debug Typst file: {}", e);
+    } else {
+        log::info!("Typst content saved to debug_typst_output.typ for inspection");
+    }
+
     Ok(content)
+}
+
+/// Sanitize title for Typst by removing problematic characters
+fn sanitize_title(title: &str) -> String {
+    title
+        .replace('【', "[")
+        .replace('】', "]")
+        .replace('#', "")
+        .replace('$', "")
+        .replace('@', "")
+        .replace('\\', "")
+        .replace('{', "")
+        .replace('}', "")
+}
+
+/// Sanitize text content for safe use in Typst documents
+fn sanitize_for_typst(text: &str) -> String {
+    text
+        // Remove or replace problematic Typst characters
+        .replace('【', "[")
+        .replace('】', "]")
+        .replace('#', "\\#")
+        .replace('$', "\\$")
+        .replace('@', "\\@")
+        .replace('\\', "\\\\")
+        .replace('{', "\\{")
+        .replace('}', "\\}")
+        .replace('[', "\\[")
+        .replace(']', "\\]")
+        .replace('*', "\\*")
+        .replace('_', "\\_")
+        .replace('`', "\\`")
+        // Clean up excessive whitespace
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Escape text for safe use in Typst markup.
@@ -284,160 +319,55 @@ pub fn escape_typst(text: &str) -> String {
         .replace('_', "\\_")
         .replace('*', "\\*")
         .replace('`', "\\`")
-        .replace('"', "\\\"")
-}
-
-/// Convert HTML content to Typst markup using Pandoc.
-async fn html_to_typst(html: &str) -> Result<String> {
-    // Check if user wants to skip Pandoc
-    if std::env::var("QUELLE_NO_PANDOC").is_ok() {
-        log::info!("Using HTML converter fallback (QUELLE_NO_PANDOC is set)");
-        return use_fallback_converter(html);
-    }
-
-    // Check if pandoc is available
-    let pandoc_check = Command::new("pandoc").arg("--version").output().await;
-
-    if pandoc_check.is_err() {
-        log::warn!("Pandoc is not available, falling back to built-in HTML converter");
-        log::info!("For better conversion quality, install Pandoc:\n  • macOS: brew install pandoc\n  • Ubuntu/Debian: apt install pandoc\n  • Windows: Download from https://pandoc.org/installing.html");
-        return use_fallback_converter(html);
-    }
-
-    // Create a temporary HTML file with basic structure
-    let html_content = format!(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Chapter</title>
-</head>
-<body>
-{}
-</body>
-</html>"#,
-        html
-    );
-
-    // Run pandoc to convert HTML to Typst
-    let mut pandoc_cmd = Command::new("pandoc");
-    pandoc_cmd
-        .arg("--from=html")
-        .arg("--to=typst")
-        .arg("--wrap=none")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-
-    let mut child = pandoc_cmd.spawn().map_err(|e| ExportError::FormatError {
-        message: format!("Failed to spawn pandoc process: {}", e),
-    })?;
-
-    // Write HTML content to pandoc's stdin
-    if let Some(stdin) = child.stdin.as_mut() {
-        use tokio::io::AsyncWriteExt;
-        stdin
-            .write_all(html_content.as_bytes())
-            .await
-            .map_err(|e| ExportError::FormatError {
-                message: format!("Failed to write to pandoc stdin: {}", e),
-            })?;
-        stdin
-            .shutdown()
-            .await
-            .map_err(|e| ExportError::FormatError {
-                message: format!("Failed to close pandoc stdin: {}", e),
-            })?;
-    }
-
-    // Wait for pandoc to complete and get output
-    let output = child
-        .wait_with_output()
-        .await
-        .map_err(|e| ExportError::FormatError {
-            message: format!("Failed to wait for pandoc process: {}", e),
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ExportError::FormatError {
-            message: format!("Pandoc conversion failed: {}", stderr),
-        });
-    }
-
-    let typst_content = String::from_utf8_lossy(&output.stdout);
-    Ok(typst_content.to_string())
 }
 
 /// Use the fallback HTML converter when Pandoc is not available
 fn use_fallback_converter(html: &str) -> Result<String> {
     let mut converter = HtmlToTypstConverter::new();
 
-    converter
+    // Convert and then apply basic validation
+    let result = converter
         .convert(html)
         .map_err(|e| ExportError::FormatError {
             message: format!("HTML conversion failed: {}", e),
-        })
-}
+        })?;
 
-/// Clean up Pandoc output to remove problematic elements.
-fn clean_pandoc_output(content: &str) -> String {
-    let mut result = content.to_string();
+    // Basic validation: check for severely unbalanced brackets
+    let open_brackets = result.chars().filter(|&c| c == '[').count();
+    let close_brackets = result.chars().filter(|&c| c == ']').count();
 
-    // Remove nested #block[] structures that Pandoc sometimes generates
-    while result.contains("#block[\n#block[") {
-        result = result.replace("#block[\n#block[", "#block[");
-        result = result.replace("]\n]", "]");
+    if open_brackets.abs_diff(close_brackets) > 5 {
+        return Err(ExportError::FormatError {
+            message: "HTML converter produced unbalanced brackets".to_string(),
+        });
     }
 
-    // Clean up excessive empty blocks
-    result = result.replace("#block[\n]", "");
-    result = result.replace("#block[\n\n]", "");
+    Ok(result)
+}
 
-    // Handle image references and other file inclusions
+/// Strip HTML tags as a last resort fallback (simple regex-based removal).
+fn strip_html_tags(html: &str) -> String {
+    let mut result = html.to_string();
+
+    // Handle line breaks BEFORE removing all tags
+    result = result
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<br />", "\n")
+        .replace("</p>", "\n\n");
+
+    // Remove all HTML tags
+    let re = regex::Regex::new(r"<[^>]*>").unwrap();
+    result = re.replace_all(&result, "").to_string();
+
+    // Basic entity decoding
     result
-        .lines()
-        .filter_map(|line| {
-            let trimmed = line.trim();
-            if trimmed.starts_with("#figure(image(")
-                || trimmed.starts_with("#image(")
-                || trimmed.contains("image(\"")
-            {
-                Some("_[Image removed]_".to_string())
-            } else if trimmed.is_empty() {
-                None // Remove excessive empty lines
-            } else {
-                Some(line.to_string())
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Remove HTML tags and convert to plain text (legacy fallback).
-///
-/// This function is kept for backward compatibility, but the new
-/// HtmlToTypstConverter should be preferred as it provides much better
-/// HTML parsing and Typst conversion.
-pub fn sanitize_html(html: &str) -> String {
-    // Use the new converter for better results
-    match convert_html_to_typst(html) {
-        Ok(typst_content) => typst_content,
-        Err(_) => {
-            // Fallback to simple tag removal if converter fails
-            let re = regex::Regex::new(r"<[^>]*>").unwrap();
-            let result = re.replace_all(html, "").to_string();
-
-            // Basic entity decoding
-            result
-                .replace("&nbsp;", " ")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&amp;", "&")
-                .replace("&quot;", "\"")
-                .replace("&#39;", "'")
-        }
-    }
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
 }
 
 /// Minimal Typst World implementation for compiling documents.
@@ -515,22 +445,16 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_html() {
-        // The sanitize_html function now uses the HTML to Typst converter
-        // which produces Typst markup instead of plain text
-        let result = sanitize_html("<p>Hello <b>world</b>!</p>");
-        assert!(result.contains("Hello"));
-        assert!(result.contains("*world*")); // Bold becomes *text* in Typst
+    fn test_strip_html_tags() {
+        // Test the simple HTML tag stripping fallback
+        let result = strip_html_tags("<p>Hello <b>world</b>!</p>");
+        assert_eq!(result, "Hello world!\n\n");
 
-        let result2 = sanitize_html("Line 1<br/>Line 2");
-        assert!(result2.contains("Line 1"));
-        assert!(result2.contains("Line 2"));
+        let result2 = strip_html_tags("Line 1<br/>Line 2");
+        assert_eq!(result2, "Line 1\nLine 2");
 
-        let result3 = sanitize_html("&amp; &lt;test&gt;");
-        assert!(result3.contains("&"));
-        // HTML entities are decoded by the parser, so < and > become literal characters
-        // which then get escaped for Typst
-        assert!(result3.contains("\\<test\\>") || result3.contains("<test>"));
+        let result3 = strip_html_tags("&amp; &lt;test&gt;");
+        assert!(result3.contains("& <test>"));
     }
 
     #[test]
