@@ -276,12 +276,7 @@ fn sanitize_title(title: &str) -> String {
     title
         .replace('【', "[")
         .replace('】', "]")
-        .replace('#', "")
-        .replace('$', "")
-        .replace('@', "")
-        .replace('\\', "")
-        .replace('{', "")
-        .replace('}', "")
+        .replace(['#', '$', '@', '\\', '{', '}'], "")
 }
 
 /// Sanitize text content for safe use in Typst documents

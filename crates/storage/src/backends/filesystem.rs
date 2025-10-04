@@ -204,12 +204,12 @@ impl FilesystemStorage {
     /// Extract file extension from URL
     fn extract_extension_from_url(&self, url: &str) -> Option<String> {
         if let Ok(parsed_url) = url::Url::parse(url) {
-            if let Some(path_segments) = parsed_url.path_segments() {
-                if let Some(last_segment) = path_segments.last() {
+            if let Some(mut path_segments) = parsed_url.path_segments() {
+                if let Some(last_segment) = path_segments.next_back() {
                     // Remove query parameters if present
                     let filename = last_segment.split('?').next().unwrap_or(last_segment);
                     if !filename.is_empty() && filename.contains('.') {
-                        if let Some(extension) = filename.split('.').last() {
+                        if let Some(extension) = filename.split('.').next_back() {
                             return Some(extension.to_string());
                         }
                     }
@@ -547,7 +547,7 @@ impl FilesystemStorage {
                 })
                 .collect(),
             metadata: novel.metadata.clone(),
-            status: novel.status.clone(),
+            status: novel.status,
             langs: novel.langs.clone(),
         }
     }

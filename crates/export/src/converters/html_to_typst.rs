@@ -132,12 +132,12 @@ impl HtmlToTypstConverter {
             "em" | "i" => {
                 result.push_str("#emph[");
                 self.convert_element(element, result)?;
-                result.push_str("]");
+                result.push(']');
             }
             "strong" | "b" => {
                 result.push_str("#strong[");
                 self.convert_element(element, result)?;
-                result.push_str("]");
+                result.push(']');
             }
 
             // Code
@@ -174,7 +174,7 @@ impl HtmlToTypstConverter {
             "a" => {
                 if let Some(href) = element.value().attr("href") {
                     if self.config.links_as_footnotes {
-                        result.push_str("[");
+                        result.push('[');
                         self.convert_element(element, result)?;
                         let footnote_num = self.footnotes.len() + 1;
                         result.push_str(&format!("]#{}", footnote_num));
@@ -184,7 +184,7 @@ impl HtmlToTypstConverter {
                         result.push_str(&self.escape_typst_text(href));
                         result.push_str("\")[");
                         self.convert_element(element, result)?;
-                        result.push_str("]");
+                        result.push(']');
                     }
                 } else {
                     self.convert_element(element, result)?;

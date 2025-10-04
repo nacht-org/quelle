@@ -1661,7 +1661,7 @@ impl WritableStore for LocalStore {
 
         // Write WASM component using path from manifest
         let wasm_path =
-            version_dir.join(&enhanced_manifest.wasm_file.path.trim_start_matches("./"));
+            version_dir.join(enhanced_manifest.wasm_file.path.trim_start_matches("./"));
         if let Some(parent) = wasm_path.parent() {
             fs::create_dir_all(parent).await?;
         }
@@ -1683,7 +1683,7 @@ impl WritableStore for LocalStore {
         // Write assets using paths from manifest
         for asset_ref in &enhanced_manifest.assets {
             if let Some(content) = package.assets.get(&asset_ref.name) {
-                let asset_path = version_dir.join(&asset_ref.path.trim_start_matches("./"));
+                let asset_path = version_dir.join(asset_ref.path.trim_start_matches("./"));
                 if let Some(parent) = asset_path.parent() {
                     fs::create_dir_all(parent).await?;
                 }

@@ -121,8 +121,8 @@ pub async fn resolve_novel_id(input: &str, storage: &dyn BookStorage) -> Result<
     }
 
     // Try URL resolution - let the storage handle URL normalization and lookup
-    if let Ok(_url) = Url::parse(input) {
-        if let Ok(Some(found_novel)) = storage.find_novel_by_url(input).await {
+    if let Ok(_url) = Url::parse(input)
+        && let Ok(Some(found_novel)) = storage.find_novel_by_url(input).await {
             // We found the novel by URL, now find its ID in the novels list
             let novels = storage.list_novels(&NovelFilter::default()).await?;
             // Match by title and URL to find the correct ID
@@ -130,7 +130,6 @@ pub async fn resolve_novel_id(input: &str, storage: &dyn BookStorage) -> Result<
                 return Ok(Some(novel_summary.id.clone()));
             }
         }
-    }
 
     // Try fuzzy title matching
     let novels = storage.list_novels(&NovelFilter::default()).await?;

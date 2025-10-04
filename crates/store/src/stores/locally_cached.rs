@@ -272,7 +272,7 @@ impl LocallyCachedStore<GitProvider> {
         let git_description = self.provider.description();
 
         // Use provided description or fall back to git description
-        let final_description = description.unwrap_or_else(|| git_description);
+        let final_description = description.unwrap_or(git_description);
 
         // Create git-specific manifest with repository URL
         let base_manifest =
@@ -353,11 +353,7 @@ impl LocallyCachedStore<GitProvider> {
         let has_write_config = self.provider.write_config.is_some();
         let auth_type = "Unknown".to_string(); // Can't access private auth field
 
-        let auto_push = if let Some(config) = &self.provider.write_config {
-            Some(config.auto_push)
-        } else {
-            None
-        };
+        let auto_push = self.provider.write_config.as_ref().map(|config| config.auto_push);
 
         GitStoreDiagnostic {
             is_writable,

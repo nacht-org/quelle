@@ -418,7 +418,7 @@ async fn load_extension_package(package_path: &PathBuf) -> Result<ExtensionPacka
                     "Successfully loaded package '{}' v{} from directory",
                     package.manifest.name, package.manifest.version
                 );
-                return Ok(package);
+                Ok(package)
             }
             Err(e) => {
                 warn!("Failed to load from directory with manifest: {}", e);
@@ -427,8 +427,8 @@ async fn load_extension_package(package_path: &PathBuf) -> Result<ExtensionPacka
                 if let Ok(entries) = std::fs::read_dir(package_path) {
                     for entry in entries.flatten() {
                         let path = entry.path();
-                        if let Some(extension) = path.extension() {
-                            if extension == "wasm" {
+                        if let Some(extension) = path.extension()
+                            && extension == "wasm" {
                                 info!("Found WASM file, attempting to load: {:?}", path);
                                 return ExtensionPackage::from_wasm_file(path, "cli".to_string())
                                     .await
@@ -436,25 +436,23 @@ async fn load_extension_package(package_path: &PathBuf) -> Result<ExtensionPacka
                                         eyre::eyre!("Failed to load from WASM file: {}", e)
                                     });
                             }
-                        }
                     }
                 }
 
-                return Err(eyre::eyre!("Could not load package from directory: {}", e));
+                Err(eyre::eyre!("Could not load package from directory: {}", e))
             }
         }
     } else {
         info!("Loading extension package from file: {:?}", package_path);
 
         // Check if it's a WASM file
-        if let Some(extension) = package_path.extension() {
-            if extension == "wasm" {
+        if let Some(extension) = package_path.extension()
+            && extension == "wasm" {
                 info!("Loading package from WASM file using engine metadata extraction");
                 return ExtensionPackage::from_wasm_file(package_path, "cli".to_string())
                     .await
                     .map_err(|e| eyre::eyre!("Failed to create package from WASM file: {}", e));
             }
-        }
 
         // Handle other package formats
         if let Some(extension) = package_path.extension() {
@@ -462,29 +460,29 @@ async fn load_extension_package(package_path: &PathBuf) -> Result<ExtensionPacka
             match ext_str.as_str() {
                 "zip" => {
                     error!("ZIP package support not yet implemented");
-                    return Err(eyre::eyre!(
+                    Err(eyre::eyre!(
                         "ZIP packages are not yet supported. Please extract the package and use the directory, or use a .wasm file directly."
-                    ));
+                    ))
                 }
                 "tar" | "gz" | "tgz" => {
                     error!("TAR/GZ package support not yet implemented");
-                    return Err(eyre::eyre!(
+                    Err(eyre::eyre!(
                         "TAR/GZ packages are not yet supported. Please extract the package and use the directory, or use a .wasm file directly."
-                    ));
+                    ))
                 }
                 _ => {
                     error!("Unknown file extension: {}", ext_str);
-                    return Err(eyre::eyre!(
+                    Err(eyre::eyre!(
                         "Unsupported file type '{}'. Currently supported: .wasm files and directories with manifest.json",
                         ext_str
-                    ));
+                    ))
                 }
             }
         } else {
             error!("File has no extension");
-            return Err(eyre::eyre!(
+            Err(eyre::eyre!(
                 "File has no extension. Currently supported: .wasm files and directories with manifest.json"
-            ));
+            ))
         }
     }
 }

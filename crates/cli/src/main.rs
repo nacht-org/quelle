@@ -62,11 +62,10 @@ async fn main() -> Result<()> {
 
     // Apply registry configuration to store manager
     // Handle store loading errors gracefully - invalid stores shouldn't prevent CLI startup
-    if let Err(e) = config.apply(&mut store_manager).await {
-        if !cli.quiet {
+    if let Err(e) = config.apply(&mut store_manager).await
+        && !cli.quiet {
             eprintln!("Warning: Some extension stores could not be loaded: {}", e);
         }
-    }
 
     // Handle commands
     match cli.command {

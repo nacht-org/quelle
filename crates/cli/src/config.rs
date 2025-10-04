@@ -3,9 +3,10 @@ use eyre::Result;
 use quelle_store::{ExtensionSource, RegistryConfig, StoreManager};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tokio::fs::{self, create_dir_all};
+use tokio::fs::{self};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Default)]
 pub struct Config {
     #[serde(default)]
     pub data_dir: Option<PathBuf>,
@@ -51,17 +52,6 @@ impl Default for FetchConfig {
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            data_dir: None,
-            export: ExportConfig::default(),
-            fetch: FetchConfig::default(),
-            registry: RegistryConfig::default(),
-            official: OfficialConfig::default(),
-        }
-    }
-}
 
 impl Config {
     pub fn get_config_path() -> PathBuf {

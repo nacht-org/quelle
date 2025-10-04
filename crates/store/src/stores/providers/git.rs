@@ -204,7 +204,7 @@ impl GitWriteConfig {
     pub fn effective_author(&self) -> GitAuthor {
         self.author
             .clone()
-            .or_else(|| GitAuthor::from_git_config())
+            .or_else(GitAuthor::from_git_config)
             .unwrap_or_default()
     }
 }
@@ -726,15 +726,14 @@ impl StoreProvider for GitProvider {
 
         // Check if authentication is configured for push operations
         if let Some(write_config) = &self.write_config {
-            if write_config.auto_push {
-                if matches!(self.auth, GitAuth::None) {
+            if write_config.auto_push
+                && matches!(self.auth, GitAuth::None) {
                     tracing::debug!(
                         "Auto-push is enabled with GitAuth::None for repository '{}'. \
                          Will attempt to use system git credentials (SSH agent, credential manager, etc.)",
                         self.url
                     );
                 }
-            }
         }
 
         // Check repository status
@@ -868,14 +867,14 @@ impl GitProvider {
             return Ok(GitStatus::not_exists());
         }
 
-        let repo = Repository::open(repo_path).map_err(|e| GitStoreError::Git(e))?;
+        let repo = Repository::open(repo_path).map_err(GitStoreError::Git)?;
 
         // Get repository status
         let mut status_options = StatusOptions::new();
         status_options.include_untracked(true);
         let statuses = repo
             .statuses(Some(&mut status_options))
-            .map_err(|e| GitStoreError::Git(e))?;
+            .map_err(GitStoreError::Git)?;
 
         let mut modified_files = Vec::new();
         let mut untracked_files = Vec::new();
@@ -941,9 +940,9 @@ impl GitProvider {
         use crate::error::GitStoreError;
         use git2::Repository;
 
-        let repo = Repository::open(&self.cache_dir).map_err(|e| GitStoreError::Git(e))?;
+        let repo = Repository::open(&self.cache_dir).map_err(GitStoreError::Git)?;
 
-        let mut index = repo.index().map_err(|e| GitStoreError::Git(e))?;
+        let mut index = repo.index().map_err(GitStoreError::Git)?;
 
         for file in files {
             let relative_path = file.strip_prefix(&self.cache_dir).unwrap_or(file);
@@ -955,10 +954,10 @@ impl GitProvider {
 
             index
                 .add_path(relative_path)
-                .map_err(|e| GitStoreError::Git(e))?;
+                .map_err(GitStoreError::Git)?;
         }
 
-        index.write().map_err(|e| GitStoreError::Git(e))?;
+        index.write().map_err(GitStoreError::Git)?;
 
         Ok(())
     }
@@ -968,9 +967,9 @@ impl GitProvider {
         use crate::error::GitStoreError;
         use git2::Repository;
 
-        let repo = Repository::open(&self.cache_dir).map_err(|e| GitStoreError::Git(e))?;
+        let repo = Repository::open(&self.cache_dir).map_err(GitStoreError::Git)?;
 
-        let mut index = repo.index().map_err(|e| GitStoreError::Git(e))?;
+        let mut index = repo.index().map_err(GitStoreError::Git)?;
 
         // Add all files from working directory to index
         // This is equivalent to "git add ." - adds all tracked and untracked files
@@ -979,10 +978,10 @@ impl GitProvider {
             // Fall back to updating from working tree
             index
                 .update_all(["*"].iter(), None)
-                .map_err(|e| GitStoreError::Git(e))?;
+                .map_err(GitStoreError::Git)?;
         }
 
-        index.write().map_err(|e| GitStoreError::Git(e))?;
+        index.write().map_err(GitStoreError::Git)?;
 
         Ok(())
     }
@@ -999,18 +998,18 @@ impl GitProvider {
                     url: self.url.clone(),
                 })?;
 
-        let repo = Repository::open(&self.cache_dir).map_err(|e| GitStoreError::Git(e))?;
+        let repo = Repository::open(&self.cache_dir).map_err(GitStoreError::Git)?;
 
         let author = config.effective_author();
         let signature =
-            Signature::now(&author.name, &author.email).map_err(|e| GitStoreError::Git(e))?;
+            Signature::now(&author.name, &author.email).map_err(GitStoreError::Git)?;
 
-        let mut index = repo.index().map_err(|e| GitStoreError::Git(e))?;
-        let tree_id = index.write_tree().map_err(|e| GitStoreError::Git(e))?;
-        let tree = repo.find_tree(tree_id).map_err(|e| GitStoreError::Git(e))?;
+        let mut index = repo.index().map_err(GitStoreError::Git)?;
+        let tree_id = index.write_tree().map_err(GitStoreError::Git)?;
+        let tree = repo.find_tree(tree_id).map_err(GitStoreError::Git)?;
 
         let parent_commit = match repo.head() {
-            Ok(head) => Some(head.peel_to_commit().map_err(|e| GitStoreError::Git(e))?),
+            Ok(head) => Some(head.peel_to_commit().map_err(GitStoreError::Git)?),
             Err(_) => None, // First commit
         };
 
@@ -1029,7 +1028,7 @@ impl GitProvider {
                 &tree,
                 &parents,
             )
-            .map_err(|e| GitStoreError::Git(e))?;
+            .map_err(GitStoreError::Git)?;
 
         Ok(commit_id.to_string())
     }
@@ -1046,11 +1045,11 @@ impl GitProvider {
                 url: self.url.clone(),
             })?;
 
-        let repo = Repository::open(&self.cache_dir).map_err(|e| GitStoreError::Git(e))?;
+        let repo = Repository::open(&self.cache_dir).map_err(GitStoreError::Git)?;
 
         let mut remote = repo
             .find_remote("origin")
-            .map_err(|e| GitStoreError::Git(e))?;
+            .map_err(GitStoreError::Git)?;
 
         let mut callbacks = RemoteCallbacks::new();
 
@@ -1073,7 +1072,7 @@ impl GitProvider {
                     if allowed_types.contains(CredentialType::SSH_KEY) {
                         Cred::ssh_key(
                             username_from_url.unwrap_or("git"),
-                            public_key.as_ref().map(|p| p.as_path()),
+                            public_key.as_deref(),
                             &private_key,
                             pass.as_deref(),
                         )
@@ -1127,7 +1126,7 @@ impl GitProvider {
         // Determine which branch to push
         let current_branch = repo
             .head()
-            .map_err(|e| GitStoreError::Git(e))?
+            .map_err(GitStoreError::Git)?
             .shorthand()
             .unwrap_or("main")
             .to_string();
