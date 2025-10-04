@@ -254,16 +254,15 @@ impl CachingHttpExecutor {
         self.cache.write().await.clear();
 
         // Clear file cache
-        if let Some(ref cache_dir) = self.cache_dir {
-            if cache_dir.exists() {
-                if let Ok(mut entries) = tokio::fs::read_dir(cache_dir).await {
-                    while let Ok(Some(entry)) = entries.next_entry().await {
-                        if let Some(extension) = entry.path().extension() {
-                            if extension == "json" {
-                                let _ = tokio::fs::remove_file(entry.path()).await;
-                            }
-                        }
-                    }
+        if let Some(ref cache_dir) = self.cache_dir
+            && cache_dir.exists()
+            && let Ok(mut entries) = tokio::fs::read_dir(cache_dir).await
+        {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                if let Some(extension) = entry.path().extension()
+                    && extension == "json"
+                {
+                    let _ = tokio::fs::remove_file(entry.path()).await;
                 }
             }
         }
@@ -279,10 +278,10 @@ impl CachingHttpExecutor {
                 if let Ok(mut entries) = tokio::fs::read_dir(cache_dir).await {
                     let mut count = 0;
                     while let Ok(Some(entry)) = entries.next_entry().await {
-                        if let Some(extension) = entry.path().extension() {
-                            if extension == "json" {
-                                count += 1;
-                            }
+                        if let Some(extension) = entry.path().extension()
+                            && extension == "json"
+                        {
+                            count += 1;
                         }
                     }
                     count
@@ -323,11 +322,11 @@ impl HttpExecutor for CachingHttpExecutor {
         // Check memory cache first
         {
             let cache = self.cache.read().await;
-            if let Some(cached) = cache.get(&cache_key) {
-                if !cached.is_expired() {
-                    tracing::debug!("Cache hit (memory) for request: {}", request_url);
-                    return Ok(cached.to_response());
-                }
+            if let Some(cached) = cache.get(&cache_key)
+                && !cached.is_expired()
+            {
+                tracing::debug!("Cache hit (memory) for request: {}", request_url);
+                return Ok(cached.to_response());
             }
         }
 

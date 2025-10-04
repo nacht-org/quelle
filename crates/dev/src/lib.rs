@@ -16,9 +16,10 @@ use rustyline::error::ReadlineError;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 use tracing::debug;
 use url::Url;
 
@@ -132,10 +133,10 @@ async fn start_dev_server(extension_name: String, watch: bool, use_chrome: bool)
         let (tx, rx) = mpsc::channel();
         let mut watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
-                if let Ok(event) = res {
-                    if matches!(event.kind, EventKind::Modify(_)) {
-                        let _ = tx.send(event);
-                    }
+                if let Ok(event) = res
+                    && matches!(event.kind, EventKind::Modify(_))
+                {
+                    let _ = tx.send(event);
                 }
             },
             notify::Config::default(),
@@ -164,7 +165,8 @@ async fn start_dev_server(extension_name: String, watch: bool, use_chrome: bool)
                 print!("Rebuilding... ");
                 std::io::stdout().flush().unwrap();
 
-                if let Ok(mut server) = server_for_watcher.lock() {
+                let server_result = server_for_watcher.try_lock();
+                if let Ok(mut server) = server_result {
                     match rt.block_on(server.build_extension_silent()) {
                         Ok(_) => {
                             if let Err(e) = rt.block_on(server.load_extension()) {
@@ -215,10 +217,9 @@ async fn start_dev_server(extension_name: String, watch: bool, use_chrome: bool)
 
                     match DevServerCommand::try_parse_from(full_args) {
                         Ok(cmd) => {
-                            if let Ok(mut server) = dev_server.lock() {
-                                if let Err(e) = server.handle_parsed_command(cmd).await {
-                                    println!("Command failed: {}", e);
-                                }
+                            let mut server = dev_server.lock().await;
+                            if let Err(e) = server.handle_parsed_command(cmd).await {
+                                println!("Command failed: {}", e);
                             }
                         }
                         Err(e) => {
@@ -453,7 +454,7 @@ impl DevServer {
         }
 
         let output = tokio::process::Command::new("cargo")
-            .args(&[
+            .args([
                 "component",
                 "build",
                 "-r",
