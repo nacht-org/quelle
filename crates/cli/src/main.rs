@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
         } else if cli.quiet {
             tracing::Level::ERROR
         } else {
-            tracing::Level::INFO
+            tracing::Level::WARN
         })
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
@@ -58,10 +58,12 @@ async fn main() -> Result<()> {
     // Apply registry configuration to store manager
     // Handle store loading errors gracefully - invalid stores shouldn't prevent CLI startup
     if let Err(e) = config.apply(&mut store_manager).await {
-        eprintln!("⚠️  Warning: Some extension stores could not be loaded:");
-        eprintln!("   {}", e);
-        eprintln!("💡 Use 'quelle store list' to see configured stores");
-        eprintln!("   Invalid stores can be removed with 'quelle store remove <name>'");
+        if !cli.quiet {
+            eprintln!("⚠️  Warning: Some extension stores could not be loaded:");
+            eprintln!("   {}", e);
+            eprintln!("💡 Use 'quelle store list' to see configured stores");
+            eprintln!("   Invalid stores can be removed with 'quelle store remove <name>'");
+        }
     }
 
     // Handle commands
