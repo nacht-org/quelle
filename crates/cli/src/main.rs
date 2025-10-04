@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
 
     // Handle dev commands early to avoid store initialization
     if let Commands::Dev { command } = &cli.command {
-        return quelle_dev::handle_dev_command(command.clone()).await;
+        return quelle_dev::handle_command(command.clone()).await;
     }
 
     // Initialize tracing
@@ -63,9 +63,10 @@ async fn main() -> Result<()> {
     // Apply registry configuration to store manager
     // Handle store loading errors gracefully - invalid stores shouldn't prevent CLI startup
     if let Err(e) = config.apply(&mut store_manager).await
-        && !cli.quiet {
-            eprintln!("Warning: Some extension stores could not be loaded: {}", e);
-        }
+        && !cli.quiet
+    {
+        eprintln!("Warning: Some extension stores could not be loaded: {}", e);
+    }
 
     // Handle commands
     match cli.command {
