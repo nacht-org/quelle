@@ -245,8 +245,6 @@ impl Default for CleanupReport {
     }
 }
 
-// === Asset Types ===
-
 /// Unique identifier for an asset within the storage system.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AssetId(pub String);

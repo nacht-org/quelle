@@ -1,3 +1,5 @@
+//! Export command handlers for converting novels to various formats.
+
 use eyre::Result;
 use quelle_export::{ExportOptions, default_export_manager};
 use quelle_storage::{
@@ -15,12 +17,7 @@ pub async fn handle_export(
     storage: &FilesystemStorage,
     _dry_run: bool,
 ) -> Result<()> {
-    // Note: dry_run is handled at the parent level
-
-    // Initialize export manager
     let export_manager = default_export_manager()?;
-
-    // Validate format
     if !export_manager.supports_format(&format) {
         println!("❌ Unsupported export format: {}", format);
         let available_formats = export_manager.available_formats();
@@ -35,7 +32,6 @@ pub async fn handle_export(
         return Ok(());
     }
 
-    // Handle "all" novels case
     if novel_input == "all" {
         return export_all_novels(&format, output, include_images, storage, &export_manager).await;
     }
@@ -50,7 +46,6 @@ pub async fn handle_export(
         }
     };
 
-    // Get novel metadata
     let novel = match storage.get_novel(&novel_id).await? {
         Some(novel) => novel,
         None => {
@@ -90,17 +85,14 @@ pub async fn handle_export(
 
     println!("  Output: {}", output_path.display());
 
-    // Create export options
     let export_options = if include_images {
         ExportOptions::new()
     } else {
         ExportOptions::new().without_images()
     };
 
-    // Export the novel
     println!("📖 Starting {} export...", format.to_uppercase());
 
-    // Create the output file
     let file = tokio::fs::File::create(&output_path).await?;
     let writer = Box::new(file);
 
@@ -146,7 +138,6 @@ async fn export_all_novels(
     let output_dir = output.unwrap_or_else(|| "./exports".to_string());
     let output_path = PathBuf::from(&output_dir);
 
-    // Create output directory if it doesn't exist
     std::fs::create_dir_all(&output_path)?;
     println!("  📁 Output directory: {}", output_path.display());
 
@@ -178,7 +169,6 @@ async fn export_all_novels(
             ExportOptions::new().without_images()
         };
 
-        // Create the output file
         let file = match tokio::fs::File::create(&novel_output_path).await {
             Ok(f) => f,
             Err(e) => {

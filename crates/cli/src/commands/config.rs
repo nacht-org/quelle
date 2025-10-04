@@ -1,3 +1,5 @@
+//! Configuration command handlers for managing application settings.
+
 use eyre::Result;
 use std::io::{self, Write};
 

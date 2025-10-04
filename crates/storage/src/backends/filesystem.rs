@@ -1064,8 +1064,6 @@ impl BookStorage for FilesystemStorage {
         Ok(report)
     }
 
-    // === Asset Operations ===
-
     /// Create an Asset with properly generated ID and filename
     fn create_asset(&self, novel_id: NovelId, original_url: String, mime_type: String) -> Asset {
         let asset_id = self.generate_asset_id();

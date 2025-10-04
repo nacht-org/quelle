@@ -1,3 +1,8 @@
+//! WebAssembly extension engine for Quelle.
+//!
+//! This crate provides the runtime environment for executing WebAssembly extensions
+//! that handle novel fetching, searching, and content extraction from various sources.
+
 pub mod bindings;
 pub mod error;
 pub mod http;
@@ -109,7 +114,7 @@ pub struct ExtensionRunner<'a> {
     store: Store<State>,
 }
 
-/// A macro to wrap calls to extension methods, handling errors and returning a tuple of the runner and the result.
+/// Wraps calls to extension methods, handling errors and returning a tuple of the runner and the result.
 macro_rules! wrap_extension_method {
     ($self:expr, $name:ident $(, $arg:expr )*) => {{
         let result = $self.extension.$name(&mut $self.store $(, $arg)*).await;

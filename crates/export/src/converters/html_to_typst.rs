@@ -1,4 +1,4 @@
-//! HTML to Typst converter using proper HTML parsing
+//! HTML to Typst markup converter for document export.
 //!
 //! This module provides a fallback HTML to Typst conversion when Pandoc is not available.
 //! It uses the `scraper` crate for proper HTML parsing and maps HTML elements to their
@@ -56,17 +56,10 @@ impl HtmlToTypstConverter {
 
     /// Convert HTML string to Typst markup
     pub fn convert(&mut self, html: &str) -> Result<String, Box<dyn std::error::Error>> {
-        // Reset footnotes for each conversion
         self.footnotes.clear();
-
-        // Parse HTML
         let document = Html::parse_document(html);
-
-        // Convert the document
         let mut result = String::new();
         self.convert_element(&document.root_element(), &mut result)?;
-
-        // Add footnotes if any
         if !self.footnotes.is_empty() {
             result.push_str("\n\n");
             for (i, footnote) in self.footnotes.iter().enumerate() {

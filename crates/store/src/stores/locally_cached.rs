@@ -969,7 +969,6 @@ mod tests {
             GitReference::Default,
             GitAuth::None,
         );
-        // Note: No .with_write_config() call here
 
         let store = LocallyCachedStore::new(provider, "test-git-store".to_string()).unwrap();
 

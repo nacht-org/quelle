@@ -20,11 +20,9 @@ async fn test_cli_add_preserves_existing_content_on_novel_update() {
     let storage = FilesystemStorage::new(temp_dir.path());
     storage.initialize().await.unwrap();
 
-    // === Step 1: Initial add ===
     let initial_novel = create_initial_novel();
     let novel_id = storage.store_novel(&initial_novel).await.unwrap();
 
-    // === Step 2: User downloads some content ===
     let chapter1_content = ChapterContent {
         data: "This is Chapter 1 content that the user downloaded.".to_string(),
     };
@@ -69,7 +67,6 @@ async fn test_cli_add_preserves_existing_content_on_novel_update() {
         "Chapter 3 should not have content"
     );
 
-    // === Step 3: Simulate CLI add again (novel has been updated with new chapters) ===
     let updated_novel = create_updated_novel_with_new_chapters();
 
     // This simulates what happens when user runs `quelle add <url>` again
@@ -81,7 +78,6 @@ async fn test_cli_add_preserves_existing_content_on_novel_update() {
         "Novel ID should remain the same"
     );
 
-    // === Step 4: Verify existing content is preserved ===
     let chapters_after_update = storage.list_chapters(&novel_id).await.unwrap();
     assert_eq!(
         chapters_after_update.len(),
@@ -142,7 +138,6 @@ async fn test_cli_add_preserves_existing_content_on_novel_update() {
         "Chapter 2 content should be unchanged"
     );
 
-    // === Step 5: Verify content index in the actual file ===
     let novel_file_path = get_novel_file_path(&temp_dir, &novel_id);
     let file_content = fs::read_to_string(&novel_file_path).unwrap();
     let json: Value = serde_json::from_str(&file_content).unwrap();

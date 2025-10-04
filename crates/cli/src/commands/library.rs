@@ -1,3 +1,5 @@
+//! Library management command handlers for browsing and maintaining novel collections.
+
 use eyre::Result;
 use quelle_storage::{
     ChapterContent,
@@ -276,7 +278,6 @@ pub async fn handle_update_novels(
         return Ok(());
     }
 
-    // Initialize extension infrastructure
     let mut store_manager = crate::utils::create_store_manager().await?;
     let engine = crate::utils::create_extension_engine()?;
 
@@ -353,16 +354,13 @@ async fn sync_single_novel(
     storage: &dyn BookStorage,
     store_manager: &mut quelle_store::StoreManager,
 ) -> Result<u32> {
-    // Get the stored novel
     let stored_novel = storage
         .get_novel(novel_id)
         .await?
         .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_id.as_str()))?;
 
-    // Find extension for this novel
     let extension = find_and_install_extension_for_url(&stored_novel.url, store_manager).await?;
 
-    // Fetch fresh novel metadata
     let fresh_novel = fetch_novel_with_extension(
         &extension,
         store_manager.registry_store(),
@@ -370,7 +368,6 @@ async fn sync_single_novel(
     )
     .await?;
 
-    // Get current chapters from storage
     let stored_chapters = storage.list_chapters(novel_id).await?;
     let stored_chapter_urls: std::collections::HashSet<_> =
         stored_chapters.iter().map(|ch| &ch.chapter_url).collect();
@@ -385,7 +382,6 @@ async fn sync_single_novel(
         }
     }
 
-    // Update stored novel with fresh metadata (this will add new chapters)
     if new_chapters > 0 {
         storage.store_novel(&fresh_novel).await?;
     }
@@ -399,16 +395,13 @@ async fn update_single_novel(
     store_manager: &mut quelle_store::StoreManager,
     engine: &quelle_engine::ExtensionEngine,
 ) -> Result<u32> {
-    // Get the stored novel
     let stored_novel = storage
         .get_novel(novel_id)
         .await?
         .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_id.as_str()))?;
 
-    // Find extension for this novel
     let extension = find_and_install_extension_for_url(&stored_novel.url, store_manager).await?;
 
-    // Get chapters that need downloading
     let chapters = storage.list_chapters(novel_id).await?;
     let mut downloaded_count = 0;
     let mut failed_count = 0;

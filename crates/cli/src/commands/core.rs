@@ -1,3 +1,5 @@
+//! Core CLI command handlers for novel management operations.
+
 use eyre::Result;
 use quelle_storage::backends::filesystem::FilesystemStorage;
 use quelle_store::StoreManager;
@@ -33,11 +35,9 @@ pub async fn handle_add_command(
 
     println!("📚 Adding novel from: {}", url);
 
-    // First, fetch the novel metadata
     let fetch_novel_cmd = FetchCommands::Novel { url: url.clone() };
     handle_fetch_command(fetch_novel_cmd, store_manager, storage, false).await?;
 
-    // Then fetch chapters unless explicitly disabled
     if !no_chapters {
         println!("📄 Fetching chapters...");
 
@@ -64,7 +64,6 @@ pub async fn handle_update_command(
 
     use crate::commands::library::{handle_sync_novels, handle_update_novels};
 
-    // Handle "all" case
     if novel == "all" {
         if check_only {
             println!("🔍 Checking all novels for new chapters");
@@ -75,7 +74,6 @@ pub async fn handle_update_command(
         }
     }
 
-    // Resolve the novel identifier
     match resolve_novel_id(&novel, storage).await? {
         Some(novel_id) => {
             let novel_id_str = novel_id.as_str().to_string();
@@ -108,7 +106,6 @@ pub async fn handle_read_command(
         return Ok(());
     }
 
-    // Resolve the novel identifier
     match resolve_novel_id(&novel, storage).await? {
         Some(novel_id) => {
             let novel_id_str = novel_id.as_str().to_string();
@@ -155,7 +152,6 @@ pub async fn handle_remove_command(
 
     use crate::commands::library::handle_remove_novel;
 
-    // Resolve the novel identifier
     match resolve_novel_id(&novel, storage).await? {
         Some(novel_id) => {
             println!("🗑️  Removing novel: {}", novel);
@@ -182,7 +178,6 @@ async fn handle_fetch_chapters_with_limit(
 
     println!("📚 Fetching chapters for novel: {}", novel_id);
 
-    // Try to find novel by ID or URL
     let (novel, novel_storage_id) = if novel_id.starts_with("http") {
         let novel = match storage.find_novel_by_url(&novel_id).await? {
             Some(novel) => novel,
@@ -191,7 +186,6 @@ async fn handle_fetch_chapters_with_limit(
                 return Ok(());
             }
         };
-        // Find the storage ID from the library listing
         let filter = quelle_storage::types::NovelFilter { source_ids: vec![] };
         let novels = storage.list_novels(&filter).await?;
         let storage_id = novels
@@ -223,7 +217,6 @@ async fn handle_fetch_chapters_with_limit(
     let mut chapters = storage.list_chapters(&novel_storage_id).await?;
     let original_count = chapters.len();
 
-    // Apply max_chapters limit if specified
     if let Some(limit) = max_chapters {
         if chapters.len() > limit {
             chapters.truncate(limit);
@@ -307,11 +300,8 @@ pub async fn handle_export_command(
     storage: &FilesystemStorage,
     dry_run: bool,
 ) -> Result<()> {
-    // Validate format first
     match format.as_str() {
-        "epub" | "pdf" => {
-            // Format is valid, proceed with export
-        }
+        "epub" | "pdf" => {}
         _ => {
             eprintln!("❌ Unsupported export format: {}", format);
             eprintln!("💡 Supported formats: epub, pdf");
@@ -319,7 +309,6 @@ pub async fn handle_export_command(
         }
     }
 
-    // Handle dry-run mode
     if dry_run {
         println!("Would export novel '{}' in {} format", novel_input, format);
         if let Some(ref output_dir) = output {
@@ -329,7 +318,6 @@ pub async fn handle_export_command(
         return Ok(());
     }
 
-    // Proceed with actual export
     handle_export(
         novel_input,
         format,

@@ -1,3 +1,5 @@
+//! Store management command handlers for extension repositories.
+
 use eyre::{Context, Result};
 use quelle_store::stores::local::LocalStore;
 use quelle_store::{BaseStore, ExtensionSource, GitStore, RegistryConfig, StoreManager, StoreType};
@@ -88,7 +90,6 @@ async fn handle_add_store(
         return Ok(());
     }
 
-    // Add to CLI configuration
     config.registry.add_source(source);
 
     // Save CLI configuration

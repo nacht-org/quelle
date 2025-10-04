@@ -17,8 +17,6 @@ use crate::{ChapterContent, Novel};
 /// backends such as file systems, databases, or cloud storage.
 #[async_trait]
 pub trait BookStorage: Send + Sync {
-    // === Novel Operations ===
-
     /// Store a complete novel with its metadata and chapter structure.
     ///
     /// # Arguments
@@ -49,8 +47,6 @@ pub trait BookStorage: Send + Sync {
 
     /// Check if a novel exists.
     async fn exists_novel(&self, id: &NovelId) -> Result<bool>;
-
-    // === Chapter Content Operations ===
 
     /// Store content for a specific chapter.
     ///
@@ -97,8 +93,6 @@ pub trait BookStorage: Send + Sync {
         chapter_url: &str,
     ) -> Result<bool>;
 
-    // === Query Operations ===
-
     /// List novels with optional filtering.
     async fn list_novels(&self, filter: &NovelFilter) -> Result<Vec<NovelSummary>>;
 
@@ -113,8 +107,6 @@ pub trait BookStorage: Send + Sync {
     /// including volume and chapter metadata.
     async fn list_chapters(&self, novel_id: &NovelId) -> Result<Vec<ChapterInfo>>;
 
-    // === Maintenance Operations ===
-
     /// Remove orphaned chapter content and assets, and fix inconsistencies.
     ///
     /// This operation scans the storage for:
@@ -126,8 +118,6 @@ pub trait BookStorage: Send + Sync {
     /// # Returns
     /// A report detailing what was cleaned up and any errors encountered
     async fn cleanup_dangling_data(&self) -> Result<CleanupReport>;
-
-    // === Asset Operations ===
 
     /// Create an Asset with properly generated ID and filename
     fn create_asset(&self, novel_id: NovelId, original_url: String, mime_type: String) -> Asset;

@@ -185,8 +185,6 @@ impl QuelleExtension for Extension {
         let mut html = Html::new(&text);
 
         // TODO: Clean and reorder text content
-
-        // Apply text reordering to the content
         let content = html
             .select_first_opt(".text-left")?
             .or_else(|| html.select_first_opt(".reading-content").ok().flatten())

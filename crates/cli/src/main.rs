@@ -1,3 +1,8 @@
+//! Quelle CLI - A novel scraper and library manager.
+//!
+//! This is the main entry point for the Quelle command-line interface,
+//! which provides novel fetching, library management, and export functionality.
+
 use clap::Parser;
 use eyre::Result;
 use quelle_storage::backends::filesystem::FilesystemStorage;

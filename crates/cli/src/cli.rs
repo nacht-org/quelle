@@ -32,7 +32,6 @@ pub struct Cli {
 
 #[derive(clap::Subcommand, Debug)]
 pub enum Commands {
-    // === Core workflow commands (most used) ===
     /// Add a novel to your library (fetches novel + all chapters)
     /// Example: quelle add https://example.com/novel
     Add {
@@ -93,7 +92,6 @@ pub enum Commands {
         force: bool,
     },
 
-    // === Management commands ===
     /// Manage local library (list, stats, cleanup)
     Library {
         #[command(subcommand)]
@@ -124,7 +122,6 @@ pub enum Commands {
         command: ConfigCommands,
     },
 
-    // === Advanced/developer commands ===
     /// Manage extension stores
     Store {
         #[command(subcommand)]

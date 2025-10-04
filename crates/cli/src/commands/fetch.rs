@@ -1,3 +1,5 @@
+//! Fetch command handlers for retrieving novel and chapter data.
+
 use eyre::Result;
 
 use quelle_storage::{
@@ -394,10 +396,7 @@ async fn handle_fetch_all(
 
     println!("🚀 Fetching everything from: {}", url);
 
-    // First fetch the novel
     handle_fetch_novel(url.clone(), store_manager, storage, false).await?;
-
-    // Then fetch all chapters using the novel ID (URL in this case)
     handle_fetch_chapters(url.to_string(), store_manager, storage, false).await?;
 
     println!("🎉 Complete! Novel and all chapters fetched successfully");
@@ -453,13 +452,8 @@ pub async fn fetch_novel_with_extension(
     registry: &dyn quelle_store::registry::RegistryStore,
     url: &str,
 ) -> Result<quelle_storage::Novel> {
-    // Create extension engine
     let engine = crate::utils::create_extension_engine()?;
-
-    // Get WASM component bytes from registry
     let wasm_bytes = registry.get_extension_wasm_bytes(&installed.id).await?;
-
-    // Create runner and fetch novel info
     let runner = engine.new_runner_from_bytes(&wasm_bytes).await?;
     let (_, result) = runner.fetch_novel_info(url).await?;
 
@@ -475,13 +469,8 @@ pub async fn fetch_chapter_with_extension(
     registry: &dyn quelle_store::registry::RegistryStore,
     url: &str,
 ) -> Result<ChapterContent> {
-    // Create extension engine
     let engine = crate::utils::create_extension_engine()?;
-
-    // Get WASM component bytes from registry
     let wasm_bytes = registry.get_extension_wasm_bytes(&installed.id).await?;
-
-    // Create runner and fetch chapter content
     let runner = engine.new_runner_from_bytes(&wasm_bytes).await?;
     let (_, result) = runner.fetch_chapter(url).await?;
 
@@ -496,7 +485,6 @@ async fn fetch_and_store_asset(
     asset_url: &str,
     storage: &FilesystemStorage,
 ) -> Result<AssetId> {
-    // First check if the asset already exists
     if let Some(existing_asset_id) = storage.find_asset_by_url(asset_url).await? {
         println!("✅ Cover image already downloaded");
         return Ok(existing_asset_id);
@@ -504,8 +492,6 @@ async fn fetch_and_store_asset(
 
     println!("📷 Downloading cover image...");
     info!("📷 Fetching asset from: {}", asset_url);
-
-    // Make HTTP request to fetch the asset
     let response = reqwest::get(asset_url).await?;
 
     if !response.status().is_success() {
@@ -514,8 +500,6 @@ async fn fetch_and_store_asset(
             response.status()
         ));
     }
-
-    // Get content type
     let content_type = response
         .headers()
         .get("content-type")
@@ -523,13 +507,8 @@ async fn fetch_and_store_asset(
         .unwrap_or("application/octet-stream")
         .to_string();
 
-    // Get the asset data
     let data = response.bytes().await?;
-
-    // Create asset metadata with proper ID and filename
     let asset = storage.create_asset(novel_id.clone(), asset_url.to_string(), content_type);
-
-    // Create reader from data
     let reader = Box::new(Cursor::new(data.to_vec()));
 
     // Store asset

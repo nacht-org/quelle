@@ -1,3 +1,8 @@
+//! WebAssembly extension system for Quelle.
+//!
+//! This crate provides the runtime environment and utilities for WebAssembly extensions
+//! that handle novel fetching, searching, and content extraction from various sources.
+
 mod modules;
 mod register;
 

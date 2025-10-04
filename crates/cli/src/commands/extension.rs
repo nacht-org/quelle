@@ -1,3 +1,5 @@
+//! Extension management command handlers.
+
 use eyre::Result;
 use quelle_store::StoreManager;
 use std::io::{self, Write};
@@ -48,15 +50,14 @@ async fn handle_install_extension(
     println!("📦 Installing extension: {}", id);
 
     // Check if already installed
-    if !force
-        && let Some(installed) = store_manager.get_installed(&id).await? {
-            println!(
-                "⚠️ Extension {} v{} is already installed",
-                installed.name, installed.version
-            );
-            println!("💡 Use --force to reinstall");
-            return Ok(());
-        }
+    if !force && let Some(installed) = store_manager.get_installed(&id).await? {
+        println!(
+            "⚠️ Extension {} v{} is already installed",
+            installed.name, installed.version
+        );
+        println!("💡 Use --force to reinstall");
+        return Ok(());
+    }
 
     // Install the extension
     match store_manager.install(&id, version.as_deref(), None).await {
@@ -132,7 +133,6 @@ async fn handle_update_extension(
             print!("📦 Checking {} for updates...", ext.name);
             io::stdout().flush()?;
 
-            // For now, just report that we would check for updates
             println!(" 🚧 Update checking not yet implemented");
             // TODO: Implement actual update checking once store supports it
         }

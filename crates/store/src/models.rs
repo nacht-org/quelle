@@ -83,8 +83,6 @@ impl ExtensionPackage {
             }
         })?;
 
-        // Create a headless executor for metadata extraction
-        // Note: We use a minimal executor since we only need metadata
         let executor = Arc::new(quelle_engine::http::HeadlessChromeExecutor::new());
         let engine = ExtensionEngine::new(executor).map_err(|e| {
             crate::error::StoreError::InvalidPackage {
@@ -92,7 +90,6 @@ impl ExtensionPackage {
             }
         })?;
 
-        // Create a runner from the wasm content
         let runner = engine
             .new_runner_from_bytes(&wasm_content)
             .await
@@ -319,7 +316,6 @@ impl InstalledExtension {
     ) -> crate::error::Result<u64> {
         let mut total_size = 0u64;
 
-        // Get WASM component size
         if let Ok(wasm_bytes) = registry.get_extension_wasm_bytes(&self.id).await {
             total_size += wasm_bytes.len() as u64;
         }

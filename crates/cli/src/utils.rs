@@ -1,3 +1,5 @@
+//! Utility functions for CLI operations and common functionality.
+
 use eyre::Result;
 use quelle_engine::ExtensionEngine;
 use quelle_storage::{

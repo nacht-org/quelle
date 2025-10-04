@@ -1,3 +1,5 @@
+//! Publish command handlers for extension publication and validation.
+
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -109,7 +111,6 @@ async fn handle_publish_extension(
     // Load the extension package
     let package = load_extension_package(&package_path).await?;
 
-    // Create publish options
     let mut options = if dev {
         PublishOptions::dev_defaults()
     } else {
@@ -217,7 +218,6 @@ async fn handle_unpublish_extension(
     warn!("Are you sure you want to unpublish this extension version?");
     warn!("This action may break installations that depend on this version.");
 
-    // Create unpublish options
     let unpublish_options = UnpublishOptions {
         access_token: token,
         version: Some(version.clone()),
@@ -264,10 +264,8 @@ async fn handle_validate_extension(
 ) -> Result<()> {
     info!("Validating extension package at {:?}", package_path);
 
-    // Load the extension package
     let package = load_extension_package(&package_path).await?;
 
-    // Create validator
     let validator = if strict {
         create_strict_validator()
     } else {
