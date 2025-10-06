@@ -35,9 +35,6 @@ pub trait ReadableStore: BaseStore {
     /// Returns (id, name) pairs
     async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<(String, String)>>;
 
-    /// Find extensions that support a specific domain
-    async fn find_extensions_for_domain(&self, domain: &str) -> Result<Vec<String>>;
-
     /// List all available extensions in this store
     async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>>;
 
@@ -132,33 +129,6 @@ pub trait CacheableStore: BaseStore {
     async fn cache_stats(&self) -> Result<CacheStats>;
 }
 
-/// Store that requires authentication
-#[async_trait]
-pub trait AuthenticatedStore: BaseStore {
-    /// Authenticate with the store
-    async fn authenticate(&self, credentials: AuthCredentials) -> Result<()>;
-
-    /// Check if currently authenticated
-    async fn is_authenticated(&self) -> Result<bool>;
-
-    /// Get current authentication status
-    async fn auth_status(&self) -> Result<AuthStatus>;
-}
-
-/// Store that supports versioned content (like Git)
-#[async_trait]
-pub trait VersionedStore: ReadableStore {
-    /// Get the commit/revision hash for a specific version
-    async fn get_revision_hash(&self, id: &str, version: &str) -> Result<String>;
-
-    /// List all branches/tags available
-    async fn list_refs(&self) -> Result<Vec<RefInfo>>;
-
-    /// Get changelog between versions
-    async fn get_changelog(&self, id: &str, from_version: &str, to_version: &str)
-        -> Result<String>;
-}
-
 /// Combined trait for stores that support both reading and writing
 pub trait ReadWriteStore: ReadableStore + WritableStore {}
 
@@ -172,49 +142,4 @@ pub struct CacheStats {
     pub size_bytes: u64,
     pub hit_rate: f64,
     pub last_refresh: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-/// Authentication credentials for authenticated stores
-#[derive(Debug, Clone)]
-pub enum AuthCredentials {
-    /// Username and password authentication
-    UserPassword { username: String, password: String },
-    /// Token-based authentication
-    Token { token: String },
-    /// SSH key authentication
-    SshKey {
-        private_key: String,
-        passphrase: Option<String>,
-    },
-    /// OAuth token
-    OAuth {
-        access_token: String,
-        refresh_token: Option<String>,
-    },
-}
-
-/// Authentication status
-#[derive(Debug, Clone)]
-pub struct AuthStatus {
-    pub authenticated: bool,
-    pub user_id: Option<String>,
-    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub permissions: Vec<String>,
-}
-
-/// Reference information for versioned stores
-#[derive(Debug, Clone)]
-pub struct RefInfo {
-    pub name: String,
-    pub ref_type: RefType,
-    pub hash: String,
-    pub message: Option<String>,
-}
-
-/// Type of version reference
-#[derive(Debug, Clone)]
-pub enum RefType {
-    Branch,
-    Tag,
-    Commit,
 }

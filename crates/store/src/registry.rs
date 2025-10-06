@@ -10,79 +10,6 @@ use tracing::{debug, info, warn};
 use crate::error::{Result, StoreError};
 use crate::models::{ExtensionPackage, InstallOptions, InstalledExtension};
 
-/// Query parameters for finding installed extensions
-#[derive(Debug, Clone, Default)]
-pub struct InstallationQuery {
-    pub name_pattern: Option<String>,
-    pub installed_after: Option<DateTime<Utc>>,
-    pub installed_before: Option<DateTime<Utc>>,
-    pub from_store: Option<String>,
-    pub version_pattern: Option<String>,
-    pub auto_update_only: Option<bool>,
-}
-
-impl InstallationQuery {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_name_pattern(mut self, pattern: String) -> Self {
-        self.name_pattern = Some(pattern);
-        self
-    }
-
-    pub fn installed_after(mut self, date: DateTime<Utc>) -> Self {
-        self.installed_after = Some(date);
-        self
-    }
-
-    pub fn from_store(mut self, store: String) -> Self {
-        self.from_store = Some(store);
-        self
-    }
-}
-
-/// Statistics about installed extensions
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstallationStats {
-    pub total_extensions: usize,
-    pub total_size: u64,
-    pub stores_used: Vec<String>,
-    pub auto_update_enabled: usize,
-    pub last_updated: Option<DateTime<Utc>>,
-}
-
-/// Registry health information (generic across implementations)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegistryHealth {
-    pub healthy: bool,
-    pub total_extensions: usize,
-    pub last_updated: Option<DateTime<Utc>>,
-    pub implementation_info: HashMap<String, serde_json::Value>,
-}
-
-impl RegistryHealth {
-    pub fn healthy(total_extensions: usize) -> Self {
-        Self {
-            healthy: true,
-            total_extensions,
-            last_updated: Some(Utc::now()),
-            implementation_info: HashMap::new(),
-        }
-    }
-
-    pub fn unhealthy(reason: String) -> Self {
-        let mut info = HashMap::new();
-        info.insert("error".to_string(), serde_json::Value::String(reason));
-        Self {
-            healthy: false,
-            total_extensions: 0,
-            last_updated: None,
-            implementation_info: info,
-        }
-    }
-}
-
 /// Validation issue found during installation validation (LocalRegistryStore specific)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationIssue {
@@ -137,44 +64,13 @@ pub trait RegistryStore: Send + Sync {
     /// Get a specific installed extension
     async fn get_installed(&self, id: &str) -> Result<Option<InstalledExtension>>;
 
-    /// Find installed extensions matching the query
-    async fn find_installed(&self, query: &InstallationQuery) -> Result<Vec<InstalledExtension>>;
-
-    /// Get statistics about installed extensions
-    async fn get_installation_stats(&self) -> Result<InstallationStats>;
-
-    /// Get registry health information (generic across implementations)
-    async fn get_registry_health(&self) -> Result<RegistryHealth>;
-
     /// Check if an extension is registered as installed
     async fn is_installed(&self, id: &str) -> Result<bool> {
         Ok(self.get_installed(id).await?.is_some())
     }
 
-    /// Validate all registered installations
-    ///
-    /// Checks that all registered extensions are properly installed and accessible.
-    /// Returns a list of validation issues found. The specific validation performed
-    /// depends on the implementation:
-    /// - File-based: Check files exist, checksums match, required components present
-    /// - Database: Verify data integrity, foreign key constraints
-    /// - Cloud: Validate remote resources exist and are accessible
-    /// - HTTP: Check URLs are reachable and content is valid
-    async fn validate_installations(&self) -> Result<Vec<ValidationIssue>>;
-
     /// Get WASM component bytes for an installed extension
     async fn get_extension_wasm_bytes(&self, id: &str) -> Result<Vec<u8>>;
-
-    /// Remove orphaned registry entries
-    ///
-    /// Removes registry entries that reference extensions no longer available
-    /// in the backing store. Returns the number of entries removed.
-    /// Implementation-specific behavior:
-    /// - File-based: Remove entries for deleted directories/files
-    /// - Database: Clean up records with broken references
-    /// - Cloud: Remove entries for deleted cloud resources
-    /// - HTTP: Remove entries for unreachable URLs
-    async fn cleanup_orphaned(&mut self) -> Result<u32>;
 }
 
 /// JSON-based registry data structure
@@ -183,7 +79,6 @@ struct JsonRegistry {
     extensions: HashMap<String, InstalledExtension>,
     last_updated: DateTime<Utc>,
     version: String,
-    stats: InstallationStats,
 }
 
 impl Default for JsonRegistry {
@@ -192,13 +87,6 @@ impl Default for JsonRegistry {
             extensions: HashMap::new(),
             last_updated: Utc::now(),
             version: "1.0".to_string(),
-            stats: InstallationStats {
-                total_extensions: 0,
-                total_size: 0,
-                stores_used: Vec::new(),
-                auto_update_enabled: 0,
-                last_updated: None,
-            },
         }
     }
 }
@@ -304,8 +192,6 @@ impl LocalRegistryStore {
 
     /// Save registry to disk with atomic backup
     async fn save_registry(&mut self) -> Result<()> {
-        // Update stats before saving
-        self.registry.stats = self.calculate_stats().await;
         self.registry.last_updated = Utc::now();
 
         let content = serde_json::to_string_pretty(&self.registry).map_err(|e| {
@@ -326,77 +212,6 @@ impl LocalRegistryStore {
         fs::write(&self.registry_path, content).await?;
         debug!("Registry saved successfully");
         Ok(())
-    }
-
-    /// Calculate current installation statistics
-    async fn calculate_stats(&self) -> InstallationStats {
-        let total_extensions = self.registry.extensions.len();
-        let mut total_size = 0u64;
-        let mut stores_used = std::collections::HashSet::new();
-        let mut auto_update_enabled = 0;
-        let mut last_updated = None;
-
-        for extension in self.registry.extensions.values() {
-            total_size += extension.calculate_size();
-            stores_used.insert(extension.source_store.clone());
-            if extension.auto_update {
-                auto_update_enabled += 1;
-            }
-            if let Some(updated) = extension.last_updated {
-                if last_updated.is_none_or(|lu| updated > lu) {
-                    last_updated = Some(updated);
-                }
-            }
-        }
-
-        InstallationStats {
-            total_extensions,
-            total_size,
-            stores_used: stores_used.into_iter().collect(),
-            auto_update_enabled,
-            last_updated,
-        }
-    }
-
-    /// Check if an extension matches the given query
-    fn matches_query(&self, extension: &InstalledExtension, query: &InstallationQuery) -> bool {
-        if let Some(ref pattern) = query.name_pattern {
-            if !extension.name.contains(pattern) {
-                return false;
-            }
-        }
-
-        if let Some(after) = query.installed_after {
-            if extension.installed_at < after {
-                return false;
-            }
-        }
-
-        if let Some(before) = query.installed_before {
-            if extension.installed_at > before {
-                return false;
-            }
-        }
-
-        if let Some(ref store) = query.from_store {
-            if extension.source_store != *store {
-                return false;
-            }
-        }
-
-        if let Some(ref version_pattern) = query.version_pattern {
-            if !extension.version.contains(version_pattern) {
-                return false;
-            }
-        }
-
-        if let Some(auto_update_only) = query.auto_update_only {
-            if extension.auto_update != auto_update_only {
-                return false;
-            }
-        }
-
-        true
     }
 
     /// Validate extension name for security
@@ -573,126 +388,6 @@ impl RegistryStore for LocalRegistryStore {
         Ok(self.registry.extensions.get(id).cloned())
     }
 
-    async fn find_installed(&self, query: &InstallationQuery) -> Result<Vec<InstalledExtension>> {
-        Ok(self
-            .registry
-            .extensions
-            .values()
-            .filter(|ext| self.matches_query(ext, query))
-            .cloned()
-            .collect())
-    }
-
-    async fn get_installation_stats(&self) -> Result<InstallationStats> {
-        Ok(self.calculate_stats().await)
-    }
-
-    async fn get_registry_health(&self) -> Result<RegistryHealth> {
-        let stats = self.calculate_stats().await;
-        let mut health = RegistryHealth::healthy(stats.total_extensions);
-
-        // Add implementation-specific info
-        health.implementation_info.insert(
-            "registry_file".to_string(),
-            serde_json::Value::String(self.registry_path.display().to_string()),
-        );
-        health.implementation_info.insert(
-            "install_directory".to_string(),
-            serde_json::Value::String(self.install_dir.display().to_string()),
-        );
-        health.implementation_info.insert(
-            "total_size_bytes".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(stats.total_size)),
-        );
-
-        health.last_updated = stats.last_updated;
-
-        Ok(health)
-    }
-
-    async fn validate_installations(&self) -> Result<Vec<ValidationIssue>> {
-        let mut issues = Vec::new();
-
-        for extension in self.registry.extensions.values() {
-            // Validate integrity by checking checksum
-            if !extension.verify_integrity(self).await {
-                issues.push(ValidationIssue {
-                    extension_name: extension.name.clone(),
-                    issue_type: ValidationIssueType::CorruptedFiles,
-                    description: "Extension data integrity check failed".to_string(),
-                    severity: IssueSeverity::Error,
-                });
-                continue;
-            }
-
-            // Check if cache files exist on disk (optional validation)
-            let install_path = self.extension_install_path(&extension.id);
-            let wasm_path = install_path.join("extension.wasm");
-            let manifest_path = install_path.join("manifest.json");
-
-            if install_path.exists() && !wasm_path.exists() {
-                issues.push(ValidationIssue {
-                    extension_name: extension.name.clone(),
-                    issue_type: ValidationIssueType::MissingFiles,
-                    description: "WASM component file missing".to_string(),
-                    severity: IssueSeverity::Critical,
-                });
-            }
-
-            if !manifest_path.exists() {
-                issues.push(ValidationIssue {
-                    extension_name: extension.name.clone(),
-                    issue_type: ValidationIssueType::MissingFiles,
-                    description: "Manifest file missing".to_string(),
-                    severity: IssueSeverity::Error,
-                });
-            }
-
-            // Validate checksum if available
-            if let Some(ref checksum) = extension.checksum {
-                if wasm_path.exists() {
-                    if let Ok(wasm_content) = fs::read(&wasm_path).await {
-                        if !checksum.verify(&wasm_content) {
-                            issues.push(ValidationIssue {
-                                extension_name: extension.name.clone(),
-                                issue_type: ValidationIssueType::ChecksumMismatch,
-                                description: "WASM component checksum verification failed"
-                                    .to_string(),
-                                severity: IssueSeverity::Critical,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(issues)
-    }
-
-    async fn cleanup_orphaned(&mut self) -> Result<u32> {
-        let mut removed = 0;
-        let mut to_remove = Vec::new();
-
-        for (name, extension) in &self.registry.extensions {
-            // Check if extension files exist on disk
-            let install_path = self.extension_install_path(&extension.id);
-            if !install_path.exists() {
-                to_remove.push(name.clone());
-            }
-        }
-
-        for name in to_remove {
-            self.registry.extensions.remove(&name);
-            removed += 1;
-        }
-
-        if removed > 0 {
-            self.save_registry().await?;
-        }
-
-        Ok(removed)
-    }
-
     async fn get_extension_wasm_bytes(&self, id: &str) -> Result<Vec<u8>> {
         let install_path = self.extension_install_path(id);
         let wasm_path = install_path.join("extension.wasm");
@@ -791,12 +486,6 @@ mod tests {
             .install_extension(package2, &options)
             .await
             .unwrap();
-
-        // Test name pattern query
-        let query = InstallationQuery::new().with_name_pattern("ext1".to_string());
-        let results = registry.find_installed(&query).await.unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].name, "ext1");
     }
 
     #[tokio::test]
@@ -807,10 +496,6 @@ mod tests {
         let package = create_test_extension_package("test-ext", "1.0.0");
         let options = InstallOptions::default();
         registry.install_extension(package, &options).await.unwrap();
-
-        let stats = registry.get_installation_stats().await.unwrap();
-        assert_eq!(stats.total_extensions, 1);
-        assert!(stats.stores_used.contains(&"test-store".to_string()));
     }
 
     #[test]
@@ -902,12 +587,9 @@ mod tests {
         // - update_installation: Any registry can update
         // - list_installed: Any registry can list
         // - get_installed: Any registry can get specific items
-        // - find_installed: Any registry can search
-        // - get_installation_stats: Any registry can provide stats
-        // - get_registry_health: Any registry can report health
+
         // - is_installed: Any registry can check existence
-        // - validate_installations: Any registry can validate its state
-        // - cleanup_orphaned: Any registry can clean up invalid entries
+        // - get_extension_wasm_bytes: Any registry can provide WASM files
         //
         // Notably ABSENT (and correctly so):
         // - install_dir(): File-system specific

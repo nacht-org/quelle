@@ -141,26 +141,6 @@ impl LocalStoreManifest {
 
         unique_matches
     }
-
-    /// Get extensions that support a specific domain
-    pub(crate) fn find_extensions_for_domain(&self, domain: &str) -> Vec<String> {
-        let mut matches = Vec::new();
-
-        for ext in &self.extensions {
-            for base_url in &ext.base_urls {
-                if let Ok(parsed) = url::Url::parse(base_url) {
-                    if let Some(url_domain) = parsed.domain() {
-                        if url_domain == domain {
-                            matches.push(ext.name.clone());
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        matches
-    }
 }
 
 /// Local file system-based store implementation
@@ -985,11 +965,6 @@ impl ReadableStore for LocalStore {
     async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<(String, String)>> {
         let local_manifest = self.get_local_store_manifest().await?;
         Ok(local_manifest.find_extensions_for_url(url))
-    }
-
-    async fn find_extensions_for_domain(&self, domain: &str) -> Result<Vec<String>> {
-        let local_manifest = self.get_local_store_manifest().await?;
-        Ok(local_manifest.find_extensions_for_domain(domain))
     }
 
     async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {

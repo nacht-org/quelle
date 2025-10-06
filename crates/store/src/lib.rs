@@ -85,10 +85,7 @@ pub use publish::{
     ExtensionVisibility, PublishError, PublishOptions, PublishRequirements, PublishResult,
     UnpublishOptions, UnpublishResult, ValidationReport,
 };
-pub use registry::{
-    InstallationQuery, InstallationStats, LocalRegistryStore, RegistryHealth, RegistryStore,
-    ValidationIssue,
-};
+pub use registry::{LocalRegistryStore, RegistryStore, ValidationIssue};
 pub use registry_config::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts};
 pub use source::{create_readable_store_from_source, ExtensionSource, RegistryConfig, StoreType};
 pub use store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};

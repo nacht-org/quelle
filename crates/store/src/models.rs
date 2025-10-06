@@ -406,21 +406,6 @@ impl UpdateInfo {
             store_source,
         }
     }
-
-    pub fn with_changelog(mut self, url: String) -> Self {
-        self.changelog_url = Some(url);
-        self
-    }
-
-    pub fn mark_breaking(mut self) -> Self {
-        self.breaking_changes = true;
-        self
-    }
-
-    pub fn mark_security_update(mut self) -> Self {
-        self.security_update = true;
-        self
-    }
 }
 
 /// Search query parameters

@@ -28,8 +28,7 @@ use crate::error::{Result, StoreError};
 
 // Re-export commonly used traits
 pub use traits::{
-    AuthCredentials, AuthStatus, AuthenticatedStore, BaseStore, CacheStats, CacheableStore,
-    ReadWriteStore, ReadableStore, RefInfo, RefType, VersionedStore, WritableStore,
+    BaseStore, CacheStats, CacheableStore, ReadWriteStore, ReadableStore, WritableStore,
 };
 
 // Re-export provider types and locally cached store

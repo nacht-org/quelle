@@ -13,9 +13,7 @@ use crate::models::{
     ExtensionInfo, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy, StoreConfig,
     UpdateInfo, UpdateOptions,
 };
-use crate::registry::{
-    InstallationQuery, InstallationStats, RegistryHealth, RegistryStore, ValidationIssue,
-};
+use crate::registry::RegistryStore;
 use crate::registry_config::RegistryStoreConfig;
 use crate::stores::ReadableStore;
 
@@ -901,34 +899,6 @@ impl StoreManager {
     /// List all installed extensions
     pub async fn list_installed(&self) -> Result<Vec<InstalledExtension>> {
         self.registry_store.list_installed().await
-    }
-
-    /// Find installed extensions matching the query
-    pub async fn find_installed(
-        &self,
-        query: &InstallationQuery,
-    ) -> Result<Vec<InstalledExtension>> {
-        self.registry_store.find_installed(query).await
-    }
-
-    /// Get statistics about installed extensions
-    pub async fn get_installation_stats(&self) -> Result<InstallationStats> {
-        self.registry_store.get_installation_stats().await
-    }
-
-    /// Get registry health information (generic across implementations)
-    pub async fn get_registry_health(&self) -> Result<RegistryHealth> {
-        self.registry_store.get_registry_health().await
-    }
-
-    /// Validate all installed extensions
-    pub async fn validate_installations(&self) -> Result<Vec<ValidationIssue>> {
-        self.registry_store.validate_installations().await
-    }
-
-    /// Clean up orphaned registry entries
-    pub async fn cleanup_orphaned(&mut self) -> Result<u32> {
-        self.registry_store.cleanup_orphaned().await
     }
 
     /// Remove an installed extension

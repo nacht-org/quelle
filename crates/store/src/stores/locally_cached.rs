@@ -419,11 +419,6 @@ impl<T: StoreProvider> ReadableStore for LocallyCachedStore<T> {
         self.local_store.find_extensions_for_url(url).await
     }
 
-    async fn find_extensions_for_domain(&self, domain: &str) -> Result<Vec<String>> {
-        self.ensure_synced().await?;
-        self.local_store.find_extensions_for_domain(domain).await
-    }
-
     async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
         self.ensure_synced().await?;
         self.local_store.list_extensions().await
