@@ -13,8 +13,8 @@ use tracing::{debug, info, warn};
 
 use crate::error::Result;
 use crate::publish::{
-    PublishOptions, PublishRequirements, PublishResult, PublishUpdateOptions, UnpublishOptions,
-    UnpublishResult, ValidationReport,
+    PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
+    ValidationReport,
 };
 use crate::stores::{
     local::LocalStore,
@@ -189,37 +189,6 @@ impl<T: StoreProvider> WritableStore for LocallyCachedStore<T> {
         Ok(result)
     }
 
-    async fn update_published(
-        &self,
-        extension_id: &str,
-        package: ExtensionPackage,
-        options: PublishUpdateOptions,
-    ) -> Result<PublishResult> {
-        // Ensure we're synced first
-        self.ensure_synced().await?;
-
-        // Check if provider supports writing and is in valid state
-        self.provider.ensure_writable().await?;
-
-        // Delegate to local store
-        let result = self
-            .local_store
-            .update_published(extension_id, package.clone(), options)
-            .await?;
-
-        // Call lifecycle hook
-        let event = LifecycleEvent::Published {
-            extension_id: extension_id.to_string(),
-            version: package.manifest.version.to_string(),
-        };
-
-        if let Err(e) = self.provider.handle_event(event).await {
-            tracing::warn!("Lifecycle hook failed after successful update: {}", e);
-        }
-
-        Ok(result)
-    }
-
     async fn unpublish(
         &self,
         extension_id: &str,
@@ -353,7 +322,11 @@ impl LocallyCachedStore<GitProvider> {
         let has_write_config = self.provider.write_config.is_some();
         let auth_type = "Unknown".to_string(); // Can't access private auth field
 
-        let auto_push = self.provider.write_config.as_ref().map(|config| config.auto_push);
+        let auto_push = self
+            .provider
+            .write_config
+            .as_ref()
+            .map(|config| config.auto_push);
 
         GitStoreDiagnostic {
             is_writable,

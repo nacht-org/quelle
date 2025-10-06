@@ -82,9 +82,8 @@ pub use models::{
     UpdateOptions,
 };
 pub use publish::{
-    ExtensionVisibility, PublishError, PublishOptions, PublishPermissions, PublishRequirements,
-    PublishResult, PublishStats, PublishUpdateOptions, RateLimits, UnpublishOptions,
-    UnpublishResult, ValidationReport,
+    ExtensionVisibility, PublishError, PublishOptions, PublishRequirements, PublishResult,
+    UnpublishOptions, UnpublishResult, ValidationReport,
 };
 pub use registry::{
     InstallationQuery, InstallationStats, LocalRegistryStore, RegistryHealth, RegistryStore,

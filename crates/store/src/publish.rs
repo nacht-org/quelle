@@ -4,7 +4,6 @@
 //! to various store backends. It supports different publishing models including
 //! direct uploads, pull request workflows, and validation pipelines.
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -27,20 +26,11 @@ pub struct PublishOptions {
     /// Authentication token for the store
     pub access_token: Option<String>,
 
-    /// Key for signing the extension package
-    pub signing_key: Option<String>,
-
-    /// Additional metadata to include with the publication
-    pub metadata: HashMap<String, serde_json::Value>,
-
     /// Whether to run validation before publishing
     pub skip_validation: bool,
 
     /// Timeout for the publishing operation
     pub timeout: Option<Duration>,
-
-    /// Whether to create a backup before publishing
-    pub create_backup: bool,
 
     /// Tags to associate with this publication
     pub tags: Vec<String>,
@@ -56,11 +46,8 @@ impl Default for PublishOptions {
             pre_release: false,
             visibility: ExtensionVisibility::Public,
             access_token: None,
-            signing_key: None,
-            metadata: HashMap::new(),
             skip_validation: false,
             timeout: Some(Duration::from_secs(300)), // 5 minutes
-            create_backup: true,
             tags: Vec::new(),
             release_notes: None,
         }
@@ -73,7 +60,6 @@ impl PublishOptions {
         Self {
             overwrite_existing: true,
             skip_validation: true,
-            create_backup: false,
             timeout: Some(Duration::from_secs(30)),
             ..Default::default()
         }
@@ -84,28 +70,10 @@ impl PublishOptions {
         Self {
             overwrite_existing: false,
             skip_validation: false,
-            create_backup: true,
             visibility: ExtensionVisibility::Public,
             ..Default::default()
         }
     }
-}
-
-/// Options for updating an existing extension
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublishUpdateOptions {
-    /// Base publishing options
-    #[serde(flatten)]
-    pub publish_options: PublishOptions,
-
-    /// Whether to preserve existing metadata
-    pub preserve_metadata: bool,
-
-    /// Whether to merge or replace tags
-    pub merge_tags: bool,
-
-    /// Reason for the update
-    pub update_reason: Option<String>,
 }
 
 /// Options for unpublishing an extension
@@ -127,9 +95,8 @@ pub struct UnpublishOptions {
     pub notify_users: bool,
 }
 
-impl UnpublishOptions {
-    /// Create new unpublish options with default values
-    pub fn new() -> Self {
+impl Default for UnpublishOptions {
+    fn default() -> Self {
         Self {
             access_token: None,
             version: None,
@@ -137,47 +104,6 @@ impl UnpublishOptions {
             keep_record: true,
             notify_users: false,
         }
-    }
-
-    /// Create unpublish options for a specific version
-    pub fn for_version(version: String) -> Self {
-        Self {
-            access_token: None,
-            version: Some(version),
-            reason: None,
-            keep_record: true,
-            notify_users: false,
-        }
-    }
-
-    /// Set the access token
-    pub fn with_token(mut self, token: String) -> Self {
-        self.access_token = Some(token);
-        self
-    }
-
-    /// Set the reason for unpublishing
-    pub fn with_reason(mut self, reason: String) -> Self {
-        self.reason = Some(reason);
-        self
-    }
-
-    /// Set whether to keep a record
-    pub fn with_keep_record(mut self, keep: bool) -> Self {
-        self.keep_record = keep;
-        self
-    }
-
-    /// Set whether to notify users
-    pub fn with_notify_users(mut self, notify: bool) -> Self {
-        self.notify_users = notify;
-        self
-    }
-}
-
-impl Default for UnpublishOptions {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -190,8 +116,6 @@ pub enum ExtensionVisibility {
     Private,
     /// Not discoverable but installable via direct link
     Unlisted,
-    /// Only available to specific organizations/teams
-    Organization,
 }
 
 /// Result of a successful publish operation
@@ -219,9 +143,6 @@ pub struct PublishResult {
 
     /// Any warnings generated during publishing
     pub warnings: Vec<String>,
-
-    /// Store-specific information
-    pub store_info: HashMap<String, serde_json::Value>,
 }
 
 impl PublishResult {
@@ -243,19 +164,12 @@ impl PublishResult {
             package_size,
             content_hash,
             warnings: Vec::new(),
-            store_info: HashMap::new(),
         }
     }
 
     /// Add a warning message
     pub fn with_warning(mut self, warning: String) -> Self {
         self.warnings.push(warning);
-        self
-    }
-
-    /// Add store-specific information
-    pub fn with_store_info(mut self, key: String, value: serde_json::Value) -> Self {
-        self.store_info.insert(key, value);
         self
     }
 }
@@ -292,9 +206,6 @@ pub struct ValidationReport {
 
     /// Validator version used
     pub validator_version: String,
-
-    /// Additional validation metadata
-    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 impl ValidationReport {
@@ -305,7 +216,6 @@ impl ValidationReport {
             issues: Vec::new(),
             validation_duration: Duration::from_secs(0),
             validator_version: env!("CARGO_PKG_VERSION").to_string(),
-            metadata: HashMap::new(),
         }
     }
 
@@ -316,7 +226,6 @@ impl ValidationReport {
             issues,
             validation_duration: Duration::from_secs(0),
             validator_version: env!("CARGO_PKG_VERSION").to_string(),
-            metadata: HashMap::new(),
         }
     }
 
@@ -357,9 +266,6 @@ pub struct PublishRequirements {
 
     /// Validation rules that will be applied
     pub validation_rules: Vec<String>,
-
-    /// Store-specific requirements
-    pub store_specific: HashMap<String, serde_json::Value>,
 }
 
 impl Default for PublishRequirements {
@@ -384,79 +290,8 @@ impl Default for PublishRequirements {
             supported_visibility: vec![ExtensionVisibility::Public, ExtensionVisibility::Unlisted],
             enforces_versioning: true,
             validation_rules: Vec::new(),
-            store_specific: HashMap::new(),
         }
     }
-}
-
-/// Publishing permissions for a user/token
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublishPermissions {
-    /// Whether the user can publish new extensions
-    pub can_publish: bool,
-
-    /// Whether the user can update existing extensions
-    pub can_update: bool,
-
-    /// Whether the user can unpublish extensions
-    pub can_unpublish: bool,
-
-    /// Specific extensions the user has permission for (None = all)
-    pub allowed_extensions: Option<Vec<String>>,
-
-    /// Maximum package size this user can publish
-    pub max_package_size: Option<u64>,
-
-    /// Rate limits for this user
-    pub rate_limits: RateLimits,
-}
-
-/// Rate limiting information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RateLimits {
-    /// Publications per hour
-    pub publications_per_hour: Option<u32>,
-
-    /// Publications per day
-    pub publications_per_day: Option<u32>,
-
-    /// Total bandwidth per day (in bytes)
-    pub bandwidth_per_day: Option<u64>,
-}
-
-/// Publishing statistics and quotas
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublishStats {
-    /// Total number of extensions published
-    pub total_extensions: u64,
-
-    /// Total storage used (in bytes)
-    pub total_storage_used: u64,
-
-    /// Publications in the last 24 hours
-    pub recent_publications: u32,
-
-    /// Available storage quota (in bytes)
-    pub storage_quota: Option<u64>,
-
-    /// Current rate limit status
-    pub rate_limit_status: RateLimitStatus,
-
-    /// Store-specific statistics
-    pub store_specific: HashMap<String, serde_json::Value>,
-}
-
-/// Current rate limit status
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RateLimitStatus {
-    /// Publications remaining in current window
-    pub publications_remaining: Option<u32>,
-
-    /// When the rate limit window resets
-    pub reset_time: Option<DateTime<Utc>>,
-
-    /// Whether currently rate limited
-    pub is_limited: bool,
 }
 
 /// Errors specific to publishing operations
@@ -500,7 +335,6 @@ mod tests {
         assert!(!options.overwrite_existing);
         assert!(!options.pre_release);
         assert_eq!(options.visibility, ExtensionVisibility::Public);
-        assert!(options.create_backup);
     }
 
     #[test]
@@ -508,7 +342,6 @@ mod tests {
         let options = PublishOptions::dev_defaults();
         assert!(options.overwrite_existing);
         assert!(options.skip_validation);
-        assert!(!options.create_backup);
         assert_eq!(options.timeout, Some(Duration::from_secs(30)));
     }
 
@@ -530,14 +363,9 @@ mod tests {
             1024,
             "abc123".to_string(),
         )
-        .with_warning("Minor issue detected".to_string())
-        .with_store_info(
-            "cdn_url".to_string(),
-            serde_json::Value::String("https://cdn.example.com".to_string()),
-        );
+        .with_warning("Minor issue detected".to_string());
 
         assert_eq!(result.version, "1.0.0");
         assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.store_info.len(), 1);
     }
 }

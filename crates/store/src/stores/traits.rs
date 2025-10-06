@@ -13,8 +13,8 @@ use crate::models::{
     StoreHealth, UpdateInfo,
 };
 use crate::publish::{
-    PublishOptions, PublishRequirements, PublishResult,
-    PublishUpdateOptions, UnpublishOptions, UnpublishResult, ValidationReport,
+    PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
+    ValidationReport,
 };
 use crate::store_manifest::StoreManifest;
 
@@ -102,14 +102,6 @@ pub trait WritableStore: BaseStore {
         &self,
         package: ExtensionPackage,
         options: PublishOptions,
-    ) -> Result<PublishResult>;
-
-    /// Update an existing published extension
-    async fn update_published(
-        &self,
-        extension_id: &str,
-        package: ExtensionPackage,
-        options: PublishUpdateOptions,
     ) -> Result<PublishResult>;
 
     /// Unpublish an extension

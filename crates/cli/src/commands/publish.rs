@@ -122,7 +122,6 @@ async fn handle_publish_extension(
         VisibilityOption::Public => ExtensionVisibility::Public,
         VisibilityOption::Private => ExtensionVisibility::Private,
         VisibilityOption::Unlisted => ExtensionVisibility::Unlisted,
-        VisibilityOption::Organization => ExtensionVisibility::Organization,
     };
     options.overwrite_existing = overwrite;
     options.skip_validation = skip_validation;
@@ -428,14 +427,13 @@ async fn load_extension_package(package_path: &PathBuf) -> Result<ExtensionPacka
                     for entry in entries.flatten() {
                         let path = entry.path();
                         if let Some(extension) = path.extension()
-                            && extension == "wasm" {
-                                info!("Found WASM file, attempting to load: {:?}", path);
-                                return ExtensionPackage::from_wasm_file(path, "cli".to_string())
-                                    .await
-                                    .map_err(|e| {
-                                        eyre::eyre!("Failed to load from WASM file: {}", e)
-                                    });
-                            }
+                            && extension == "wasm"
+                        {
+                            info!("Found WASM file, attempting to load: {:?}", path);
+                            return ExtensionPackage::from_wasm_file(path, "cli".to_string())
+                                .await
+                                .map_err(|e| eyre::eyre!("Failed to load from WASM file: {}", e));
+                        }
                     }
                 }
 
@@ -447,12 +445,13 @@ async fn load_extension_package(package_path: &PathBuf) -> Result<ExtensionPacka
 
         // Check if it's a WASM file
         if let Some(extension) = package_path.extension()
-            && extension == "wasm" {
-                info!("Loading package from WASM file using engine metadata extraction");
-                return ExtensionPackage::from_wasm_file(package_path, "cli".to_string())
-                    .await
-                    .map_err(|e| eyre::eyre!("Failed to create package from WASM file: {}", e));
-            }
+            && extension == "wasm"
+        {
+            info!("Loading package from WASM file using engine metadata extraction");
+            return ExtensionPackage::from_wasm_file(package_path, "cli".to_string())
+                .await
+                .map_err(|e| eyre::eyre!("Failed to create package from WASM file: {}", e));
+        }
 
         // Handle other package formats
         if let Some(extension) = package_path.extension() {

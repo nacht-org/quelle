@@ -386,7 +386,6 @@ pub enum VisibilityOption {
     Public,
     Private,
     Unlisted,
-    Organization,
 }
 
 #[derive(clap::Subcommand, Debug)]

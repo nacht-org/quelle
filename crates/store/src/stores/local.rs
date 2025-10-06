@@ -19,8 +19,8 @@ use crate::models::{
     StoreHealth, UpdateInfo,
 };
 use crate::publish::{
-    ExtensionVisibility, PublishOptions, PublishRequirements, PublishResult, PublishUpdateOptions,
-    UnpublishOptions, UnpublishResult,
+    ExtensionVisibility, PublishOptions, PublishRequirements, PublishResult, UnpublishOptions,
+    UnpublishResult,
 };
 use crate::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
 use crate::stores::traits::{BaseStore, CacheStats, CacheableStore, ReadableStore, WritableStore};
@@ -1625,7 +1625,6 @@ impl WritableStore for LocalStore {
             supported_visibility: vec![ExtensionVisibility::Public, ExtensionVisibility::Private],
             enforces_versioning: true,
             validation_rules: vec!["wasm-validation".to_string()],
-            store_specific: std::collections::HashMap::new(),
         }
     }
 
@@ -1721,32 +1720,7 @@ impl WritableStore for LocalStore {
                 format!("{:x}", hasher.finish())
             },
             warnings: Vec::new(),
-            store_info: std::collections::HashMap::new(),
         })
-    }
-
-    async fn update_published(
-        &self,
-        _extension_id: &str,
-        package: ExtensionPackage,
-        _options: PublishUpdateOptions,
-    ) -> Result<PublishResult> {
-        // For local stores, updating is the same as publishing
-        let publish_options = PublishOptions {
-            overwrite_existing: true,
-            pre_release: false,
-            visibility: ExtensionVisibility::Public,
-            access_token: None,
-            signing_key: None,
-            metadata: std::collections::HashMap::new(),
-            skip_validation: false,
-            timeout: None,
-            create_backup: false,
-            tags: Vec::new(),
-            release_notes: None,
-        };
-
-        self.publish(package, publish_options).await
     }
 
     async fn unpublish(
@@ -1815,7 +1789,6 @@ impl WritableStore for LocalStore {
             issues: validation_result.issues,
             validation_duration: validation_result.validation_duration,
             validator_version: env!("CARGO_PKG_VERSION").to_string(),
-            metadata: std::collections::HashMap::new(),
         })
     }
 }
