@@ -1,134 +1,50 @@
-# === Core Development Commands ===
+# === Core Commands ===
 
-# Generate a new extension interactively
-generate-extension:
-    cargo run -p quelle_cli -- dev generate
-
-build-extension NAME:
+# Build extension
+build NAME:
     cargo component build -r -p extension_{{NAME}} --target wasm32-unknown-unknown
 
+# Publish extension to local store
 publish NAME:
-    just build-extension {{NAME}}
+    just build {{NAME}}
     cargo run -p quelle_cli -- publish extension ./target/wasm32-unknown-unknown/release/extension_{{NAME}}.wasm --store local --overwrite
 
-publish-remote NAME:
-    just build-extension {{NAME}}
-    cargo run -p quelle_cli -- publish extension ./target/wasm32-unknown-unknown/release/extension_{{NAME}}.wasm --store remote --overwrite
-
-reset-store:
+# Set up local store and publish scribblehub
+setup:
     cargo run -p quelle_cli -- store remove local --force
     rm -rf ./data
     mkdir -p ./data/stores/local
     cargo run -p quelle_cli -- store add local local
-
-setup:
-    just reset-store
     just publish scribblehub
 
-# === Extension Development Commands (quelle_dev crate) ===
+# Run CLI with arguments
+cli *ARGS:
+    cargo run -p quelle_cli -- {{ARGS}}
 
-# Start development server with hot reload and command history for an extension
-dev-server NAME:
+# === Development Commands ===
+
+# Generate new extension interactively
+generate:
+    cargo run -p quelle_cli -- dev generate
+
+# Start development server
+dev NAME:
     cargo run -p quelle_cli -- dev server {{NAME}} --watch
 
-# Start development server with verbose logging (shows engine tracing)
-dev-server-verbose NAME:
-    cargo run -p quelle_cli -- dev server {{NAME}} --watch --verbose
-
-# Quick interactive test for extension functionality
-dev-test NAME *ARGS:
+# Test extension
+test NAME *ARGS:
     cargo run -p quelle_cli -- dev test {{NAME}} {{ARGS}}
 
-# Validate extension structure and build (no store dependencies)
-dev-validate NAME:
+# Validate extension
+validate NAME:
     cargo run -p quelle_cli -- dev validate {{NAME}} --extended
-
-# Test novel info fetching with a specific URL
-dev-test-novel NAME URL:
-    cargo run -p quelle_cli -- dev test {{NAME}} --url {{URL}}
-
-# Test search functionality with a query
-dev-test-search NAME QUERY:
-    cargo run -p quelle_cli -- dev test {{NAME}} --query "{{QUERY}}"
-
-# Build and quick test development cycle
-dev-quick NAME:
-    just build-extension {{NAME}} && just dev-test {{NAME}}
-
-# Build extension directly (no CLI overhead)
-dev-build NAME:
-    cargo component build -r -p extension_{{NAME}} --target wasm32-unknown-unknown
-
-# === Legacy Publishing Commands ===
-
-# Publish extension using the helper script
-publish-script NAME *ARGS:
-    ./scripts/publish-extension.sh {{ARGS}} {{NAME}}
-
-# Publish extension with overwrite (common for development)
-publish-dev NAME:
-    ./scripts/publish-extension.sh --store local --overwrite {{NAME}}
-
-# Test build extension without publishing (dry run)
-test-extension NAME:
-    ./scripts/publish-extension.sh --dry-run {{NAME}}
 
 # === Utility Commands ===
 
-# Show available extensions
-list-extensions:
+# List available extensions
+list:
     find extensions -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort
 
-# Show publishing help
-publish-help:
-    ./scripts/publish-extension.sh --help
-
-# Run CLI with arguments
-run *ARGS:
-    cargo run -p quelle_cli -- {{ARGS}}
-
-# === Development Workflow Examples ===
-
-# Example: Full development workflow for scribblehub extension
-example-dev-scribblehub:
-    @echo "🚀 Starting development server for scribblehub extension..."
-    @echo "💡 This will:"
-    @echo "   1. Build the extension (no store dependencies)"
-    @echo "   2. Start file watching for auto-rebuild"
-    @echo "   3. Provide interactive testing commands with session history"
-    @echo "   4. Use clean output (no timestamps)"
-    @echo ""
-    @echo "Available commands in dev server:"
-    @echo "  test <url>     - Test novel info fetching"
-    @echo "  search <query> - Test search functionality"
-    @echo "  chapter <url>  - Test chapter content fetching"
-    @echo "  meta          - Show extension metadata"
-    @echo "  rebuild       - Force rebuild extension"
-    @echo "  help          - Show available commands"
-    @echo "  quit          - Exit development server"
-    @echo ""
-    @echo "💡 Features: ↑/↓ arrow keys for session history"
-    @echo ""
-    just dev-server scribblehub
-
-# Example: Quick test of a novel URL
-example-test-novel:
-    @echo "🧪 Testing novel info fetch..."
-    just dev-test-novel scribblehub "https://www.scribblehub.com/series/123456/example-novel/"
-
-# Example: Quick search test
-example-test-search:
-    @echo "🔍 Testing search functionality..."
-    just dev-test-search scribblehub "fantasy adventure"
-
-# Example: Complete validation workflow
-example-validate:
-    @echo "✅ Running complete extension validation..."
-    just dev-validate scribblehub
-
-# Example: Development cycle - build, validate, test
-example-dev-cycle NAME:
-    @echo "🔄 Running complete development cycle for {{NAME}}..."
-    just dev-build {{NAME}}
-    just dev-validate {{NAME}}
-    @echo "🎉 Ready for testing! Use: just dev-server {{NAME}}"
+# Show CLI help
+help:
+    cargo run -p quelle_cli -- --help

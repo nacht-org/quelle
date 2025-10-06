@@ -14,13 +14,13 @@ git clone https://github.com/nacht-org/quelle
 cd quelle
 cargo build --release
 
-# Set up extension system and install ScribbleHub extension
-just setup
-
-# Or manually:
-# just reset-store
-# just publish scribblehub
-# cargo run -p quelle_cli -- extensions install en.scribblehub
+# Set up extension system manually
+cargo run -p quelle_cli -- store add local local ./data/stores/local
+cargo component build -r -p extension_scribblehub --target wasm32-unknown-unknown
+cargo run -p quelle_cli -- publish extension \
+  ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
+  --store local --overwrite
+cargo run -p quelle_cli -- extensions install en.scribblehub
 ```
 
 ### Basic Usage
@@ -127,8 +127,14 @@ quelle store info <name>            # Show store information
 ### Example Workflow
 
 ```bash
-# 1. Set up Quelle
-just setup
+# 1. Set up Quelle and install ScribbleHub extension
+cargo build --release
+cargo run -p quelle_cli -- store add local local ./data/stores/local
+cargo component build -r -p extension_scribblehub --target wasm32-unknown-unknown
+cargo run -p quelle_cli -- publish extension \
+  ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
+  --store local --overwrite
+cargo run -p quelle_cli -- extensions install en.scribblehub
 
 # 2. Search for a novel
 quelle search "overlord light novel" --limit 5
@@ -188,23 +194,50 @@ quelle extensions install custom.extension
 ```bash
 # Install Rust and required tools
 rustup target add wasm32-unknown-unknown
-cargo install just cargo-component
+cargo install cargo-component
+
+# Optional: Install just for convenient shortcuts
+cargo install just
 ```
+
+### Optional: Quick Commands (Justfile)
+
+For developers who prefer shorter commands, a `justfile` is provided with convenient shortcuts:
+
+```bash
+# Quick setup
+just setup                          # Set up local store and publish scribblehub
+
+# Extension development  
+just build scribblehub               # Build extension
+just publish scribblehub             # Build and publish to local store
+just dev scribblehub                 # Start development server
+just test scribblehub --url <url>    # Test extension
+just validate scribblehub            # Validate extension
+just generate                        # Generate new extension
+
+# Utilities
+just list                           # List available extensions
+just cli store list                 # Run CLI commands
+just help                           # Show CLI help
+```
+
+All `just` commands are optional shortcuts for the full CLI commands shown throughout this documentation.
 
 ### Extension Development Workflow
 
 ```bash
 # Validate extension structure and build
-just dev-validate scribblehub
+cargo run -p quelle_cli -- dev validate scribblehub --extended
 
 # Quick test novel info fetching
-just dev-test-novel scribblehub "https://www.scribblehub.com/series/123456/novel/"
+cargo run -p quelle_cli -- dev test scribblehub --url "https://www.scribblehub.com/series/123456/novel/"
 
 # Quick test search functionality  
-just dev-test-search scribblehub "fantasy adventure"
+cargo run -p quelle_cli -- dev test scribblehub --query "fantasy adventure"
 
 # Start development server with hot reload
-just dev-server scribblehub
+cargo run -p quelle_cli -- dev server scribblehub --watch
 ```
 
 The development server provides:
@@ -219,27 +252,20 @@ The development server provides:
 ```bash
 # Interactive generation - prompts for all information
 cargo run -p quelle_cli -- dev generate
-
-# Or using just
-just generate-extension
 ```
 
 **Command Line Mode**
 ```bash
 # All parameters specified
 cargo run -p quelle_cli -- dev generate mysite --display-name "My Site" --base-url "https://mysite.com"
-
-# Shortcuts for common cases
-just generate-en mysite "My Site" "https://mysite.com"
-just generate-rtl arabsite "Arab Site" "https://arabsite.com" ar
 ```
 
 Development workflow:
 1. **Generate extension**: Interactive mode guides you through setup
 2. **Customize selectors**: Update CSS selectors for your target site  
-3. **Test iteratively**: `just dev-server <name>` for hot reload testing
-4. **Validate**: `just dev-validate <name>` before publishing
-5. **Publish**: `just publish <name>`
+3. **Test iteratively**: Use `cargo run -p quelle_cli -- dev server <name> --watch` for hot reload testing
+4. **Validate**: Use `cargo run -p quelle_cli -- dev validate <name> --extended` before publishing
+5. **Publish**: Build and publish with CLI commands shown above
 
 📖 **[Extension Generation Guide](./docs/EXTENSION_GENERATION.md)**
 📖 **[Complete Extension Development Guide](./docs/EXTENSION_DEVELOPMENT.md)**
@@ -253,7 +279,6 @@ Extensions are automatically published to the [official store](https://github.co
 - **PR Merge**: Triggered when pull requests with extension changes are merged
 - **Release**: Publishes all extensions when a new release is created
 - **Manual**: Workflow dispatch with options for specific or all extensions
-- **Local Testing**: Use the provided script for development
 
 The automated workflow:
 1. Detects which extensions have changed (or all for releases)
@@ -261,35 +286,50 @@ The automated workflow:
 3. Publishes to the official store with proper authentication
 4. Creates build artifacts and summaries
 
-#### Local Publishing Script
+#### Local Publishing with CLI
 
-Use the provided script for local development and testing:
-
+**CLI Publishing Commands:**
 ```bash
-# Basic usage
-./scripts/publish-extension.sh scribblehub
+# Build extension first
+cargo component build -r -p extension_scribblehub --target wasm32-unknown-unknown
 
-# Publish to local store with overwrite
-./scripts/publish-extension.sh --store local --overwrite scribblehub
+# Basic publish to local store
+cargo run -p quelle_cli -- publish extension \
+  ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
+  --store local --overwrite
 
-# Dry run (build but don't publish)
-./scripts/publish-extension.sh --dry-run scribblehub
+# Publish with metadata
+cargo run -p quelle_cli -- publish extension \
+  ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
+  --store local --notes "Bug fixes" --tags "manga,novels" --overwrite
 
-# With notes and tags
-./scripts/publish-extension.sh --notes "Bug fixes" --tags "manga,novels" scribblehub
+# Dry run (show what would be done)
+cargo run -p quelle_cli -- publish extension \
+  ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
+  --store local --dry-run
 
-# Show help and available extensions
-./scripts/publish-extension.sh --help
+# Development mode (all dev flags)
+cargo run -p quelle_cli -- publish extension \
+  ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
+  --store local --dev
+
+# Show all options
+cargo run -p quelle_cli -- publish extension --help
 ```
+
+**Available Stores:**
+- `local` - Local development store
+- `remote` - Remote Git-based store  
+- `official` - Official nacht-org/extensions registry
 
 #### Manual Publishing Options
 
 **GitHub Actions Workflow:**
 - **Auto-Publish Extensions**: Manual dispatch with option to publish all extensions
 
-**Local Scripts:**
-- Use for immediate testing and development iterations
-- Full control over store, notes, tags, and dry-run options
+**Local CLI:**
+- Build extensions with `cargo component build -r -p extension_<name> --target wasm32-unknown-unknown`
+- Use CLI publish commands for precise control over store, notes, tags, and options
 
 #### Requirements for Official Publishing
 
@@ -298,13 +338,13 @@ To publish extensions to the official store automatically:
 1. **Repository Setup**: Fork or contribute to this repository
 2. **GitHub Token**: Set `EXTENSIONS_PUBLISH_TOKEN` secret with write access to `nacht-org/extensions`
 3. **Extension Structure**: Follow the existing extension patterns in `extensions/`
-4. **Testing**: Ensure extensions build successfully with `just build-extension <name>`
+4. **Testing**: Ensure extensions build successfully with `cargo component build -r -p extension_<name> --target wasm32-unknown-unknown`
 
 #### Publishing Workflow
 
 **Development → Production:**
 1. Create feature branch with extension changes
-2. Test locally with `./scripts/publish-extension.sh --dry-run <name>`
+2. Test locally with CLI commands or dry-run mode
 3. Create pull request
 4. Merge PR → Automatic publishing triggered
 5. Extensions available in official store immediately
@@ -335,7 +375,7 @@ We welcome contributions! Priority areas:
 ### Contribution Guidelines
 
 - Follow Rust coding standards (`cargo fmt`)
-- Use the extension development tools for testing (`just dev-validate`, `just dev-test`)
+- Use the extension development tools for testing (`cargo run -p quelle_cli -- dev validate`, `cargo run -p quelle_cli -- dev test`)
 - Keep extension code pure (no debugging utilities in production extensions)
 - Update documentation for user-facing changes
 - Respect websites' terms of service and robots.txt
