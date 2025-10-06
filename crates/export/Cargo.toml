@@ -3,6 +3,11 @@ name = "quelle_export"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["epub"]
+epub = []
+pdf = ["dep:typst", "dep:typst-pdf", "dep:typst-assets", "dep:comemo", "dep:scraper"]
+
 [dependencies]
 # Core dependencies
 quelle_storage = { path = "../storage" }
@@ -16,15 +21,15 @@ tracing = { workspace = true }
 # EPUB format dependencies
 epub-builder = "0.7"
 
-# PDF/Typst format dependencies
-typst = "0.13"
-typst-pdf = "0.13"
-typst-assets = { version = "0.13", features = ["fonts"] }
-comemo = "0.5"
+# PDF/Typst format dependencies (optional)
+typst = { version = "0.13", optional = true }
+typst-pdf = { version = "0.13", optional = true }
+typst-assets = { version = "0.13", features = ["fonts"], optional = true }
+comemo = { version = "0.5", optional = true }
 regex = "1.0"
 
-# HTML parsing
-scraper = "0.18"
+# HTML parsing (optional, for PDF export)
+scraper = { version = "0.18", optional = true }
 
 
 

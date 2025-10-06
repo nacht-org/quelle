@@ -211,10 +211,11 @@ async fn handle_fetch_chapters_with_limit(
     let original_count = chapters.len();
 
     if let Some(limit) = max_chapters
-        && chapters.len() > limit {
-            chapters.truncate(limit);
-            println!("Limited to {} of {} chapters", limit, original_count);
-        }
+        && chapters.len() > limit
+    {
+        chapters.truncate(limit);
+        println!("Limited to {} of {} chapters", limit, original_count);
+    }
 
     let mut success_count = 0;
     let mut failed_count = 0;
@@ -286,10 +287,15 @@ pub async fn handle_export_command(
     dry_run: bool,
 ) -> Result<()> {
     match format.as_str() {
-        "epub" | "pdf" => {}
+        "epub" => {}
+        #[cfg(feature = "pdf")]
+        "pdf" => {}
         _ => {
             eprintln!("Unsupported format: {}", format);
+            #[cfg(feature = "pdf")]
             eprintln!("Supported: epub, pdf");
+            #[cfg(not(feature = "pdf"))]
+            eprintln!("Supported: epub");
             return Ok(());
         }
     }

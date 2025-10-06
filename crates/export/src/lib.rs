@@ -18,9 +18,12 @@ pub use traits::Exporter;
 pub use types::{ExportOptions, ExportProgress, ExportResult, FormatInfo};
 
 // Re-export exporters
-pub use formats::{EpubExporter, PdfExporter};
+pub use formats::EpubExporter;
+#[cfg(feature = "pdf")]
+pub use formats::PdfExporter;
 
 // Re-export converters
+#[cfg(feature = "pdf")]
 pub use converters::{
     convert_html_to_typst, convert_html_to_typst_with_config, ConversionConfig,
     HtmlToTypstConverter,
@@ -37,6 +40,7 @@ pub const NAME: &str = env!("CARGO_PKG_NAME");
 pub fn default_export_manager() -> Result<ExportManager> {
     let mut manager = ExportManager::new();
     manager.register(EpubExporter::new())?;
+    #[cfg(feature = "pdf")]
     manager.register(PdfExporter::new())?;
     Ok(manager)
 }

@@ -17,6 +17,24 @@ A command-line interface for the Quelle novel scraper and library manager.
 cargo install --path crates/cli
 ```
 
+## Features
+
+The CLI supports the following optional features:
+
+- `pdf` - Enable PDF export support (includes Typst and HTML parsing dependencies, enabled by default)
+- `git` - Enable git-based extension stores (enabled by default)
+
+```bash
+# Build with all features (default)
+cargo build --release
+
+# Build without PDF support (EPUB only, excludes Typst and scraper dependencies)
+cargo build --release --no-default-features --features git
+
+# Build with specific features
+cargo build --release --features git,pdf
+```
+
 ## Usage
 
 ### Basic Commands
@@ -74,8 +92,11 @@ quelle library stats
 ### Export
 
 ```bash
-# Export to EPUB
+# Export to EPUB (always available)
 quelle export epub novel-id
+
+# Export to PDF (requires pdf feature at compile time)
+quelle export pdf novel-id
 
 # Export specific chapters
 quelle export epub novel-id --chapters 1-10
@@ -87,7 +108,6 @@ quelle export epub novel-id --output ~/Books/
 quelle export epub all
 
 # Other formats (future)
-quelle export pdf novel-id
 quelle export html novel-id
 quelle export txt novel-id
 ```

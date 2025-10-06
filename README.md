@@ -14,6 +14,10 @@ git clone https://github.com/nacht-org/quelle
 cd quelle
 cargo build --release
 
+# Build with specific features
+cargo build --release --no-default-features --features git     # EPUB export only
+cargo build --release --features git,pdf                       # EPUB + PDF export (default)
+
 # Set up extension system manually
 cargo run -p quelle_cli -- store add local local ./data/stores/local
 cargo component build -r -p extension_scribblehub --target wasm32-unknown-unknown
