@@ -19,7 +19,7 @@ pub struct ValidationIssue {
     pub severity: IssueSeverity,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ValidationIssueType {
     MissingFiles,
     CorruptedFiles,
@@ -28,7 +28,7 @@ pub enum ValidationIssueType {
     ChecksumMismatch,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum IssueSeverity {
     Info,
     Warning,

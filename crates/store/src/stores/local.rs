@@ -2326,10 +2326,10 @@ mod tests {
             other => panic!("Expected ValidationFailed error, got: {:?}", other),
         }
 
-        // Test 3: Extension with forbidden files should fail validation
-        let forbidden_manifest = ExtensionManifest {
-            id: "forbidden-extension".to_string(),
-            name: "forbidden-extension".to_string(),
+        // Test 3: Extension with empty required fields should fail validation
+        let empty_fields_manifest = ExtensionManifest {
+            id: "".to_string(), // Empty ID
+            name: "empty-fields-extension".to_string(),
             version: "1.0.0".to_string(),
             author: "Test Author".to_string(),
             langs: vec!["en".to_string()],
@@ -2344,23 +2344,18 @@ mod tests {
             assets: vec![],
         };
 
-        let mut forbidden_package = ExtensionPackage::new(
-            forbidden_manifest,
+        let empty_fields_package = ExtensionPackage::new(
+            empty_fields_manifest,
             valid_wasm.to_vec(),
             "test-store".to_string(),
         );
 
-        // Add forbidden file
-        forbidden_package
-            .assets
-            .insert("malware.exe".to_string(), vec![0x4d, 0x5a]); // PE header
-
         let result = store
-            .publish(forbidden_package, PublishOptions::default())
+            .publish(empty_fields_package, PublishOptions::default())
             .await;
         assert!(
             result.is_err(),
-            "Extension with forbidden files should fail to publish"
+            "Extension with empty required fields should fail to publish"
         );
 
         // Test 4: Skip validation should allow invalid content

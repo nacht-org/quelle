@@ -98,9 +98,8 @@ pub use stores::providers::git::{CommitStyle, GitAuthor, GitStatus, GitWriteConf
 #[cfg(feature = "git")]
 pub use stores::{GitAuth, GitProvider, GitReference, GitStore, GitStoreBuilder};
 pub use validation::{
-    create_default_validator, create_strict_validator, ExtensionValidationReport, RuleResult,
-    SecurityRuleConfig, SecurityValidationRule, ValidationConfig, ValidationEngine, ValidationRule,
-    ValidationSummary,
+    create_default_validator, ManifestValidationRule, SecurityValidationRule, ValidationEngine,
+    ValidationRule,
 };
 
 // Version information

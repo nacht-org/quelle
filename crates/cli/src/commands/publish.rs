@@ -8,7 +8,7 @@ use quelle_store::{
     ExtensionVisibility, RegistryConfig, StoreManager,
     models::ExtensionPackage,
     publish::{PublishOptions, UnpublishOptions},
-    validation::{create_default_validator, create_strict_validator},
+    validation::create_default_validator,
 };
 use tracing::{error, info, warn};
 
@@ -242,11 +242,7 @@ async fn handle_validate_extension(
 
     let package = load_extension_package(&package_path).await?;
 
-    let validator = if strict {
-        create_strict_validator()
-    } else {
-        create_default_validator()
-    };
+    let validator = create_default_validator();
 
     println!("Validating extension package:");
     println!("  Name: {}", package.manifest.name);
@@ -297,7 +293,7 @@ async fn handle_validate_extension(
                         .count()
                 );
 
-                if verbose || report.summary.has_blocking_failures {
+                if verbose || !report.passed {
                     for issue in &report.issues {
                         let icon = match issue.severity {
                             quelle_store::registry::IssueSeverity::Critical => "🚨",
@@ -311,21 +307,11 @@ async fn handle_validate_extension(
             }
 
             if verbose {
-                println!("\nDetailed validation report:");
-                for (rule_name, rule_result) in &report.rule_results {
-                    let status = if rule_result.issues.is_empty() {
-                        "PASSED"
-                    } else {
-                        "FAILED"
-                    };
-
-                    println!("  {}: {} ({:?})", rule_name, status, rule_result.duration);
-
-                    if !rule_result.issues.is_empty() {
-                        for issue in &rule_result.issues {
-                            println!("    - {}", issue.description);
-                        }
-                    }
+                println!("\nValidation completed in {:?}", report.validation_duration);
+                if report.passed {
+                    println!("All validation rules passed ✓");
+                } else {
+                    println!("Validation failed ✗");
                 }
             }
         }
