@@ -71,6 +71,12 @@ pub trait RegistryStore: Send + Sync {
 
     /// Get WASM component bytes for an installed extension
     async fn get_extension_wasm_bytes(&self, id: &str) -> Result<Vec<u8>>;
+
+    /// Validate all installed extensions and return any issues found
+    async fn validate_installations(&self) -> Result<Vec<ValidationIssue>>;
+
+    /// Clean up orphaned installation records and return count of cleaned items
+    async fn cleanup_orphaned(&mut self) -> Result<u32>;
 }
 
 /// JSON-based registry data structure
@@ -399,6 +405,122 @@ impl RegistryStore for LocalRegistryStore {
         fs::read(&wasm_path)
             .await
             .map_err(crate::error::StoreError::IoError)
+    }
+
+    async fn validate_installations(&self) -> Result<Vec<ValidationIssue>> {
+        let mut issues = Vec::new();
+
+        for (id, installation) in &self.registry.extensions {
+            let install_path = self.extension_install_path(id);
+
+            // Check if installation directory exists
+            if !install_path.exists() {
+                issues.push(ValidationIssue {
+                    extension_name: installation.name.clone(),
+                    issue_type: ValidationIssueType::MissingFiles,
+                    description: format!(
+                        "Installation directory not found: {}",
+                        install_path.display()
+                    ),
+                    severity: IssueSeverity::Error,
+                });
+                continue;
+            }
+
+            // Check if WASM file exists
+            let wasm_path = install_path.join("extension.wasm");
+            if !wasm_path.exists() {
+                issues.push(ValidationIssue {
+                    extension_name: installation.name.clone(),
+                    issue_type: ValidationIssueType::MissingFiles,
+                    description: "WASM component file not found".to_string(),
+                    severity: IssueSeverity::Error,
+                });
+            } else {
+                // Validate checksum if available
+                if let Some(checksum) = &installation.checksum {
+                    match fs::read(&wasm_path).await {
+                        Ok(wasm_bytes) => {
+                            let calculated = checksum.algorithm.calculate(&wasm_bytes);
+                            if calculated != checksum.value {
+                                issues.push(ValidationIssue {
+                                    extension_name: installation.name.clone(),
+                                    issue_type: ValidationIssueType::ChecksumMismatch,
+                                    description: "WASM file checksum mismatch".to_string(),
+                                    severity: IssueSeverity::Error,
+                                });
+                            }
+                        }
+                        Err(_) => {
+                            issues.push(ValidationIssue {
+                                extension_name: installation.name.clone(),
+                                issue_type: ValidationIssueType::CorruptedFiles,
+                                description: "Unable to read WASM file".to_string(),
+                                severity: IssueSeverity::Error,
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Check if manifest file exists
+            let manifest_path = install_path.join("manifest.json");
+            if !manifest_path.exists() {
+                issues.push(ValidationIssue {
+                    extension_name: installation.name.clone(),
+                    issue_type: ValidationIssueType::MissingFiles,
+                    description: "Manifest file not found".to_string(),
+                    severity: IssueSeverity::Warning,
+                });
+            }
+        }
+
+        Ok(issues)
+    }
+
+    async fn cleanup_orphaned(&mut self) -> Result<u32> {
+        let mut cleaned_count = 0;
+        let mut extensions_to_remove = Vec::new();
+
+        // Find extensions in registry that don't have corresponding files
+        for (id, _installation) in &self.registry.extensions {
+            let install_path = self.extension_install_path(id);
+            let wasm_path = install_path.join("extension.wasm");
+
+            // If neither the directory nor the WASM file exists, consider it orphaned
+            if !install_path.exists() || !wasm_path.exists() {
+                extensions_to_remove.push(id.clone());
+            }
+        }
+
+        // Remove orphaned registry entries
+        for id in extensions_to_remove {
+            self.registry.extensions.remove(&id);
+            cleaned_count += 1;
+        }
+
+        // Find orphaned directories in install_dir
+        if self.install_dir.exists() {
+            let mut entries = fs::read_dir(&self.install_dir).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                if let Some(dir_name) = entry.file_name().to_str() {
+                    if entry.file_type().await?.is_dir() {
+                        // If directory exists but no registry entry, it's orphaned
+                        if !self.registry.extensions.contains_key(dir_name) {
+                            let _ = fs::remove_dir_all(entry.path()).await;
+                            cleaned_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Save registry if we made changes
+        if cleaned_count > 0 {
+            self.save_registry().await?;
+        }
+
+        Ok(cleaned_count)
     }
 }
 
