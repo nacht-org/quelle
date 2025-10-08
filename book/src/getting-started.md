@@ -24,9 +24,9 @@ quelle extensions list
 
 You should see something like:
 ```
-✅ Quelle is ready
-📦 Extensions: 1 installed
-🏪 Stores: 1 configured (local)
+Quelle is ready
+Extensions: 1 installed
+Stores: 1 configured (local)
 ```
 
 If you see any errors, return to the [Installation](./installation.md) guide.
@@ -278,19 +278,19 @@ quelle extensions search "site"  # Search available extensions
 
 When adding novels, you'll see output like:
 ```
-✅ Novel: "Example Novel" by Author Name
-📝 Description: A fantastic story about...
-📊 Chapters: Found 245 chapters
-⬇️  Downloading chapters... [42/245]
-✅ Added successfully!
+Novel: "Example Novel" by Author Name
+Description: A fantastic story about...
+Chapters: Found 245 chapters
+Downloading chapters... [42/245]
+Added successfully!
 ```
 
 When updating:
 ```
-📚 Checking "Novel Title"...
-🆕 Found 3 new chapters
-⬇️  Downloading chapters 246-248...
-✅ Updated successfully!
+Checking "Novel Title"...
+Found 3 new chapters
+Downloading chapters 246-248...
+Updated successfully!
 ```
 
 ## Troubleshooting Common Issues

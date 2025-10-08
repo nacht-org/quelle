@@ -124,7 +124,7 @@ async fn export_all_novels(
     }
 
     println!(
-        "📚 Exporting {} novels to {}",
+        "Exporting {} novels to {}",
         novels.len(),
         format.to_uppercase()
     );
@@ -179,7 +179,7 @@ async fn export_all_novels(
         {
             Ok(result) => {
                 println!(
-                    "    ✅ Exported {} chapters to: {}",
+                    "    Exported {} chapters to: {}",
                     result.chapters_processed,
                     novel_output_path.display()
                 );

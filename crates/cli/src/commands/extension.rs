@@ -138,9 +138,9 @@ async fn handle_update_extension(
         match store_manager.check_all_updates().await {
             Ok(updates) => {
                 if updates.is_empty() {
-                    println!("✅ All extensions are up to date");
+                    println!("All extensions are up to date");
                 } else {
-                    println!("📦 Found {} update(s) available:", updates.len());
+                    println!("Found {} update(s) available:", updates.len());
                     for update in &updates {
                         println!(
                             "  {} {} → {} (from {})",
@@ -173,11 +173,11 @@ async fn handle_update_extension(
                                 .await
                             {
                                 Ok(_) => {
-                                    println!(" ✅ Success");
+                                    println!(" Success");
                                     success_count += 1;
                                 }
                                 Err(e) => {
-                                    println!(" ❌ Failed: {}", e);
+                                    println!(" Failed: {}", e);
                                     failed_count += 1;
                                 }
                             }
@@ -191,7 +191,7 @@ async fn handle_update_extension(
                 }
             }
             Err(e) => {
-                eprintln!("❌ Failed to check for updates: {}", e);
+                eprintln!("Failed to check for updates: {}", e);
                 return Err(e.into());
             }
         }
@@ -207,7 +207,7 @@ async fn handle_update_extension(
                     Ok(updates) => {
                         if let Some(update) = updates.iter().find(|u| u.extension_name == id) {
                             println!(
-                                "📦 Update available: {} → {} (from {})",
+                                "Update available: {} → {} (from {})",
                                 update.current_version, update.latest_version, update.store_source
                             );
 
@@ -226,22 +226,22 @@ async fn handle_update_extension(
                                 match store_manager.update(&id, Some(update_options)).await {
                                     Ok(_) => {
                                         println!(
-                                            " ✅ Successfully updated to v{}",
+                                            " Successfully updated to v{}",
                                             update.latest_version
                                         );
                                     }
                                     Err(e) => {
-                                        println!(" ❌ Update failed: {}", e);
+                                        println!(" Update failed: {}", e);
                                         return Err(e.into());
                                     }
                                 }
                             }
                         } else {
-                            println!("✅ {} is up to date", installed.name);
+                            println!("{} is up to date", installed.name);
                         }
                     }
                     Err(e) => {
-                        eprintln!("❌ Failed to check for updates: {}", e);
+                        eprintln!("Failed to check for updates: {}", e);
                         return Err(e.into());
                     }
                 }

@@ -134,11 +134,11 @@ pub async fn handle_read_chapter(
                     }
                     None => {
                         println!(
-                            "❌ Chapter content not downloaded: {}",
+                            "Chapter content not downloaded: {}",
                             chapter_info.chapter_title
                         );
                         println!(
-                            "💡 Use 'quelle fetch chapter {}' to download it",
+                            "Use 'quelle fetch chapter {}' to download it",
                             chapter_info.chapter_url
                         );
                     }
@@ -193,7 +193,7 @@ pub async fn handle_sync_novels(
                     synced_count += 1;
                 }
                 Err(e) => {
-                    warn!("❌ Failed to sync {}: {}", novel_summary.title, e);
+                    warn!("Failed to sync {}: {}", novel_summary.title, e);
                     failed_count += 1;
                 }
             }
@@ -243,7 +243,7 @@ pub async fn handle_update_novels(
     let engine = crate::utils::create_extension_engine()?;
 
     if novel_input == "all" {
-        println!("📥 Updating all novels with new chapters...");
+        println!("Updating all novels with new chapters...");
 
         let novels = storage.list_novels(&NovelFilter::default()).await?;
         if novels.is_empty() {
@@ -269,7 +269,7 @@ pub async fn handle_update_novels(
                     updated_count += 1;
                 }
                 Err(e) => {
-                    warn!("❌ Failed to update {}: {}", novel_summary.title, e);
+                    warn!("Failed to update {}: {}", novel_summary.title, e);
                     failed_count += 1;
                 }
             }
@@ -281,7 +281,7 @@ pub async fn handle_update_novels(
     } else {
         match resolve_novel_id(&novel_input, storage).await? {
             Some(novel_id) => {
-                println!("📥 Updating novel {} with new chapters...", novel_input);
+                println!("Updating novel {} with new chapters...", novel_input);
 
                 match update_single_novel(&novel_id, storage, &mut store_manager, &engine).await {
                     Ok(downloaded) => {
@@ -389,13 +389,13 @@ async fn update_single_novel(
                             downloaded_count += 1;
                         }
                         Err(e) => {
-                            error!("  ❌ Failed to store {}: {}", chapter_info.chapter_title, e);
+                            error!("  Failed to store {}: {}", chapter_info.chapter_title, e);
                             failed_count += 1;
                         }
                     }
                 }
                 Err(e) => {
-                    error!("  ❌ Failed to fetch {}: {}", chapter_info.chapter_title, e);
+                    error!("  Failed to fetch {}: {}", chapter_info.chapter_title, e);
                     failed_count += 1;
                 }
             }
@@ -403,7 +403,7 @@ async fn update_single_novel(
     }
 
     if failed_count > 0 {
-        warn!("⚠️ {} chapters failed to download", failed_count);
+        warn!("{} chapters failed to download", failed_count);
     }
 
     Ok(downloaded_count)
@@ -489,7 +489,7 @@ async fn handle_library_stats(storage: &FilesystemStorage) -> Result<()> {
 
     if total_chapters > 0 {
         let percentage = (downloaded_chapters as f64 / total_chapters as f64) * 100.0;
-        println!("  📊 Download progress: {:.1}%", percentage);
+        println!("  Download progress: {:.1}%", percentage);
     }
     Ok(())
 }

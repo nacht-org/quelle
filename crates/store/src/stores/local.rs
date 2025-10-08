@@ -2733,8 +2733,8 @@ mod tests {
             serde_json::from_str(old_extension_manifest_json);
         assert!(extension_result.is_err(), "Old extension manifest should fail to deserialize due to missing required linking fields");
 
-        println!("✅ Backwards compatibility is intentionally broken!");
-        println!("🔗 All manifests now require linking fields:");
+        println!("Backwards compatibility is intentionally broken!");
+        println!("All manifests now require linking fields:");
         println!("   • Store manifests need manifest_path and manifest_checksum");
         println!("   • Extension manifests need wasm_file and assets");
     }
@@ -2757,8 +2757,8 @@ mod tests {
 
         // This will regenerate the manifest with the new linking fields
         match store.save_store_manifest().await {
-            Ok(()) => println!("✅ Successfully regenerated store manifest with linking fields"),
-            Err(e) => println!("❌ Failed to regenerate store manifest: {}", e),
+            Ok(()) => println!("Successfully regenerated store manifest with linking fields"),
+            Err(e) => println!("Failed to regenerate store manifest: {}", e),
         }
 
         // Read and display the updated manifest
@@ -2931,8 +2931,8 @@ mod tests {
             panic!("Expected ChecksumMismatch error, got {:?}", corrupt_result);
         }
 
-        println!("✅ Linking system navigation test passed!");
-        println!("🔗 Verified that store uses manifest links instead of hardcoded paths");
-        println!("🔒 Verified that integrity checking works for all file types");
+        println!("Linking system navigation test passed!");
+        println!("Verified that store uses manifest links instead of hardcoded paths");
+        println!("Verified that integrity checking works for all file types");
     }
 }

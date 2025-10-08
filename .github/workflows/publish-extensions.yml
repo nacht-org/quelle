@@ -39,7 +39,7 @@ jobs:
       - name: Detect changed extensions
         id: changes
         run: |
-          echo "🔍 Analyzing extensions to publish..."
+          echo "Analyzing extensions to publish..."
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force_all }}" = "true" ]; then
             # Manual trigger - publish all extensions
@@ -48,7 +48,7 @@ jobs:
             echo "extensions=$extensions" >> $GITHUB_OUTPUT
             echo "has-changes=true" >> $GITHUB_OUTPUT
             echo "trigger-reason=Manual (all extensions)" >> $GITHUB_OUTPUT
-            echo "✅ Will publish all extensions: $extensions"
+            echo "Will publish all extensions: $extensions"
 
           elif [ "${{ github.event_name }}" = "release" ]; then
             # Release trigger - publish all extensions
@@ -57,7 +57,7 @@ jobs:
             echo "extensions=$extensions" >> $GITHUB_OUTPUT
             echo "has-changes=true" >> $GITHUB_OUTPUT
             echo "trigger-reason=Release (${{ github.event.release.tag_name }})" >> $GITHUB_OUTPUT
-            echo "✅ Will publish all extensions for release: $extensions"
+            echo "Will publish all extensions for release: $extensions"
 
           else
             # PR merge or manual trigger - detect changes
@@ -97,10 +97,10 @@ jobs:
 
             if [ "$changed_extensions" = "[]" ] || [ -z "$changed_extensions" ]; then
               echo "has-changes=false" >> $GITHUB_OUTPUT
-              echo "❌ No extension changes detected"
+              echo "No extension changes detected"
             else
               echo "has-changes=true" >> $GITHUB_OUTPUT
-              echo "✅ Found changes in extensions: $changed_extensions"
+              echo "Found changes in extensions: $changed_extensions"
             fi
           fi
 
@@ -125,7 +125,7 @@ jobs:
 
       - name: Install cargo-component
         run: |
-          echo "📦 Installing cargo-component..."
+          echo "Installing cargo-component..."
           curl -L https://github.com/bytecodealliance/cargo-component/releases/latest/download/cargo-component-x86_64-unknown-linux-gnu.tar.gz | tar xzf -
           sudo mv cargo-component /usr/local/bin/
           cargo-component --version
@@ -144,19 +144,19 @@ jobs:
 
       - name: Validate extension structure
         run: |
-          echo "🔧 Validating extension: ${{ matrix.extension }}"
+          echo "Validating extension: ${{ matrix.extension }}"
 
           if [ ! -d "extensions/${{ matrix.extension }}" ]; then
-            echo "❌ Extension directory not found: extensions/${{ matrix.extension }}"
+            echo "Extension directory not found: extensions/${{ matrix.extension }}"
             exit 1
           fi
 
           if [ ! -f "extensions/${{ matrix.extension }}/Cargo.toml" ]; then
-            echo "❌ Cargo.toml not found for extension: ${{ matrix.extension }}"
+            echo "Cargo.toml not found for extension: ${{ matrix.extension }}"
             exit 1
           fi
 
-          echo "✅ Extension structure validated"
+          echo "Extension structure validated"
 
       - name: Build extension
         run: |
@@ -170,7 +170,7 @@ jobs:
           wasm_file="./target/wasm32-unknown-unknown/release/extension_${{ matrix.extension }}.wasm"
 
           if [ ! -f "$wasm_file" ]; then
-            echo "❌ WASM file not found: $wasm_file"
+            echo "WASM file not found: $wasm_file"
             exit 1
           fi
 
@@ -183,7 +183,7 @@ jobs:
           else
             file_size=$(wc -c < "$wasm_file" | tr -d ' ')
           fi
-          echo "✅ Built WASM file: $wasm_file ($file_size bytes)"
+          echo "Built WASM file: $wasm_file ($file_size bytes)"
 
       - name: Setup Git credentials
         run: |
@@ -200,11 +200,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.EXTENSIONS_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
-          echo "🚀 Publishing extension: ${{ matrix.extension }}"
+          echo "Publishing extension: ${{ matrix.extension }}"
 
           # Verify CLI can be built
           if ! cargo build --package quelle_cli --quiet; then
-            echo "❌ Failed to build CLI"
+            echo "Failed to build CLI"
             exit 1
           fi
 
@@ -215,9 +215,9 @@ jobs:
             --overwrite \
             --notes "Auto-published from ${{ github.sha }} by ${{ github.actor }}" \
             --timeout 300; then
-            echo "✅ Successfully published ${{ matrix.extension }}"
+            echo "Successfully published ${{ matrix.extension }}"
           else
-            echo "❌ Failed to publish ${{ matrix.extension }}"
+            echo "Failed to publish ${{ matrix.extension }}"
             exit 1
           fi
 
@@ -236,7 +236,7 @@ jobs:
     steps:
       - name: Generate summary
         run: |
-          echo "# 📦 Extension Publishing Results" >> $GITHUB_STEP_SUMMARY
+          echo "# Extension Publishing Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           extensions="${{ needs.detect-changes.outputs.extensions }}"
@@ -246,18 +246,18 @@ jobs:
 
           case "${{ needs.build-and-publish.result }}" in
             "success")
-              echo "✅ **Status:** All extensions published successfully" >> $GITHUB_STEP_SUMMARY
+              echo "**Status:** All extensions published successfully" >> $GITHUB_STEP_SUMMARY
               ;;
             "failure")
-              echo "❌ **Status:** Some extensions failed to publish" >> $GITHUB_STEP_SUMMARY
+              echo "**Status:** Some extensions failed to publish" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "Check the individual job logs for details." >> $GITHUB_STEP_SUMMARY
               ;;
             "cancelled")
-              echo "⚠️ **Status:** Publishing was cancelled" >> $GITHUB_STEP_SUMMARY
+              echo "**Status:** Publishing was cancelled" >> $GITHUB_STEP_SUMMARY
               ;;
             *)
-              echo "❓ **Status:** Unknown (${{ needs.build-and-publish.result }})" >> $GITHUB_STEP_SUMMARY
+              echo "**Status:** Unknown (${{ needs.build-and-publish.result }})" >> $GITHUB_STEP_SUMMARY
               ;;
           esac
 
@@ -276,9 +276,9 @@ jobs:
     steps:
       - name: Report no changes
         run: |
-          echo "# 📦 Extension Publishing" >> $GITHUB_STEP_SUMMARY
+          echo "# Extension Publishing" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "ℹ️ No extension changes detected." >> $GITHUB_STEP_SUMMARY
+          echo "No extension changes detected." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Trigger:** ${{ needs.detect-changes.outputs.trigger-reason }}" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY

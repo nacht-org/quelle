@@ -440,7 +440,7 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
     }
 
     println!(
-        "📦 Configured extension stores ({}):",
+        "Configured extension stores ({}):",
         registry_config.extension_sources.len()
     );
     for source in &registry_config.extension_sources {
@@ -452,9 +452,9 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
                 println!(
                     "     Status: {}",
                     if source.enabled {
-                        "✅ Enabled"
+                        "Enabled"
                     } else {
-                        "❌ Disabled"
+                        "Disabled"
                     }
                 );
                 if source.trusted {
@@ -483,9 +483,9 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
                 println!(
                     "     Status: {}",
                     if source.enabled {
-                        "✅ Enabled"
+                        "Enabled"
                     } else {
-                        "❌ Disabled"
+                        "Disabled"
                     }
                 );
                 if source.trusted {
@@ -539,7 +539,7 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
         }
 
         println!(
-            "📊 Refresh complete: {} processed, {} failed",
+            "Refresh complete: {} processed, {} failed",
             updated_count, failed_count
         );
     } else {
@@ -691,8 +691,8 @@ async fn handle_store_info(
             }
         }
         None => {
-            println!("❌ Store '{}' not found", name);
-            println!("💡 Use 'quelle store list' to see available stores");
+            println!("Store '{}' not found", name);
+            println!("Use 'quelle store list' to see available stores");
         }
     }
     Ok(())

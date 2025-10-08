@@ -207,7 +207,7 @@ async fn handle_fetch_chapter(
                         saved = true;
                     }
                     Err(e) => {
-                        eprintln!("❌ Failed to save chapter: {}", e);
+                        eprintln!("Failed to save chapter: {}", e);
                     }
                 }
             }
@@ -215,7 +215,7 @@ async fn handle_fetch_chapter(
         }
     }
     if !saved {
-        println!("ℹ️ Chapter not saved - could not locate in novel structure");
+        println!("Chapter not saved - could not locate in novel structure");
     }
 
     Ok(())
@@ -232,14 +232,14 @@ async fn handle_fetch_chapters(
         return Ok(());
     }
 
-    println!("📚 Fetching all chapters for novel: {}", novel_id);
+    println!("Fetching all chapters for novel: {}", novel_id);
 
     // Try to find novel by ID or URL
     let (novel, novel_storage_id) = if novel_id.starts_with("http") {
         let novel = match storage.find_novel_by_url(&novel_id).await? {
             Some(novel) => novel,
             None => {
-                println!("❌ Novel not found with URL: {}", novel_id);
+                println!("Novel not found with URL: {}", novel_id);
                 return Ok(());
             }
         };
@@ -257,7 +257,7 @@ async fn handle_fetch_chapters(
         let novel = match storage.get_novel(&id).await? {
             Some(novel) => novel,
             None => {
-                println!("❌ Novel not found with ID: {}", novel_id);
+                println!("Novel not found with ID: {}", novel_id);
                 return Ok(());
             }
         };
@@ -267,7 +267,7 @@ async fn handle_fetch_chapters(
     let extension = match find_and_install_extension_for_url(&novel.url, store_manager).await {
         Ok(ext) => ext,
         Err(e) => {
-            error!("❌ Failed to find/install extension: {}", e);
+            error!("Failed to find/install extension: {}", e);
             return Err(e);
         }
     };
@@ -281,12 +281,12 @@ async fn handle_fetch_chapters(
 
     for chapter_info in chapters {
         if chapter_info.has_content() {
-            println!("  ⏭️ {} (already downloaded)", chapter_info.chapter_title);
+            println!("  {} (already downloaded)", chapter_info.chapter_title);
             skipped_count += 1;
             continue;
         }
 
-        println!("📥 Fetching: {}", chapter_info.chapter_title);
+        println!("Fetching: {}", chapter_info.chapter_title);
 
         let chapter_content = match fetch_chapter_with_extension(
             &extension,
@@ -297,7 +297,7 @@ async fn handle_fetch_chapters(
         {
             Ok(content) => content,
             Err(e) => {
-                error!("  ❌ Failed to fetch {}: {}", chapter_info.chapter_title, e);
+                error!("  Failed to fetch {}: {}", chapter_info.chapter_title, e);
                 failed_count += 1;
                 continue;
             }
@@ -317,21 +317,21 @@ async fn handle_fetch_chapters(
             .await
         {
             Ok(_updated_chapter) => {
-                println!("  ✅ {}", chapter_info.chapter_title);
+                println!("  {}", chapter_info.chapter_title);
                 success_count += 1;
             }
             Err(e) => {
-                error!("  ❌ Failed to store {}: {}", chapter_info.chapter_title, e);
+                error!("  Failed to store {}: {}", chapter_info.chapter_title, e);
                 failed_count += 1;
             }
         }
     }
 
-    println!("📊 Fetch complete:");
-    println!("  ✅ Successfully fetched: {}", success_count);
-    println!("  ⏭️ Already downloaded: {}", skipped_count);
+    println!("Fetch complete:");
+    println!("  Successfully fetched: {}", success_count);
+    println!("  Already downloaded: {}", skipped_count);
     if failed_count > 0 {
-        println!("  ❌ Failed: {}", failed_count);
+        println!("  Failed: {}", failed_count);
     }
     Ok(())
 }
@@ -379,21 +379,21 @@ pub async fn find_and_install_extension_for_url(
                 return Ok(installed);
             }
 
-            println!("📥 Installing extension {}...", extension_id);
+            println!("Installing extension {}...", extension_id);
             match store_manager.install(&extension_id, None, None).await {
                 Ok(installed) => {
-                    info!("✅ Installed {} v{}", installed.name, installed.version);
+                    info!("Installed {} v{}", installed.name, installed.version);
                     Ok(installed)
                 }
                 Err(e) => {
-                    error!("❌ Failed to install {}: {}", extension_id, e);
+                    error!("Failed to install {}: {}", extension_id, e);
                     Err(e.into())
                 }
             }
         }
         None => Err(eyre::eyre!(
             "No extension found for URL: {}\n\
-             💡 Try adding more extension stores with: quelle store add",
+             Try adding more extension stores with: quelle store add",
             url
         )),
     }
@@ -469,6 +469,6 @@ async fn fetch_and_store_asset(
         .await
         .map_err(|e| eyre::eyre!("Failed to store asset: {}", e))?;
 
-    println!("✅ Cover image saved");
+    println!("Cover image saved");
     Ok(asset_id)
 }

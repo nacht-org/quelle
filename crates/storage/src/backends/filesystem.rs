@@ -2221,7 +2221,7 @@ mod tests {
             assert_eq!(retrieved_data.unwrap(), test_data);
 
             println!(
-                "✅ Asset from {} stored as {} with ID {}",
+                "Asset from {} stored as {} with ID {}",
                 url,
                 asset.filename,
                 asset.id.as_str()

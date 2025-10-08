@@ -4,7 +4,7 @@
 
 Quelle is a powerful, extensible novel scraper and library manager that enables you to search, download, and manage e-books from multiple online sources. Built with a modular WebAssembly architecture, it provides high performance and cross-platform compatibility.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -49,50 +49,50 @@ quelle update
 quelle export "Novel Title" --format epub
 ```
 
-## ✨ Features
+## Features
 
 ### Core Functionality
-- 🔍 **Multi-source search** - Search across different novel platforms simultaneously
-- 📚 **Library management** - Organize and track your novel collection
-- 📖 **Chapter reading** - Read chapters directly in your terminal
-- 📤 **Multiple export formats** - Export to EPUB, PDF, and more
-- 🔄 **Auto-updates** - Keep your novels updated with new chapters
-- 🎯 **Flexible filtering** - Search by author, tags, categories
+- **Multi-source search** - Search across different novel platforms simultaneously
+- **Library management** - Organize and track your novel collection
+- **Chapter reading** - Read chapters directly in your terminal
+- **Multiple export formats** - Export to EPUB, PDF, and more
+- **Auto-updates** - Keep your novels updated with new chapters
+- **Flexible filtering** - Search by author, tags, categories
 
 ### Extension System
-- 🧩 **WebAssembly extensions** - High-performance, sandboxed scrapers
-- 🏪 **Extension stores** - Install extensions from local or remote repositories
-- 🌐 **Official registry** - Pre-configured with [nacht-org/extensions](https://github.com/nacht-org/extensions)
-- 🛠️ **Easy development** - Simple API for creating new source extensions
-- 📦 **Package management** - Version control and dependency management
+- **WebAssembly extensions** - High-performance, sandboxed scrapers
+- **Extension stores** - Install extensions from local or remote repositories
+- **Official registry** - Pre-configured with [nacht-org/extensions](https://github.com/nacht-org/extensions)
+- **Easy development** - Simple API for creating new source extensions
+- **Package management** - Version control and dependency management
 
 ### Available Extensions
 - **ScribbleHub** - Original novels and translations
 - **DragonTea** - Light novels and web novels
 - *Additional extensions available at [github.com/nacht-org/extensions](https://github.com/nacht-org/extensions)*
 
-## 📋 Project Status
+## Project Status
 
-**Current Status**: ✅ **MVP Ready**
+**Current Status**: **MVP Ready**
 
 Quelle has reached MVP status with a fully functional CLI, working extension system, and reliable core features.
 
 ### What Works
-- ✅ Complete CLI interface with all major commands
-- ✅ Extension system (build, install, manage extensions)
-- ✅ Store management (local and Git-based stores)
-- ✅ Novel search and discovery
-- ✅ Library management (add, update, remove novels)
-- ✅ Chapter reading and export
-- ✅ Working extensions for ScribbleHub and DragonTea
+- Complete CLI interface with all major commands
+- Extension system (build, install, manage extensions)
+- Store management (local and Git-based stores)
+- Novel search and discovery
+- Library management (add, update, remove novels)
+- Chapter reading and export
+- Working extensions for ScribbleHub and DragonTea
 
 ### In Development
-- 🔄 Additional output formats (PDF improvements)
-- 🔄 More extension sources
-- 🔄 Enhanced search capabilities
-- 🔄 Cross-platform binary distribution
+- Additional output formats (PDF improvements)
+- More extension sources
+- Enhanced search capabilities
+- Cross-platform binary distribution
 
-## 📖 CLI Reference
+## CLI Reference
 
 ### Core Commands
 
@@ -161,7 +161,7 @@ quelle store list                   # See available stores
 quelle extensions search "royal"    # Search for more extensions
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 Quelle uses a modular WebAssembly-based architecture with a distributed extension system:
 
@@ -192,7 +192,7 @@ quelle extensions search "light novel"
 quelle extensions install custom.extension
 ```
 
-## 🛠️ Development
+## Development
 
 ### Prerequisites
 
@@ -357,9 +357,9 @@ To publish extensions to the official store automatically:
 **Batch Updates:**
 - Create release → All extensions published together
 
-## 📚 Documentation
+## Documentation
 
-📖 **Comprehensive documentation is available in the [Quelle Book](./book/)**
+**Comprehensive documentation is available in the [Quelle Book](./book/)**
 
 The book contains detailed guides for:
 - **User Guide**: Installation and usage
@@ -386,7 +386,7 @@ We welcome contributions! Priority areas:
 - Respect websites' terms of service and robots.txt
 - Handle rate limiting appropriately
 
-## ⚖️ Legal
+## Legal
 
 ### License
 

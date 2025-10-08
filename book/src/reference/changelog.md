@@ -4,19 +4,19 @@ This changelog tracks major changes and developments in Quelle.
 
 ## Current Status (MVP Ready)
 
-✅ **Quelle has reached MVP (Minimum Viable Product) status** with a fully functional CLI, working extension system, and reliable core features.
+**Quelle has reached MVP (Minimum Viable Product) status** with a fully functional CLI, working extension system, and reliable core features.
 
 ### What's Working Now
 
-- ✅ **Complete CLI Interface**: All major commands implemented and stable
-- ✅ **Extension System**: Build, install, and manage extensions with full tooling
-- ✅ **Store Management**: Local and Git-based extension repositories
-- ✅ **Novel Discovery**: Search and browse novels across multiple sources
-- ✅ **Library Management**: Add, update, remove, and organize your collection
-- ✅ **Chapter Reading**: Read chapters directly in your terminal
-- ✅ **Export Functionality**: Export to EPUB and PDF formats
-- ✅ **Development Tools**: Extension generator, dev server, testing tools
-- ✅ **Three Working Extensions**: ScribbleHub, DragonTea, and RoyalRoad
+- **Complete CLI Interface**: All major commands implemented and stable
+- **Extension System**: Build, install, and manage extensions with full tooling
+- **Store Management**: Local and Git-based extension repositories
+- **Novel Discovery**: Search and browse novels across multiple sources
+- **Library Management**: Add, update, remove, and organize your collection
+- **Chapter Reading**: Read chapters directly in your terminal
+- **Export Functionality**: Export to EPUB and PDF formats
+- **Development Tools**: Extension generator, dev server, testing tools
+- **Three Working Extensions**: ScribbleHub, DragonTea, and RoyalRoad
 
 ### Recent Development (2024)
 
@@ -48,7 +48,7 @@ This changelog tracks major changes and developments in Quelle.
 
 ## Development Milestones
 
-### Phase 1: Foundation ✅ (Completed)
+### Phase 1: Foundation (Completed)
 - [x] Project architecture design
 - [x] WASM runtime implementation
 - [x] Basic CLI structure
@@ -56,7 +56,7 @@ This changelog tracks major changes and developments in Quelle.
 - [x] Local store implementation
 - [x] Sample extensions
 
-### Phase 2: Core Features ✅ (Completed)
+### Phase 2: Core Features (Completed)
 - [x] Extension auto-installation
 - [x] URL-to-extension matching
 - [x] Search functionality

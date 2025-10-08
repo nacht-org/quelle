@@ -202,7 +202,7 @@ async fn handle_fetch_chapters_with_limit(
     let extension = match find_and_install_extension_for_url(&novel.url, store_manager).await {
         Ok(ext) => ext,
         Err(e) => {
-            tracing::error!("❌ Failed to find/install extension: {}", e);
+            tracing::error!("Failed to find/install extension: {}", e);
             return Err(e);
         }
     };
@@ -240,7 +240,7 @@ async fn handle_fetch_chapters_with_limit(
         {
             Ok(content) => content,
             Err(e) => {
-                tracing::error!("  ❌ Failed to fetch {}: {}", chapter_info.chapter_title, e);
+                tracing::error!("  Failed to fetch {}: {}", chapter_info.chapter_title, e);
                 failed_count += 1;
                 continue;
             }
@@ -263,7 +263,7 @@ async fn handle_fetch_chapters_with_limit(
                 success_count += 1;
             }
             Err(e) => {
-                tracing::error!("  ❌ Failed to store {}: {}", chapter_info.chapter_title, e);
+                tracing::error!("  Failed to store {}: {}", chapter_info.chapter_title, e);
                 failed_count += 1;
             }
         }

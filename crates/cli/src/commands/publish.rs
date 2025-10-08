@@ -279,7 +279,7 @@ async fn handle_validate_extension(
                     }
                 }
             } else {
-                error!("❌ Validation failed!");
+                error!("Validation failed!");
                 println!("  Duration: {:?}", report.validation_duration);
                 println!(
                     "  Critical issues: {}",
@@ -293,13 +293,17 @@ async fn handle_validate_extension(
                         .count()
                 );
 
-                if verbose || !report.passed {
-                    for issue in &report.issues {
+                for issue in &report.issues {
+                    if matches!(
+                        issue.severity,
+                        quelle_store::registry::IssueSeverity::Critical
+                            | quelle_store::registry::IssueSeverity::Error
+                    ) {
                         let icon = match issue.severity {
-                            quelle_store::registry::IssueSeverity::Critical => "🚨",
-                            quelle_store::registry::IssueSeverity::Warning => "⚠️",
-                            quelle_store::registry::IssueSeverity::Info => "ℹ️",
-                            quelle_store::registry::IssueSeverity::Error => "❌",
+                            quelle_store::registry::IssueSeverity::Critical => "[CRITICAL]",
+                            quelle_store::registry::IssueSeverity::Warning => "[WARNING]",
+                            quelle_store::registry::IssueSeverity::Info => "[INFO]",
+                            quelle_store::registry::IssueSeverity::Error => "[ERROR]",
                         };
                         println!("  {} {:?}: {}", icon, issue.severity, issue.description);
                     }
