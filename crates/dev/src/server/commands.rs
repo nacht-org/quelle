@@ -58,8 +58,6 @@ async fn test_novel_info(server: &DevServer, url: &str) -> Result<()> {
         return Err(eyre!("URL must use HTTP or HTTPS protocol"));
     }
 
-    // Create a mock runner for testing
-    // Note: This would need to be adapted based on the actual ExtensionEngine API
     println!("Fetching novel information...");
 
     // Get WASM path and create runner
