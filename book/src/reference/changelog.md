@@ -1,47 +1,54 @@
 # Changelog
 
-This changelog tracks major changes and developments in Quelle. Since Quelle is in early development, this mainly covers implementation milestones.
+This changelog tracks major changes and developments in Quelle.
 
-## Current Status (Pre-MVP)
+## Current Status (MVP Ready)
 
-Quelle is currently in early development. The core architecture is working but many features are still being built.
+✅ **Quelle has reached MVP (Minimum Viable Product) status** with a fully functional CLI, working extension system, and reliable core features.
 
 ### What's Working Now
 
-- ✅ **Core WASM Engine**: Extensions load and run successfully
-- ✅ **CLI Framework**: Basic command structure implemented
-- ✅ **Store System**: Local directory stores work
-- ✅ **Extension Management**: Install, list, and manage extensions
-- ✅ **Sample Extensions**: DragonTea and ScribbleHub extensions functional
-- ✅ **Novel Fetching**: Can get novel info from supported URLs
-- ✅ **Chapter Fetching**: Can download individual chapters
-- ✅ **Basic Search**: Search functionality when extensions support it
+- ✅ **Complete CLI Interface**: All major commands implemented and stable
+- ✅ **Extension System**: Build, install, and manage extensions with full tooling
+- ✅ **Store Management**: Local and Git-based extension repositories
+- ✅ **Novel Discovery**: Search and browse novels across multiple sources
+- ✅ **Library Management**: Add, update, remove, and organize your collection
+- ✅ **Chapter Reading**: Read chapters directly in your terminal
+- ✅ **Export Functionality**: Export to EPUB and PDF formats
+- ✅ **Development Tools**: Extension generator, dev server, testing tools
+- ✅ **Three Working Extensions**: ScribbleHub, DragonTea, and RoyalRoad
 
 ### Recent Development (2024)
 
-**Core Infrastructure**
-- Implemented WebAssembly extension system using Wasmtime
-- Created WIT (WebAssembly Interface Types) definitions for extensions
-- Built CLI using Clap with store and extension management commands
-- Implemented local store system for extension management
-- Created extension build system using `just` and `cargo-component`
+**MVP Achievement**
+- All core functionality implemented and stable
+- Complete CLI interface with comprehensive command set
+- Full extension development workflow with tooling
+- Reliable novel downloading and management
+- Multiple export formats working
 
-**Extensions**
-- DragonTea extension: Supports novel info and chapter fetching
-- ScribbleHub extension: Basic novel and chapter scraping
-- Extension auto-detection based on URL patterns
+**Extension Development Tools**
+- Interactive extension generator (`quelle dev generate`)
+- Development server with hot reload (`quelle dev server --watch`)
+- Extension testing and validation tools
+- Publishing system for local and remote stores
+
+**Available Extensions**
+- **ScribbleHub**: Original novels and translations
+- **DragonTea**: Light novels and web novels  
+- **RoyalRoad**: Original fiction and stories
 
 **CLI Commands**
-- `quelle status` - System status overview
-- `quelle list` - Show available extensions
-- `quelle fetch novel/chapter` - Content fetching
-- `quelle search` - Novel search across extensions
-- `quelle store` commands - Store management
-- `quelle extension` commands - Extension management
+- Complete library management (`quelle library`)
+- Extension management (`quelle extensions`)
+- Store management (`quelle store`)
+- Publishing system (`quelle publish`)
+- Development tools (`quelle dev`)
+- Export functionality (`quelle export`)
 
 ## Development Milestones
 
-### Phase 1: Foundation (Completed)
+### Phase 1: Foundation ✅ (Completed)
 - [x] Project architecture design
 - [x] WASM runtime implementation
 - [x] Basic CLI structure
@@ -49,48 +56,48 @@ Quelle is currently in early development. The core architecture is working but m
 - [x] Local store implementation
 - [x] Sample extensions
 
-### Phase 2: Core Features (In Progress)
+### Phase 2: Core Features ✅ (Completed)
 - [x] Extension auto-installation
 - [x] URL-to-extension matching
-- [x] Basic search functionality
-- [ ] Multiple output formats (EPUB, PDF)
-- [ ] Batch downloading
-- [ ] Enhanced error handling
+- [x] Search functionality
+- [x] Multiple output formats (EPUB, PDF)
+- [x] Library management
+- [x] Enhanced error handling
+- [x] Development tooling
 
-### Phase 3: User Experience (Planned)
+### Phase 3: User Experience 🔄 (In Progress)
+- [x] Complete CLI interface
+- [x] Extension development tools
+- [x] Local and Git stores
 - [ ] Pre-built binaries
-- [ ] Simplified installation
-- [ ] Git/HTTP stores
-- [ ] Extension versioning
-- [ ] Dependency management
+- [ ] Simplified installation packages
+- [ ] Extension versioning improvements
 - [ ] Configuration profiles
 
-### Phase 4: Advanced Features (Future)
+### Phase 4: Advanced Features 📋 (Planned)
 - [ ] Web interface
-- [ ] Extension marketplace
-- [ ] Automatic updates
-- [ ] Download resume
+- [ ] Enhanced extension marketplace
+- [ ] Automatic binary updates
 - [ ] Advanced search filters
+- [ ] Cross-platform GUI
 
-## Known Issues
-
-- Extension installation from stores has limitations
-- Manual WASM file copying often required
-- Limited extension metadata
-- No version management yet
-- Basic error messages
-
-## Technical Details
+## Technical Achievements
 
 **Architecture**
 - Rust-based core with WebAssembly extensions
-- Wasmtime runtime for WASM execution
+- Wasmtime runtime for secure WASM execution
 - Component model for extension interfaces
-- Local file-based stores and registry
+- Local and Git-based store system
+
+**Development Tools**
+- Interactive extension generator
+- Development server with hot reload
+- Extension validation and testing
+- Automated publishing workflows
 
 **Build System**
 - Cargo workspace for multiple crates
-- `just` for build automation
+- `just` for build automation convenience
 - `cargo-component` for WASM components
 - Cross-platform build support
 
@@ -100,33 +107,56 @@ Quelle is currently in early development. The core architecture is working but m
 - Tokio for async operations
 - Scraper for HTML parsing in extensions
 
+## Current Capabilities
+
+**For Users**
+- Stable, feature-complete CLI interface
+- Reliable novel downloading and management
+- Multiple export formats (EPUB, PDF)
+- Extension installation from stores
+- Library organization and tracking
+
+**For Developers**
+- Complete extension development toolkit
+- Extension generator with templates
+- Development server with hot reload
+- Testing and validation tools
+- Local and remote extension stores
+- Publishing workflows
+
 ## Looking Forward
 
-The immediate focus is on:
+**Next Priorities**
+1. **Distribution**: Pre-built binaries for easier installation
+2. **Extensions**: Support for additional novel sites
+3. **Performance**: Optimization and caching improvements
+4. **Documentation**: Enhanced user guides and tutorials
 
-1. **Stability**: Making current features more reliable
-2. **Documentation**: Improving user and developer guides
-3. **Extensions**: Adding support for more novel sites
-4. **User Experience**: Simplifying installation and usage
+**Future Features**
+- Cross-platform GUI application
+- Enhanced extension marketplace
+- Advanced search and filtering
+- Cloud synchronization options
 
 ## Contributing
 
-Since Quelle is in active development:
+Quelle welcomes contributions:
 
-- Core architecture is stable but APIs may change
-- Extension interfaces are maturing
-- Documentation reflects current capabilities
-- Community contributions welcome
+- **Extension Development**: Add support for new novel sources
+- **Core Features**: Enhance existing functionality
+- **Documentation**: Improve user and developer guides
+- **Testing**: Help ensure quality and reliability
 
 ## Versioning
 
-Quelle currently uses development builds without formal versioning. Once the MVP is complete, semantic versioning will be adopted.
+Quelle currently uses development builds. Formal semantic versioning will begin with the first stable release following MVP completion.
 
-For the latest updates, check:
-- GitHub repository commits
-- Project discussions
-- This documentation (updated regularly)
+For the latest updates:
+- [GitHub Repository](https://github.com/nacht-org/quelle)
+- [Extension Registry](https://github.com/nacht-org/extensions)
+- [Project Discussions](https://github.com/nacht-org/quelle/discussions)
 
 ---
 
-**Note**: This changelog will be more detailed once Quelle reaches MVP and begins regular releases. Currently, it serves as a development status tracker.
+**Status**: MVP Ready - All core features implemented and stable
+**Focus**: Expanding extension support and improving distribution

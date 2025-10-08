@@ -1,211 +1,357 @@
 # Getting Started
 
-This guide walks you through your first steps with Quelle after installation.
+This guide walks you through your first steps with Quelle after installation. By the end, you'll have added your first novel and understand the basic workflows.
 
 ## Prerequisites
 
 - Quelle installed and built (see [Installation](./installation.md))
-- Command line terminal
-- Internet connection
+- At least one extension installed (ScribbleHub recommended for testing)
+- Internet connection for downloading novels
 
-## First Steps
+## Quick Start
 
-### 1. Check Installation
+### 1. Verify Your Installation
 
-Verify Quelle is working:
-
-```bash
-quelle --help
-```
-
-You should see the main help menu with available commands.
-
-### 2. Check Available Extensions
-
-See what extensions are installed:
+First, make sure everything is working correctly:
 
 ```bash
+# Check system status
+quelle status
+
+# List installed extensions
 quelle extensions list
 ```
 
-By default, you should have:
-- `dragontea` - For DragonTea novels
-- `scribblehub` - For ScribbleHub stories
+You should see something like:
+```
+✅ Quelle is ready
+📦 Extensions: 1 installed
+🏪 Stores: 1 configured (local)
+```
+
+If you see any errors, return to the [Installation](./installation.md) guide.
+
+### 2. Your First Search
+
+Let's search for novels to get familiar with the interface:
+
+```bash
+# Search across all available sources
+quelle search "cultivation" --limit 5
+
+# Search with more specific terms
+quelle search "fantasy adventure" --limit 3
+```
+
+This shows you available novels from all configured extensions. You'll see results with titles, authors, and URLs.
 
 ### 3. Add Your First Novel
 
-Let's add a novel to your library. You need a URL from a supported site:
+Pick a novel from your search results or use a direct URL:
 
 ```bash
-# Example with a DragonTea URL
-quelle add https://dragontea.ink/novel/example-novel
+# Add a novel (example with ScribbleHub URL)
+quelle add "https://www.scribblehub.com/series/123456/example-novel/"
 
-# Example with a ScribbleHub URL  
-quelle add https://scribblehub.com/series/12345/example-story
+# This will:
+# - Fetch novel metadata (title, author, description, tags)
+# - Download all available chapters
+# - Add it to your library
 ```
 
-This will:
-- Fetch novel metadata (title, author, description)
-- Download all available chapters
-- Store everything in your local library
+**What happens during download:**
+- Novel metadata is extracted and stored
+- All chapters are downloaded in order
+- Progress is displayed as chapters are fetched
+- The novel becomes available in your library
 
-### 4. View Your Library
+### 4. Explore Your Library
 
-See what novels you have:
+Now that you have a novel, explore your library:
 
 ```bash
+# List all novels in your library
 quelle library list
-```
 
-This shows all novels in your library with their status.
+# Show detailed information for a specific novel
+quelle library show "Novel Title"
 
-### 5. Read a Chapter
-
-Read from your library:
-
-```bash
 # List chapters for a novel
 quelle read "Novel Title" --list
-
-# Read a specific chapter
-quelle read "Novel Title" 1
 ```
 
-## Common Workflows
+### 5. Read Your First Chapter
 
-### Adding Novels
+Read content directly in your terminal:
 
 ```bash
-# Add novel with all chapters
+# Read the first chapter
+quelle read "Novel Title" 1
+
+# Read by chapter title
+quelle read "Novel Title" "Prologue"
+```
+
+The chapter content will be displayed in a clean, readable format in your terminal.
+
+## Essential Workflows
+
+### Managing Your Collection
+
+**Adding novels:**
+```bash
+# Add with all chapters (default)
 quelle add https://example.com/novel
 
-# Add only metadata, no chapters
+# Add only metadata, download chapters later
 quelle add https://example.com/novel --no-chapters
 
-# Add with chapter limit (useful for testing)
-quelle add https://example.com/novel --max-chapters 5
+# Add with a chapter limit (useful for testing large novels)
+quelle add https://example.com/novel --max-chapters 10
 ```
 
-### Managing Your Library
-
+**Keeping up to date:**
 ```bash
-# Check for new chapters
+# Update all novels with new chapters
 quelle update
 
-# Update specific novel
+# Update a specific novel
 quelle update "Novel Title"
 
-# Show library statistics
+# Check for updates without downloading
+quelle update --check-only
+```
+
+**Library maintenance:**
+```bash
+# View library statistics
 quelle library stats
 
-# Remove a novel
+# Remove a novel you no longer want
 quelle remove "Novel Title"
+
+# Clean up any orphaned data
+quelle library cleanup
 ```
 
-### Searching
+### Discovery and Search
 
+**Basic search:**
 ```bash
-# Search for novels
-quelle search "cultivation"
+# Simple keyword search
+quelle search "magic academy"
 
 # Search with filters
-quelle search "magic" --author "AuthorName"
+quelle search "isekai" --limit 10
 ```
 
-## Configuration
-
-### Storage Location
-
-By default, Quelle stores data in:
-- **Linux/macOS**: `~/.local/share/quelle/`
-- **Windows**: `%APPDATA%\quelle\`
-
-You can override this:
-
+**Advanced search (when supported by extensions):**
 ```bash
-# Use custom storage location
-quelle --storage-path /path/to/storage library list
+# Search by author
+quelle search "reincarnation" --author "AuthorName"
+
+# Search with tags
+quelle search "fantasy" --tags "magic,adventure"
 ```
 
-### Basic Settings
+### Reading and Export
 
-View current configuration:
+**Reading options:**
+```bash
+# List all chapters
+quelle read "Novel Title" --list
+
+# Read specific chapters
+quelle read "Novel Title" 1      # Chapter by number
+quelle read "Novel Title" "Chapter One"  # By title
+```
+
+**Export for external reading:**
+```bash
+# Export to EPUB (default)
+quelle export "Novel Title"
+
+# Export to PDF
+quelle export "Novel Title" --format pdf
+
+# Export to a specific directory
+quelle export "Novel Title" --output ./my-books/
+
+# Export all novels
+quelle export all
+```
+
+## Working with Extensions
+
+### Managing Extensions
+
+Extensions are what make Quelle work - each one handles a different website:
 
 ```bash
+# List installed extensions
+quelle extensions list
+
+# Get detailed info about an extension
+quelle extensions info scribblehub
+
+# Search for available extensions (if connected to registry)
+quelle extensions search "royal"
+```
+
+### Installing New Extensions
+
+If you have access to the official registry or custom stores:
+
+```bash
+# Install from official registry
+quelle extensions install en.royalroad
+
+# Update all extensions
+quelle extensions update all
+
+# Remove an extension you no longer need
+quelle extensions remove dragontea
+```
+
+## Configuration and Customization
+
+### Basic Configuration
+
+```bash
+# View current configuration
 quelle config show
-```
 
-Set configuration values:
-
-```bash
 # Set default export format
 quelle config set export.format epub
 
-# Set storage directory
+# Change storage location
 quelle config set data_dir /path/to/quelle/data
 ```
 
-## Getting Help
+### Store Management
 
-### Command Help
-
-Get help for any command:
+Stores are repositories where extensions are distributed:
 
 ```bash
-quelle add --help
-quelle library --help
-quelle search --help
+# List configured stores
+quelle store list
+
+# Add a Git-based store
+quelle store add git upstream https://github.com/user/extensions.git
+
+# Update store data
+quelle store update local
 ```
 
-### Verbose Output
+## Tips for New Users
 
-See what Quelle is doing:
+### Best Practices
 
+1. **Start small**: Add 1-2 novels initially to test the system
+2. **Use chapter limits**: For large novels (500+ chapters), consider `--max-chapters 50` initially
+3. **Regular updates**: Run `quelle update` weekly to get new chapters
+4. **Export regularly**: Export novels to EPUB for backup and offline reading
+
+### Common Workflows
+
+**Daily usage:**
 ```bash
-quelle --verbose add https://example.com/novel
+quelle update                    # Check for new chapters
+quelle read "Current Novel" 42   # Continue reading
+quelle search "new genre"        # Discover new content
 ```
 
-### Dry Run
-
-Test commands without making changes:
-
+**Weekly maintenance:**
 ```bash
-quelle --dry-run add https://example.com/novel
+quelle library stats             # Check library health
+quelle update --check-only       # See what has updates
+quelle library cleanup           # Clean up any issues
 ```
 
-## Troubleshooting
+**Adding new sources:**
+```bash
+quelle search "site name"        # Look for extensions
+quelle extensions search "site"  # Search available extensions
+```
 
-### Common Issues
+### Understanding Output
 
-1. **"Extension not found"**
-   - Check `quelle extensions list`
-   - The URL might not be supported yet
+When adding novels, you'll see output like:
+```
+✅ Novel: "Example Novel" by Author Name
+📝 Description: A fantastic story about...
+📊 Chapters: Found 245 chapters
+⬇️  Downloading chapters... [42/245]
+✅ Added successfully!
+```
 
-2. **"Network timeout"**
-   - Check internet connection
-   - Some sites may be slow or blocking requests
+When updating:
+```
+📚 Checking "Novel Title"...
+🆕 Found 3 new chapters
+⬇️  Downloading chapters 246-248...
+✅ Updated successfully!
+```
 
-3. **"No chapters found"**
-   - The novel might not have published chapters
-   - Try adding with `--no-chapters` first
+## Troubleshooting Common Issues
+
+### "Extension not found"
+**Problem**: The URL isn't supported by any installed extension  
+**Solution**: Check `quelle extensions list` and install the appropriate extension, or verify the URL is correct
+
+### "No chapters found"
+**Problem**: Extension found the novel but no chapters  
+**Solution**: The novel might not have published chapters yet, or the website structure may have changed
+
+### Network timeouts
+**Problem**: Downloads fail due to connection issues  
+**Solution**: Retry the operation - Quelle resumes where it left off. Some sites may rate-limit requests.
+
+### Storage errors
+**Problem**: Permission denied or disk full errors  
+**Solution**: Check disk space with `df -h` (Linux/macOS) and ensure the storage directory is writable
 
 ### Getting More Help
 
-- Use `quelle status` to check system health
-- Check [Troubleshooting](../reference/troubleshooting.md) for detailed solutions
-- Look at verbose output with `--verbose` flag
+- **Verbose output**: Add `-v` to any command for detailed logging
+- **System check**: Use `quelle status` to diagnose issues
+- **Command help**: Add `--help` to any command for usage information
+- **Dry run**: Add `--dry-run` to preview actions without executing them
 
-## Next Steps
+## What's Next?
 
-Once you're comfortable with the basics:
+Now that you're comfortable with the basics:
 
-1. [Basic Usage](./basic-usage.md) - Learn more advanced workflows
-2. [CLI Commands](../reference/cli-commands.md) - Complete command reference
-3. [Extension Development](../development/extension-development.md) - Create your own scrapers
+1. **Power User Guide**: [Basic Usage](./basic-usage.md) covers advanced features and workflows
+2. **CLI Reference**: [CLI Commands](./reference/cli-commands.md) provides complete command documentation  
+3. **Extension Development**: [Extension Development](./development/extension-development.md) if you want to add support for new sites
+4. **Troubleshooting**: [Troubleshooting Guide](./reference/troubleshooting.md) for detailed problem-solving
 
-## Tips
+## Example: Complete First Session
 
-- Start with small novels to test functionality
-- Use `--dry-run` to preview actions
-- Check `quelle status` if something seems wrong
-- Extensions are sandboxed - they can't harm your system
+Here's a complete example of a first session with Quelle:
+
+```bash
+# 1. Verify installation
+quelle status
+
+# 2. Search for something interesting
+quelle search "progression fantasy" --limit 5
+
+# 3. Add a novel from the results
+quelle add "https://www.scribblehub.com/series/123456/example-novel/"
+
+# 4. Check your library
+quelle library list
+
+# 5. Read the first chapter
+quelle read "Example Novel" 1
+
+# 6. Export for your e-reader
+quelle export "Example Novel" --format epub
+
+# 7. Set up regular updates
+quelle update
+```
+
+Welcome to Quelle! You're now ready to build and manage your digital novel library.

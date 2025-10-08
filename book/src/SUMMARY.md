@@ -11,8 +11,6 @@
 # Development
 
 - [Extension Development](./development/extension-development.md)
-- [Store System](./development/store-system.md)
-- [API Reference](./development/api-reference.md)
 
 # Reference
 

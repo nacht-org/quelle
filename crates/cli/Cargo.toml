@@ -3,6 +3,10 @@ name = "quelle_cli"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "quelle"
+path = "src/main.rs"
+
 [features]
 default = ["git", "pdf"]
 git = ["quelle_store/git"]

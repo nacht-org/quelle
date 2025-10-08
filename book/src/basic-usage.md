@@ -109,19 +109,21 @@ quelle search "novel" --categories "fantasy,action"
 quelle extensions list
 
 # Show detailed extension information
+quelle extensions info scribblehub
 quelle extensions info dragontea
+quelle extensions info royalroad
 ```
 
 **Search for new extensions:**
 ```bash
-# Search available extensions
+# Search available extensions (if connected to registry)
 quelle extensions search "webnovel"
 
 # Install an extension
-quelle extensions install new-extension-id
+quelle extensions install en.royalroad
 
 # Install specific version
-quelle extensions install dragontea --version 1.2.0
+quelle extensions install en.dragontea --version 1.2.0
 ```
 
 **Update extensions:**
@@ -130,10 +132,10 @@ quelle extensions install dragontea --version 1.2.0
 quelle extensions update all
 
 # Update specific extension
-quelle extensions update dragontea
+quelle extensions update en.scribblehub
 
 # Force update even if no new version
-quelle extensions update dragontea --force
+quelle extensions update en.dragontea --force
 ```
 
 ## Advanced Operations
@@ -196,28 +198,33 @@ quelle config reset --force
 ### Supported Sites
 
 Currently supported extensions:
-- **DragonTea** (`dragontea`): Dragons Tea novels
-- **ScribbleHub** (`scribblehub`): ScribbleHub stories
+- **ScribbleHub** (`en.scribblehub`): Original novels and translations from ScribbleHub.com
+- **DragonTea** (`en.dragontea`): Light novels and web novels from DragonTea.ink  
+- **RoyalRoad** (`en.royalroad`): Original fiction and stories from RoyalRoad.com
 
 ### URL Patterns
 
 Each extension supports specific URL patterns:
 
+**ScribbleHub:**
+- Novel: `https://www.scribblehub.com/series/12345/novel-name/`
+- Chapter: `https://www.scribblehub.com/read/12345-novel-name/chapter/67890/`
+
 **DragonTea:**
 - Novel: `https://dragontea.ink/novel/novel-name`
 - Chapter: `https://dragontea.ink/novel/novel-name/chapter-n`
 
-**ScribbleHub:**
-- Novel: `https://scribblehub.com/series/12345/novel-name`
-- Chapter: `https://scribblehub.com/read/12345-novel-name/chapter/67890`
+**RoyalRoad:**
+- Novel: `https://www.royalroad.com/fiction/12345/novel-title`
+- Chapter: `https://www.royalroad.com/fiction/12345/novel-title/chapter/67890/chapter-title`
 
 ## Tips and Best Practices
 
 ### Performance Tips
 
-1. **Use chapter limits for testing:**
+1. **Use chapter limits for large novels:**
    ```bash
-   quelle add https://example.com/novel --max-chapters 5
+   quelle add https://www.royalroad.com/fiction/12345/novel --max-chapters 50
    ```
 
 2. **Update regularly but efficiently:**
@@ -229,7 +236,7 @@ Each extension supports specific URL patterns:
 
 3. **Use dry-run for testing:**
    ```bash
-   quelle --dry-run add https://example.com/novel
+   quelle --dry-run add https://www.scribblehub.com/series/12345/novel/
    ```
 
 ### Organization Tips
@@ -243,8 +250,11 @@ Each extension supports specific URL patterns:
    # Clean up orphaned data
    quelle library cleanup
    
-   # Check library health
+   # Check system health
    quelle status
+   
+   # View library statistics  
+   quelle library stats
    ```
 
 ### Troubleshooting Tips

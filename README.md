@@ -12,19 +12,19 @@ Quelle is a powerful, extensible novel scraper and library manager that enables 
 # Clone and build
 git clone https://github.com/nacht-org/quelle
 cd quelle
-cargo build --release
+cargo build --release -p quelle_cli
 
 # Build with specific features
-cargo build --release --no-default-features --features git     # EPUB export only
-cargo build --release --features git,pdf                       # EPUB + PDF export (default)
+cargo build --release -p quelle_cli --no-default-features --features git     # EPUB export only
+cargo build --release -p quelle_cli --features git,pdf                       # PDF export (default)
 
 # Set up extension system manually
-cargo run -p quelle_cli -- store add local local ./data/stores/local
+./target/release/quelle store add local local ./data/stores/local
 cargo component build -r -p extension_scribblehub --target wasm32-unknown-unknown
-cargo run -p quelle_cli -- publish extension \
+./target/release/quelle publish extension \
   ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
   --store local --overwrite
-cargo run -p quelle_cli -- extensions install en.scribblehub
+./target/release/quelle extensions install en.scribblehub
 ```
 
 ### Basic Usage
@@ -132,13 +132,14 @@ quelle store info <name>            # Show store information
 
 ```bash
 # 1. Set up Quelle and install ScribbleHub extension
-cargo build --release
-cargo run -p quelle_cli -- store add local local ./data/stores/local
+cargo build --release -p quelle_cli
+# Set up local store and publish scribblehub
+./target/release/quelle store add local local ./data/stores/local
 cargo component build -r -p extension_scribblehub --target wasm32-unknown-unknown
-cargo run -p quelle_cli -- publish extension \
+./target/release/quelle publish extension \
   ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
   --store local --overwrite
-cargo run -p quelle_cli -- extensions install en.scribblehub
+./target/release/quelle extensions install en.scribblehub
 
 # 2. Search for a novel
 quelle search "overlord light novel" --limit 5
@@ -232,16 +233,16 @@ All `just` commands are optional shortcuts for the full CLI commands shown throu
 
 ```bash
 # Validate extension structure and build
-cargo run -p quelle_cli -- dev validate scribblehub --extended
+./target/release/quelle dev validate scribblehub --extended
 
 # Quick test novel info fetching
-cargo run -p quelle_cli -- dev test scribblehub --url "https://www.scribblehub.com/series/123456/novel/"
+./target/release/quelle dev test scribblehub --url "https://www.scribblehub.com/series/123456/novel/"
 
 # Quick test search functionality  
-cargo run -p quelle_cli -- dev test scribblehub --query "fantasy adventure"
+./target/release/quelle dev test scribblehub --query "fantasy adventure"
 
 # Start development server with hot reload
-cargo run -p quelle_cli -- dev server scribblehub --watch
+./target/release/quelle dev server scribblehub --watch
 ```
 
 The development server provides:
@@ -255,20 +256,20 @@ The development server provides:
 **Interactive Mode (Recommended)**
 ```bash
 # Interactive generation - prompts for all information
-cargo run -p quelle_cli -- dev generate
+./target/release/quelle dev generate
 ```
 
 **Command Line Mode**
 ```bash
 # All parameters specified
-cargo run -p quelle_cli -- dev generate mysite --display-name "My Site" --base-url "https://mysite.com"
+./target/release/quelle dev generate mysite --display-name "My Site" --base-url "https://mysite.com"
 ```
 
 Development workflow:
 1. **Generate extension**: Interactive mode guides you through setup
 2. **Customize selectors**: Update CSS selectors for your target site  
-3. **Test iteratively**: Use `cargo run -p quelle_cli -- dev server <name> --watch` for hot reload testing
-4. **Validate**: Use `cargo run -p quelle_cli -- dev validate <name> --extended` before publishing
+3. **Test iteratively**: Use `./target/release/quelle dev server <name> --watch` for hot reload testing
+4. **Validate**: Use `./target/release/quelle dev validate <name> --extended` before publishing
 5. **Publish**: Build and publish with CLI commands shown above
 
 📖 **[Extension Generation Guide](./docs/EXTENSION_GENERATION.md)**
@@ -298,27 +299,27 @@ The automated workflow:
 cargo component build -r -p extension_scribblehub --target wasm32-unknown-unknown
 
 # Basic publish to local store
-cargo run -p quelle_cli -- publish extension \
+./target/release/quelle publish extension \
   ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
   --store local --overwrite
 
 # Publish with metadata
-cargo run -p quelle_cli -- publish extension \
+./target/release/quelle publish extension \
   ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
   --store local --notes "Bug fixes" --tags "manga,novels" --overwrite
 
 # Dry run (show what would be done)
-cargo run -p quelle_cli -- publish extension \
+./target/release/quelle publish extension \
   ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
   --store local --dry-run
 
 # Development mode (all dev flags)
-cargo run -p quelle_cli -- publish extension \
+./target/release/quelle publish extension \
   ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
   --store local --dev
 
 # Show all options
-cargo run -p quelle_cli -- publish extension --help
+./target/release/quelle publish extension --help
 ```
 
 **Available Stores:**

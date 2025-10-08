@@ -1,82 +1,153 @@
 # Introduction
 
-Quelle is an open-source e-book scraper that downloads novels from web sources using WebAssembly extensions.
+Quelle is an open-source novel scraper and library manager that downloads novels from web sources using WebAssembly extensions. Built with a modular architecture, it provides high performance and cross-platform compatibility for managing your digital novel collection.
 
 ## What is Quelle?
 
-Quelle uses a modular extension system where each website gets its own WebAssembly (WASM) extension. This makes it secure and easy to add support for new sources.
+Quelle uses a secure, modular extension system where each website gets its own WebAssembly (WASM) extension. This architecture ensures security through sandboxing while making it easy to add support for new sources.
 
 **Key Features:**
-- **Secure**: Extensions run in a WebAssembly sandbox
-- **Fast**: Built with Rust for performance
-- **Cross-platform**: Works on Windows, macOS, and Linux
-- **Extensible**: Add new sources by creating extensions
+- **🔒 Secure**: Extensions run in a WebAssembly sandbox for complete isolation
+- **⚡ Fast**: Built with Rust for maximum performance
+- **🌍 Cross-platform**: Works seamlessly on Windows, macOS, and Linux
+- **🧩 Extensible**: Easy-to-use extension system with development tools
+- **📚 Full Library Management**: Search, download, organize, and export your collection
+- **📖 Multiple Formats**: Export to EPUB, PDF, and other formats
+- **🔄 Auto-Updates**: Keep your library current with new chapters
 
 ## Current Status
 
-🚧 **Status**: Pre-MVP Development
+✅ **Status**: MVP Ready
 
-Quelle is actively being developed. Here's what currently works:
+Quelle has reached MVP (Minimum Viable Product) status with a fully functional CLI, working extension system, and reliable core features.
 
-**✅ Available Now:**
-- Core WASM runtime for extensions
-- Command-line interface
-- Extension store system
-- Two working extensions: DragonTea and ScribbleHub
-- Novel search, metadata fetching, and chapter downloading
+**✅ What Works Now:**
+- **Complete CLI Interface**: All major commands implemented and stable
+- **Extension System**: Build, install, and manage extensions with full tooling
+- **Store Management**: Local and Git-based extension repositories
+- **Novel Discovery**: Search and browse novels across multiple sources
+- **Library Management**: Add, update, remove, and organize your collection
+- **Chapter Reading**: Read chapters directly in your terminal
+- **Export Functionality**: Export to EPUB and PDF formats
+- **Development Tools**: Extension generator, dev server, testing tools
+- **Three Working Extensions**: ScribbleHub, DragonTea, and RoyalRoad
 
-**🔄 Coming Soon:**
-- More extensions for popular novel sites
-- EPUB and PDF export formats
-- Improved search across multiple sources
-- Pre-built installation packages
+**🔄 In Active Development:**
+- Additional novel source extensions
+- Enhanced export format options
+- Improved search and filtering capabilities
+- Cross-platform binary distribution
+- Advanced library organization features
+
+## Available Extensions
+
+Quelle currently supports these novel sources:
+
+- **ScribbleHub** (`scribblehub`): Original novels and translations from ScribbleHub.com
+- **DragonTea** (`dragontea`): Light novels and web novels from DragonTea.ink
+- **RoyalRoad** (`royalroad`): Original fiction and stories from RoyalRoad.com
+
+*More extensions are available at the [official extension repository](https://github.com/nacht-org/extensions)*
 
 ## How It Works
 
-1. **Extensions**: WASM modules that know how to scrape specific websites
-2. **Store System**: Manages and distributes extensions
-3. **CLI Tool**: Command-line interface for all operations
+Quelle's architecture consists of several key components:
+
+1. **🏗️ CLI Interface**: Command-line tool for all user interactions
+2. **🧩 Extensions**: WebAssembly modules that handle website-specific scraping
+3. **🏪 Store System**: Manages extension distribution and updates
+4. **📊 Storage Engine**: Handles novel metadata, chapters, and library organization
+5. **🔧 Development Tools**: Complete toolkit for creating new extensions
 
 ## Quick Example
 
-Once installed, basic usage looks like this:
+Here's what basic usage looks like:
 
 ```bash
-# Add a novel to your library
-quelle add https://example.com/novel-page
+# Search for novels across all sources
+quelle search "cultivation fantasy"
+
+# Add a novel to your library (downloads all chapters)
+quelle add https://www.royalroad.com/fiction/12345/novel-title
 
 # Update your library with new chapters
 quelle update
 
-# Read a chapter
+# Read a chapter in your terminal
 quelle read "Novel Title" 1
 
-# Search for novels
-quelle search "cultivation"
+# Export to EPUB for your e-reader
+quelle export "Novel Title" --format epub
 ```
 
-## Current Limitations
+## Extension Development
 
-Since this is pre-MVP software:
+Quelle makes extension development straightforward with comprehensive tooling:
 
-- **Manual Setup**: No installer yet, build from source required
-- **Limited Extensions**: Only 2 working extensions (DragonTea, ScribbleHub)
-- **Developer-Focused**: Primarily for technical users right now
-- **Local Only**: No online extension repositories yet
+```bash
+# Generate a new extension interactively
+quelle dev generate
+
+# Start development server with hot reload
+quelle dev server myextension --watch
+
+# Test your extension
+quelle dev test myextension --url "https://example.com/novel"
+
+# Validate before publishing
+quelle dev validate myextension --extended
+```
+
+## Current Capabilities
+
+Since reaching MVP status, Quelle offers:
+
+**For Users:**
+- ✅ Stable, feature-complete CLI interface
+- ✅ Reliable novel downloading and management
+- ✅ Multiple export formats (EPUB, PDF)
+- ✅ Extension installation from official registry
+- ✅ Library organization and chapter tracking
+
+**For Developers:**
+- ✅ Complete extension development toolkit
+- ✅ Extension generator with templates
+- ✅ Development server with hot reload
+- ✅ Testing and validation tools
+- ✅ Local and remote extension stores
+- ✅ Automated publishing workflows
 
 ## Next Steps
 
-Ready to try Quelle?
+Ready to get started with Quelle?
 
-1. [Installation](./installation.md) - Build from source
-2. [Getting Started](./getting-started.md) - First steps
-3. [Basic Usage](./basic-usage.md) - Common workflows
+**For Users:**
+1. [Installation](./installation.md) - Set up Quelle on your system
+2. [Getting Started](./getting-started.md) - Your first novel and basic workflows
+3. [Basic Usage](./basic-usage.md) - Complete guide to all features
 
-For developers interested in contributing:
+**For Developers:**
+4. [Extension Development](./development/extension-development.md) - Create scrapers for new sources
+5. [Store System](./development/store-system.md) - Understand the extension distribution system
 
-4. [Extension Development](./development/extension-development.md) - Create new scrapers
-5. [Store System](./development/store-system.md) - Technical details
+## Extension Registry
+
+Quelle comes pre-configured with access to the [official extension registry](https://github.com/nacht-org/extensions), which provides:
+
+- ✅ Curated, tested extensions
+- ✅ Automatic updates and security patches  
+- ✅ Easy installation with `quelle extensions install <name>`
+- ✅ Community-contributed sources
+
+You can also add custom extension stores for private or experimental extensions.
 
 ## Legal Notice
 
-Quelle is a tool for accessing publicly available content. Users are responsible for complying with website terms of service and applicable laws. Always respect content creators and website policies.
+Quelle is a tool for accessing publicly available content. Users are responsible for:
+
+- ✅ Complying with website terms of service
+- ✅ Respecting content creators and copyright
+- ✅ Following applicable laws in their jurisdiction
+- ✅ Using rate limiting and respectful scraping practices
+
+Always ensure your usage respects the policies of the websites you're accessing.
