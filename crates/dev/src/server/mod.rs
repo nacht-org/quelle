@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 use crate::http_caching::CachingHttpExecutor;
-use crate::utils::find_extension_path;
+use crate::utils::{find_extension_path, find_project_root};
 use quelle_engine::ExtensionEngine;
 
 mod commands;
@@ -54,12 +54,12 @@ impl DevServer {
     pub async fn build_extension(&mut self) -> Result<()> {
         let start_time = Instant::now();
 
-        println!("🔨 Building extension '{}'...", self.extension_name);
+        println!("Building extension '{}'...", self.extension_name);
 
         // Check if we've built recently to avoid unnecessary rebuilds
         if let Some(last_build) = self.build_cache.get(&self.extension_name) {
             if start_time.duration_since(*last_build) < Duration::from_secs(1) {
-                println!("⚡ Skipping build (recent build detected)");
+                println!("Skipping build (recent build detected)");
                 return Ok(());
             }
         }
@@ -85,15 +85,15 @@ impl DevServer {
             .insert(self.extension_name.clone(), start_time);
 
         let duration = start_time.elapsed();
-        println!("✅ Build completed in {:.2}s", duration.as_secs_f64());
+        println!("Success: Build completed in {:.2}s", duration.as_secs_f64());
 
         Ok(())
     }
 
     /// Load the extension into the engine
     pub async fn load_extension(&mut self) -> Result<()> {
-        let wasm_path = self
-            .extension_path
+        let project_root = find_project_root(&self.extension_path)?;
+        let wasm_path = project_root
             .join("target/wasm32-unknown-unknown/release")
             .join(format!("extension_{}.wasm", self.extension_name));
 
@@ -110,7 +110,7 @@ impl DevServer {
         // This requires integration with the current ExtensionEngine API
         // For now, just verify the WASM file exists and is readable
 
-        println!("📦 Extension '{}' loaded successfully", self.extension_name);
+        println!("Extension '{}' loaded successfully", self.extension_name);
 
         Ok(())
     }
@@ -119,9 +119,9 @@ impl DevServer {
     pub async fn clear_cache(&self) -> Result<()> {
         if let Some(ref cache) = self.caching_executor {
             cache.clear_cache().await;
-            println!("🗑️  Cache cleared");
+            println!("Cache cleared");
         } else {
-            println!("ℹ️  No cache to clear");
+            println!("No cache to clear");
         }
         Ok(())
     }
@@ -130,11 +130,11 @@ impl DevServer {
     pub async fn show_cache_stats(&self) -> Result<()> {
         if let Some(ref cache) = self.caching_executor {
             let (memory_count, file_count) = cache.cache_stats().await;
-            println!("📊 Cache Statistics:");
+            println!("Cache Statistics:");
             println!("  Memory entries: {}", memory_count);
             println!("  File entries: {}", file_count);
         } else {
-            println!("ℹ️  Caching not enabled");
+            println!("Caching not enabled");
         }
         Ok(())
     }
@@ -143,17 +143,32 @@ impl DevServer {
     pub async fn handle_command(&mut self, cmd: DevServerCommand) -> Result<()> {
         commands::handle(self, cmd).await
     }
+
+    /// Get the extension name
+    pub fn extension_name(&self) -> &str {
+        &self.extension_name
+    }
+
+    /// Get the extension path
+    pub fn extension_path(&self) -> &std::path::Path {
+        &self.extension_path
+    }
+
+    /// Get the extension engine
+    pub fn engine(&self) -> &ExtensionEngine {
+        &self.engine
+    }
 }
 
 /// Start the development server
 pub async fn start(extension_name: String, watch: bool, use_chrome: bool) -> Result<()> {
-    println!("🚀 Starting dev server for '{}'", extension_name);
+    println!("Starting dev server for '{}'", extension_name);
 
     let extension_path = find_extension_path(&extension_name)?;
     let mut dev_server =
         DevServer::new(extension_name.clone(), extension_path.clone(), use_chrome).await?;
 
-    println!("🔨 Building...");
+    println!("Building...");
     dev_server.build_extension().await?;
     dev_server.load_extension().await?;
 
@@ -191,23 +206,23 @@ async fn start_with_watcher(dev_server: DevServer, extension_path: PathBuf) -> R
                     kind: EventKind::Modify(_),
                     ..
                 }) => {
-                    println!("📝 File changed, rebuilding...");
+                    println!("File changed, rebuilding...");
 
                     let dev_server = dev_server_clone.clone();
                     rt.block_on(async {
                         let mut server = dev_server.lock().await;
 
                         if let Err(e) = server.build_extension().await {
-                            println!("❌ Build failed: {}", e);
+                            println!("Error: Build failed: {}", e);
                         } else if let Err(e) = server.load_extension().await {
-                            println!("❌ Load failed: {}", e);
+                            println!("Error: Load failed: {}", e);
                         } else {
-                            println!("✅ Rebuild successful");
+                            println!("Success: Rebuild successful");
                         }
                     });
                 }
                 Ok(_) => {} // Ignore other events
-                Err(e) => println!("❌ Watch error: {:?}", e),
+                Err(e) => println!("Error: Watch error: {:?}", e),
             }
         }
     });
@@ -227,7 +242,7 @@ async fn start_interactive_shell_with_server(dev_server: Arc<Mutex<DevServer>>) 
     use rustyline::{DefaultEditor, error::ReadlineError};
 
     println!();
-    println!("🎯 Development server ready!");
+    println!("Development server ready!");
     println!("Type 'help' for available commands, 'quit' to exit.");
     println!();
 
@@ -257,11 +272,11 @@ async fn start_interactive_shell_with_server(dev_server: Arc<Mutex<DevServer>>) 
                     "rebuild" | "build" => {
                         let mut server = dev_server.lock().await;
                         if let Err(e) = server.build_extension().await {
-                            println!("❌ Build failed: {}", e);
+                            println!("Error: Build failed: {}", e);
                         } else if let Err(e) = server.load_extension().await {
-                            println!("❌ Load failed: {}", e);
+                            println!("Error: Load failed: {}", e);
                         } else {
-                            println!("✅ Rebuild successful");
+                            println!("Success: Rebuild successful");
                         }
                     }
                     cmd if cmd.starts_with("test ") => {
@@ -273,7 +288,7 @@ async fn start_interactive_shell_with_server(dev_server: Arc<Mutex<DevServer>>) 
                             })
                             .await
                         {
-                            println!("❌ Test failed: {}", e);
+                            println!("Error: Test failed: {}", e);
                         }
                     }
                     cmd if cmd.starts_with("search ") => {
@@ -287,19 +302,19 @@ async fn start_interactive_shell_with_server(dev_server: Arc<Mutex<DevServer>>) 
                             .handle_command(DevServerCommand::Search { query })
                             .await
                         {
-                            println!("❌ Search failed: {}", e);
+                            println!("Error: Search failed: {}", e);
                         }
                     }
                     "cache clear" => {
                         let server = dev_server.lock().await;
                         if let Err(e) = server.clear_cache().await {
-                            println!("❌ Failed to clear cache: {}", e);
+                            println!("Error: Failed to clear cache: {}", e);
                         }
                     }
                     "cache stats" => {
                         let server = dev_server.lock().await;
                         if let Err(e) = server.show_cache_stats().await {
-                            println!("❌ Failed to show cache stats: {}", e);
+                            println!("Error: Failed to show cache stats: {}", e);
                         }
                     }
                     _ => {
@@ -319,7 +334,7 @@ async fn start_interactive_shell_with_server(dev_server: Arc<Mutex<DevServer>>) 
                 break;
             }
             Err(err) => {
-                println!("❌ Error: {:?}", err);
+                println!("Error: {:?}", err);
                 break;
             }
         }

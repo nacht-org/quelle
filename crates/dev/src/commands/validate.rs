@@ -8,7 +8,7 @@ use crate::utils::{find_extension_path, fs};
 
 /// Handle extension validation command
 pub async fn handle(extension_name: String, extended: bool) -> Result<()> {
-    println!("🔍 Validating extension '{}'", extension_name);
+    println!("Validating extension '{}'", extension_name);
 
     let extension_path = find_extension_path(&extension_name)?;
 
@@ -21,13 +21,13 @@ pub async fn handle(extension_name: String, extended: bool) -> Result<()> {
     validate_build(&extension_name, &extension_path).await?;
 
     if extended {
-        println!("🧪 Running extended validation...");
+        println!("Running extended validation...");
         validate_extension_runtime(&extension_name, &extension_path).await?;
         validate_code_quality(&extension_path)?;
     }
 
     println!(
-        "✅ Extension '{}' passed all validation checks",
+        "Success: Extension '{}' passed all validation checks",
         extension_name
     );
     Ok(())
@@ -35,7 +35,7 @@ pub async fn handle(extension_name: String, extended: bool) -> Result<()> {
 
 /// Validate that the extension directory has the correct structure
 fn validate_directory_structure(extension_path: &Path) -> Result<()> {
-    println!("📁 Checking directory structure...");
+    println!("Checking directory structure...");
 
     // Check required files exist
     let cargo_toml = extension_path.join("Cargo.toml");
@@ -59,7 +59,7 @@ fn validate_directory_structure(extension_path: &Path) -> Result<()> {
 
 /// Validate Cargo.toml configuration
 fn validate_cargo_toml(extension_path: &Path) -> Result<()> {
-    println!("📦 Checking Cargo.toml configuration...");
+    println!("Checking Cargo.toml configuration...");
 
     let cargo_toml_path = extension_path.join("Cargo.toml");
     let content = fs::read_to_string(&cargo_toml_path)?;
@@ -121,7 +121,7 @@ fn validate_source_files(extension_path: &Path) -> Result<()> {
     let todo_count = content.matches("todo!(").count();
     if todo_count > 0 {
         println!(
-            "   ⚠️  Found {} todo!() macros - remember to implement these",
+            "   Warning: Found {} todo!() macros - remember to implement these",
             todo_count
         );
     }
@@ -132,7 +132,7 @@ fn validate_source_files(extension_path: &Path) -> Result<()> {
 
 /// Validate that the extension builds successfully
 async fn validate_build(_extension_name: &str, extension_path: &Path) -> Result<()> {
-    println!("🔨 Checking build process...");
+    println!("Checking build process...");
 
     // Try to build the extension
     let output = tokio::process::Command::new("cargo")
@@ -172,7 +172,7 @@ async fn validate_build(_extension_name: &str, extension_path: &Path) -> Result<
 
 /// Validate extension runtime behavior (extended validation)
 async fn validate_extension_runtime(extension_name: &str, extension_path: &Path) -> Result<()> {
-    println!("🚀 Checking runtime behavior...");
+    println!("Checking runtime behavior...");
 
     // Create a dev server to test the extension
     let mut dev_server = DevServer::new(
@@ -191,14 +191,14 @@ async fn validate_extension_runtime(extension_name: &str, extension_path: &Path)
     // - Test error handling for invalid inputs
     // - Test basic functionality without network calls
 
-    println!("   ⚠️  Runtime validation not fully implemented yet");
-    println!("   ✓ Extension loads without crashes");
+    println!("   Warning: Runtime validation not fully implemented yet");
+    println!("   Success: Extension loads without crashes");
     Ok(())
 }
 
 /// Validate code quality and best practices
 fn validate_code_quality(extension_path: &Path) -> Result<()> {
-    println!("✨ Checking code quality...");
+    println!("Checking code quality...");
 
     let lib_rs_path = extension_path.join("src/lib.rs");
     let content = fs::read_to_string(&lib_rs_path)?;
@@ -234,7 +234,7 @@ fn validate_code_quality(extension_path: &Path) -> Result<()> {
     if warnings.is_empty() {
         println!("   ✓ No code quality issues found");
     } else {
-        println!("   ⚠️  Code quality suggestions:");
+        println!("   Warning: Code quality suggestions:");
         for warning in warnings {
             println!("      • {}", warning);
         }
@@ -265,11 +265,13 @@ async fn run_clippy_validation(extension_path: &Path) -> Result<()> {
                 println!("   ✓ Clippy found no issues");
             } else {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                println!("   ⚠️  Clippy suggestions:\n{}", stdout);
+                println!("   Warning: Clippy suggestions:\n{}", stdout);
             }
         }
         Err(_) => {
-            println!("   ⚠️  Clippy not available (install with: rustup component add clippy)");
+            println!(
+                "   Warning: Clippy not available (install with: rustup component add clippy)"
+            );
         }
     }
 

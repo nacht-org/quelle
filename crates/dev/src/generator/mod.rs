@@ -94,12 +94,12 @@ async fn generate_extension(config: ExtensionConfig, force: bool) -> Result<()> 
     // Check if extension already exists
     if fs::exists(&output_dir) && !force {
         if !prompts::confirm_overwrite(&config.name)? {
-            println!("❌ Extension generation cancelled");
+            println!("Error: Extension generation cancelled");
             return Ok(());
         }
     }
 
-    println!("🏗️  Generating extension '{}'...", config.name);
+    println!("Generating extension '{}'...", config.name);
 
     // Create output directory
     fs::create_dir_all(&output_dir)?;
@@ -108,10 +108,13 @@ async fn generate_extension(config: ExtensionConfig, force: bool) -> Result<()> 
     generate_cargo_toml(&config, &output_dir).await?;
     generate_lib_rs(&config, &output_dir).await?;
 
-    println!("✅ Extension '{}' generated successfully!", config.name);
+    println!(
+        "Success: Extension '{}' generated successfully!",
+        config.name
+    );
     println!("   Location: {}", output_dir.display());
     println!();
-    println!("📋 Next steps:");
+    println!("Next steps:");
     println!("   1. Edit the selectors in src/lib.rs");
     println!("   2. Build: just build-extension {}", config.name);
     println!("   3. Test: just dev-server {}", config.name);
