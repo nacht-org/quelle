@@ -20,10 +20,7 @@ Generate a new extension:
 
 ```bash
 # Interactive generation (recommended)
-quelle dev generate
-
-# Or specify details directly
-quelle dev generate mysite --display-name "My Site" --base-url "https://mysite.com"
+just generate
 ```
 
 ## Development Workflow
@@ -42,16 +39,16 @@ cargo component build -r -p extension_mysite --target wasm32-unknown-unknown
 ### 4. Test Extension
 ```bash
 # Test with development server
-quelle dev server mysite --watch
+just dev mysite
 
 # Test individual functions
-quelle dev test mysite --url "https://mysite.com/novel/123"
-quelle dev test mysite --query "fantasy"
+just test mysite --url "https://mysite.com/novel/123"
+just test mysite --query "fantasy"
 ```
 
 ### 5. Validate
 ```bash
-quelle dev validate mysite
+just validate mysite
 ```
 
 ## Publishing
@@ -81,6 +78,59 @@ Each extension implements these functions:
 - `get_chapter_list()` - Get list of chapters
 - `get_chapter_content()` - Extract chapter content
 
+## Handling Dynamic Content
+
+Many modern websites load content dynamically with JavaScript. Quelle supports element waiting to handle these cases:
+
+### Element Waiting
+
+For sites that load content after the initial page load, you can wait for specific elements:
+
+```rust
+use quelle_extension::prelude::*;
+
+// Wait for dynamic content to load
+let response = Request::get(&url)
+    .wait_for_element(".novel-details")  // Wait for this CSS selector
+    .wait_timeout(10000)                 // Optional: 10 second timeout (default: 30s)
+    .send(&client)?
+    .error_for_status()?;
+
+let html = response.text()?.unwrap_or_default();
+let document = scraper::Html::parse_document(&html);
+// ... continue with normal scraping
+```
+
+### Browser Compatibility
+
+- **Chrome Headless**: Full support - element waiting works as expected
+- **Reqwest**: Graceful fallback - element waiting options are ignored, standard HTTP request is made
+
+Your extension will work with both executors, but Chrome provides enhanced support for JavaScript-heavy sites.
+
+### Common Use Cases
+
+```rust
+// Wait for main content area
+.wait_for_element("#main-content")
+
+// Wait for chapter content to load
+.wait_for_element(".chapter-text")
+
+// Wait for search results
+.wait_for_element(".search-results .novel-item:first-child")
+
+// Wait for pagination controls
+.wait_for_element(".pagination")
+```
+
+### Best Practices
+
+- Use specific CSS selectors that uniquely identify the content you need
+- Set reasonable timeouts (5-15 seconds) to balance functionality with user experience
+- Always test with both Chrome and Reqwest executors during development
+- Handle cases where elements might not appear within the timeout
+
 ## Tips
 
 - Study existing extensions in `extensions/` directory
@@ -88,10 +138,12 @@ Each extension implements these functions:
 - Use the development server for rapid iteration
 - Start simple and add complexity gradually
 - Handle missing elements gracefully
+- Use element waiting only when necessary - static sites are faster with regular HTTP requests
 
 ## Getting Help
 
 - Check existing extensions for examples
-- Use `quelle dev --help` for available commands
+- Use `just --list` to see available development commands
 - Test URLs in browser before implementing
+- For advanced options, use the CLI directly: `cargo run -p quelle_cli -- dev --help`
 - Report issues on GitHub

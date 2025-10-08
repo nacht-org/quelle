@@ -422,6 +422,8 @@ mod tests {
             headers: None,
             params: None,
             data: None,
+            wait_for_element: None,
+            wait_timeout_ms: None,
         }
     }
 

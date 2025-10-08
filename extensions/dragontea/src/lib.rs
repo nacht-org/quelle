@@ -32,6 +32,7 @@ impl QuelleExtension for Extension {
 
     fn fetch_novel_info(&self, url: String) -> Result<Novel, eyre::Report> {
         let response = Request::get(&url)
+            .wait_for_element(".post-title")
             .send(&self.client)
             .map_err(|e| eyre!(e))?
             .error_for_status()?;
@@ -174,6 +175,7 @@ impl QuelleExtension for Extension {
         let http_url = url.replace("https:", "http:");
 
         let response = Request::get(&http_url)
+            .wait_for_element(".reading-content")
             .send(&self.client)
             .map_err(|e| eyre!(e))?
             .error_for_status()?;

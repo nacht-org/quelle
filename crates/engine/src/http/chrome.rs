@@ -69,16 +69,17 @@ impl HttpExecutor for HeadlessChromeExecutor {
         // Build the final URL with parameters
         let mut url = request.url.clone();
         if let Some(params) = &request.params
-            && !params.is_empty() {
-                let mut parsed_url = url::Url::parse(&url)
-                    .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?;
+            && !params.is_empty()
+        {
+            let mut parsed_url =
+                url::Url::parse(&url).map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?;
 
-                for (key, value) in params {
-                    parsed_url.query_pairs_mut().append_pair(key, value);
-                }
-
-                url = parsed_url.to_string();
+            for (key, value) in params {
+                parsed_url.query_pairs_mut().append_pair(key, value);
             }
+
+            url = parsed_url.to_string();
+        }
 
         tracing::info!(url = url, "executing http request in headless chrome");
 
@@ -94,9 +95,24 @@ impl HttpExecutor for HeadlessChromeExecutor {
             tracing::info!("handling GET request with direct navigation");
             let response = tab
                 .navigate_to(&url)
-                .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?
-                .wait_for_element("body")
-                .map_err(|e| HeadlessChromeError::GetContent(e.to_string()))?;
+                .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?;
+
+            // Handle element waiting if specified
+            let response = if let Some(selector) = &request.wait_for_element {
+                tracing::info!("waiting for element: {}", selector);
+                response
+                    .wait_for_element(selector)
+                    .map_err(|e| http::ResponseError {
+                        kind: http::ResponseErrorKind::ElementWaitTimeout,
+                        status: None,
+                        response: None,
+                        message: format!("Element '{}' not found: {}", selector, e),
+                    })?
+            } else {
+                response
+                    .wait_for_element("body")
+                    .map_err(|e| HeadlessChromeError::GetContent(e.to_string()))?
+            };
 
             let headers = vec![];
             let data = response
@@ -120,10 +136,26 @@ impl HttpExecutor for HeadlessChromeExecutor {
             Some(host) => {
                 tracing::info!("navigating to site url to prepare for fetch");
                 let site_url = format!("{}://{}", parsed_url.scheme(), host);
-                tab.navigate_to(&site_url)
-                    .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?
-                    .wait_for_element("body")
-                    .map_err(|e| HeadlessChromeError::GetContent(e.to_string()))?;
+                let response = tab
+                    .navigate_to(&site_url)
+                    .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?;
+
+                // Handle element waiting for non-GET requests too
+                if let Some(selector) = &request.wait_for_element {
+                    tracing::info!("waiting for element: {}", selector);
+                    response
+                        .wait_for_element(selector)
+                        .map_err(|e| http::ResponseError {
+                            kind: http::ResponseErrorKind::ElementWaitTimeout,
+                            status: None,
+                            response: None,
+                            message: format!("Element '{}' not found: {}", selector, e),
+                        })?;
+                } else {
+                    response
+                        .wait_for_element("body")
+                        .map_err(|e| HeadlessChromeError::GetContent(e.to_string()))?;
+                }
             }
             None => {
                 return Err(

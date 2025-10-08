@@ -69,7 +69,7 @@ impl DevServer {
                 "build",
                 "--release",
                 "--target",
-                "wasm32-wasi",
+                "wasm32-unknown-unknown",
                 "--manifest-path",
                 &format!("{}/Cargo.toml", self.extension_path.display()),
             ])
@@ -94,7 +94,7 @@ impl DevServer {
     pub async fn load_extension(&mut self) -> Result<()> {
         let wasm_path = self
             .extension_path
-            .join("target/wasm32-wasi/release")
+            .join("target/wasm32-unknown-unknown/release")
             .join(format!("extension_{}.wasm", self.extension_name));
 
         if !wasm_path.exists() {

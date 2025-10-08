@@ -15,6 +15,10 @@ interface http {
         params: option<list<tuple<string, string>>>,
         data: option<request-body>,
         headers: option<list<tuple<string, string>>>,
+        /// Wait for this CSS selector to be present before proceeding (Chrome only)
+        wait-for-element: option<string>,
+        /// Timeout in milliseconds for element waiting (default: 30000)
+        wait-timeout-ms: option<u32>,
     }
 
     variant request-body {
@@ -52,6 +56,7 @@ interface http {
         receive-timeout,
         request-cancelled,
         send-timeout,
+        element-wait-timeout,
     }
 
     resource client {

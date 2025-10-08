@@ -598,6 +598,94 @@ quelle publish requirements [OPTIONS]
 **Options:**
 - `--store <NAME>` - Show requirements for specific store
 
+## Development Tools
+
+Development commands are provided through the `just` task runner. Install `just` if you don't have it:
+
+```bash
+cargo install just
+```
+
+### `just generate`
+
+Generate a new extension template interactively.
+
+```bash
+just generate
+```
+
+### `just dev <EXTENSION>`
+
+Start development server for testing extensions with hot reload.
+
+```bash
+just dev <EXTENSION>
+```
+
+**Arguments:**
+- `<EXTENSION>` - Extension name to test
+
+**Examples:**
+```bash
+# Start dev server with Chrome (recommended for dynamic sites)
+just dev myextension
+
+# The server uses Chrome headless by default for enhanced scraping
+# To test with Reqwest fallback, modify the justfile or use CLI directly:
+cargo run -p quelle_cli -- dev server myextension --chrome false
+```
+
+### `just test <EXTENSION> [OPTIONS]`
+
+Test specific extension functions.
+
+```bash
+just test <EXTENSION> [OPTIONS]
+```
+
+**Arguments:**
+- `<EXTENSION>` - Extension name to test
+- `[OPTIONS]` - Additional test options
+
+**Examples:**
+```bash
+# Test novel info extraction
+just test myextension --url "https://mysite.com/novel/123"
+
+# Test search
+just test myextension --query "fantasy adventure"
+
+# Test with Reqwest executor (use CLI directly)
+cargo run -p quelle_cli -- dev test myextension --url "https://mysite.com/novel/123" --chrome false
+```
+
+### `just validate <EXTENSION>`
+
+Validate extension code and structure.
+
+```bash
+just validate <EXTENSION>
+```
+
+**Arguments:**
+- `<EXTENSION>` - Extension name to validate
+
+### `just build <EXTENSION>`
+
+Build an extension to WebAssembly.
+
+```bash
+just build <EXTENSION>
+```
+
+### `just publish <EXTENSION>`
+
+Build and publish an extension to the local store.
+
+```bash
+just publish <EXTENSION>
+```
+
 ## Exit Codes
 
 - `0` - Success

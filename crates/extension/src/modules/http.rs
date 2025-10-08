@@ -10,6 +10,8 @@ impl Request {
             params: None,
             data: None,
             headers: None,
+            wait_for_element: None,
+            wait_timeout_ms: None,
         }
     }
 
@@ -55,6 +57,18 @@ impl Request {
 
     pub fn headers(mut self, headers: Vec<(String, String)>) -> Self {
         self.headers = Some(headers);
+        self
+    }
+
+    /// Wait for the specified CSS selector to be present before proceeding (Chrome only)
+    pub fn wait_for_element(mut self, selector: impl Into<String>) -> Self {
+        self.wait_for_element = Some(selector.into());
+        self
+    }
+
+    /// Set timeout in milliseconds for element waiting (Chrome only)
+    pub fn wait_timeout(mut self, timeout_ms: u32) -> Self {
+        self.wait_timeout_ms = Some(timeout_ms);
         self
     }
 

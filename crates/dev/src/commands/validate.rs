@@ -154,7 +154,7 @@ async fn validate_build(_extension_name: &str, extension_path: &Path) -> Result<
         .args(&[
             "build",
             "--target",
-            "wasm32-wasi",
+            "wasm32-unknown-unknown",
             "--manifest-path",
             &format!("{}/Cargo.toml", extension_path.display()),
         ])
