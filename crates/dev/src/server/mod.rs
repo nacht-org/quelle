@@ -66,12 +66,13 @@ impl DevServer {
 
         let output = tokio::process::Command::new("cargo")
             .args(&[
+                "component",
                 "build",
                 "--release",
                 "--target",
                 "wasm32-unknown-unknown",
-                "--manifest-path",
-                &format!("{}/Cargo.toml", self.extension_path.display()),
+                "-p",
+                &format!("extension_{}", self.extension_name()),
             ])
             .output()
             .await?;
