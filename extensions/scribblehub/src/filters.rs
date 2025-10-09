@@ -1,52 +1,140 @@
 use quelle_extension::filters::{FilterBuilder, SortOptionBuilder};
 use quelle_extension::prelude::*;
+use std::fmt;
+use std::str::FromStr;
+
+/// Strongly typed filter IDs for compile-time safety.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterId {
+    TitleContains,
+    Fandom,
+    Chapters,
+    ReleasesPerweek,
+    Favorites,
+    Ratings,
+    NumRatings,
+    Readers,
+    Reviews,
+    Pages,
+    Pageviews,
+    TotalWords,
+    LastUpdate,
+    StoryStatus,
+    Genres,
+    Tags,
+    ContentWarnings,
+    GenreMode,
+}
+
+impl FilterId {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FilterId::TitleContains => "title_contains",
+            FilterId::Fandom => "fandom",
+            FilterId::Chapters => "chapters",
+            FilterId::ReleasesPerweek => "releases_perweek",
+            FilterId::Favorites => "favorites",
+            FilterId::Ratings => "ratings",
+            FilterId::NumRatings => "num_ratings",
+            FilterId::Readers => "readers",
+            FilterId::Reviews => "reviews",
+            FilterId::Pages => "pages",
+            FilterId::Pageviews => "pageviews",
+            FilterId::TotalWords => "total_words",
+            FilterId::LastUpdate => "last_update",
+            FilterId::StoryStatus => "story_status",
+            FilterId::Genres => "genres",
+            FilterId::Tags => "tags",
+            FilterId::ContentWarnings => "content_warnings",
+            FilterId::GenreMode => "genre_mode",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "title_contains" => Some(FilterId::TitleContains),
+            "fandom" => Some(FilterId::Fandom),
+            "chapters" => Some(FilterId::Chapters),
+            "releases_perweek" => Some(FilterId::ReleasesPerweek),
+            "favorites" => Some(FilterId::Favorites),
+            "ratings" => Some(FilterId::Ratings),
+            "num_ratings" => Some(FilterId::NumRatings),
+            "readers" => Some(FilterId::Readers),
+            "reviews" => Some(FilterId::Reviews),
+            "pages" => Some(FilterId::Pages),
+            "pageviews" => Some(FilterId::Pageviews),
+            "total_words" => Some(FilterId::TotalWords),
+            "last_update" => Some(FilterId::LastUpdate),
+            "story_status" => Some(FilterId::StoryStatus),
+            "genres" => Some(FilterId::Genres),
+            "tags" => Some(FilterId::Tags),
+            "content_warnings" => Some(FilterId::ContentWarnings),
+            "genre_mode" => Some(FilterId::GenreMode),
+            _ => None,
+        }
+    }
+}
+
+impl Into<String> for FilterId {
+    fn into(self) -> String {
+        self.as_str().to_string()
+    }
+}
+
+impl FromStr for FilterId {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str(s).ok_or(())
+    }
+}
 
 pub fn create_filter_definitions() -> Vec<FilterDefinition> {
     let mut filters = vec![
         // Text filters
-        FilterBuilder::new("title_contains", "Title Contains")
+        FilterBuilder::new(FilterId::TitleContains, "Title Contains")
             .description("Search for series with titles containing this text")
             .text_with_options(Some("Title contains..."), Some(255)),
-        FilterBuilder::new("fandom", "Fandom")
+        FilterBuilder::new(FilterId::Fandom, "Fandom")
             .description("Search within a specific fandom")
             .text_with_options(Some("Fandom name..."), Some(255)),
         // Numeric range filters
-        FilterBuilder::new("chapters", "Chapters")
+        FilterBuilder::new(FilterId::Chapters, "Chapters")
             .description("Filter by number of chapters")
             .number_range(0.0, 10000.0, Some(1.0), Some("chapters")),
-        FilterBuilder::new("releases_perweek", "Chapters per Week")
+        FilterBuilder::new(FilterId::ReleasesPerweek, "Chapters per Week")
             .description("Filter by release frequency")
             .number_range(0.0, 50.0, Some(0.1), Some("per week")),
-        FilterBuilder::new("favorites", "Favorites")
+        FilterBuilder::new(FilterId::Favorites, "Favorites")
             .description("Filter by number of favorites")
             .number_range(0.0, 100000.0, Some(1.0), Some("favorites")),
-        FilterBuilder::new("ratings", "Ratings")
+        FilterBuilder::new(FilterId::Ratings, "Ratings")
             .description("Filter by rating score")
             .number_range(0.0, 5.0, Some(0.1), Some("stars")),
-        FilterBuilder::new("num_ratings", "Number of Ratings")
+        FilterBuilder::new(FilterId::NumRatings, "Number of Ratings")
             .description("Filter by number of ratings")
             .number_range(0.0, 100000.0, Some(1.0), Some("ratings")),
-        FilterBuilder::new("readers", "Readers")
+        FilterBuilder::new(FilterId::Readers, "Readers")
             .description("Filter by number of readers")
             .number_range(0.0, 1000000.0, Some(1.0), Some("readers")),
-        FilterBuilder::new("reviews", "Reviews")
+        FilterBuilder::new(FilterId::Reviews, "Reviews")
             .description("Filter by number of reviews")
             .number_range(0.0, 10000.0, Some(1.0), Some("reviews")),
-        FilterBuilder::new("pages", "Pages")
+        FilterBuilder::new(FilterId::Pages, "Pages")
             .description("Filter by number of pages")
             .number_range(0.0, 50000.0, Some(1.0), Some("pages")),
-        FilterBuilder::new("pageviews", "Pageviews (k)")
+        FilterBuilder::new(FilterId::Pageviews, "Pageviews (k)")
             .description("Filter by pageviews in thousands")
             .number_range(0.0, 10000.0, Some(1.0), Some("k views")),
-        FilterBuilder::new("total_words", "Total Words (k)")
+        FilterBuilder::new(FilterId::TotalWords, "Total Words (k)")
             .description("Filter by total word count")
             .number_range(0.0, 10000.0, Some(1000.0), Some("k words")),
         // Date range filter
-        FilterBuilder::new("last_update", "Last Update")
+        FilterBuilder::new(FilterId::LastUpdate, "Last Update")
             .description("Filter by when the novel was last updated")
             .date_range("YYYY-MM-DD", None::<String>, None::<String>),
         // Status filter
-        FilterBuilder::new("story_status", "Story Status")
+        FilterBuilder::new(FilterId::StoryStatus, "Story Status")
             .description("Filter by novel completion status")
             .select(vec![
                 FilterOption::new("all", "All"),
@@ -55,12 +143,19 @@ pub fn create_filter_definitions() -> Vec<FilterDefinition> {
                 FilterOption::new("hiatus", "Hiatus"),
                 FilterOption::new("dropped", "Dropped"),
             ]),
+        // Genre mode filter (for AND/OR logic)
+        FilterBuilder::new(FilterId::GenreMode, "Genre Mode")
+            .description("How to combine genre filters")
+            .select(vec![
+                FilterOption::new("and", "AND (must have all selected)"),
+                FilterOption::new("or", "OR (must have any selected)"),
+            ]),
     ];
 
     // Add tristate genre filters
     let genres = create_genre_options();
     filters.push(
-        FilterBuilder::new("genres", "Genres")
+        FilterBuilder::new(FilterId::Genres, "Genres")
             .description("Genre preferences (include/exclude/ignore)")
             .tri_state(genres),
     );
@@ -68,7 +163,7 @@ pub fn create_filter_definitions() -> Vec<FilterDefinition> {
     // Add tristate tag filters
     let tags = create_tag_options();
     filters.push(
-        FilterBuilder::new("tags", "Tags")
+        FilterBuilder::new(FilterId::Tags, "Tags")
             .description("Tag preferences (include/exclude/ignore)")
             .tri_state(tags),
     );
@@ -82,7 +177,7 @@ pub fn create_filter_definitions() -> Vec<FilterDefinition> {
         FilterOption::new("disturbing_content", "Disturbing Content"),
     ];
     filters.push(
-        FilterBuilder::new("content_warnings", "Content Warnings")
+        FilterBuilder::new(FilterId::ContentWarnings, "Content Warnings")
             .description("Content warning preferences (include/exclude/ignore)")
             .tri_state(warnings),
     );

@@ -5,6 +5,7 @@ use quelle_extension::source::SortOrder;
 use quelle_extension::{common::time::parse_date_or_relative_time, prelude::*};
 
 mod filters;
+use filters::FilterId;
 
 register_extension!(Extension);
 
@@ -169,13 +170,13 @@ impl QuelleExtension for Extension {
 
         // Process filters
         for filter in &query.filters {
-            match filter.filter_id.as_str() {
-                "title_contains" => {
+            match FilterId::from_str(&filter.filter_id) {
+                Some(FilterId::TitleContains) => {
                     if let FilterValue::Text(value) = &filter.value {
                         form_builder = form_builder.param("seriescontains", value.as_str());
                     }
                 }
-                "chapters" => {
+                Some(FilterId::Chapters) => {
                     if let FilterValue::NumberRange(range) = &filter.value {
                         if let Some(min) = range.min {
                             form_builder = form_builder.param("min_chapters", min.to_string());
@@ -185,7 +186,7 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "releases_perweek" => {
+                Some(FilterId::ReleasesPerweek) => {
                     if let FilterValue::NumberRange(range) = &filter.value {
                         if let Some(min) = range.min {
                             form_builder =
@@ -197,7 +198,7 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "favorites" => {
+                Some(FilterId::Favorites) => {
                     if let FilterValue::NumberRange(range) = &filter.value {
                         if let Some(min) = range.min {
                             form_builder = form_builder.param("min_favorites", min.to_string());
@@ -207,7 +208,7 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "ratings" => {
+                Some(FilterId::Ratings) => {
                     if let FilterValue::NumberRange(range) = &filter.value {
                         if let Some(min) = range.min {
                             form_builder = form_builder.param("min_ratings", min.to_string());
@@ -217,7 +218,7 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "num_ratings" => {
+                Some(FilterId::NumRatings) => {
                     if let FilterValue::NumberRange(range) = &filter.value {
                         if let Some(min) = range.min {
                             form_builder = form_builder.param("min_num_ratings", min.to_string());
@@ -227,7 +228,7 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "readers" => {
+                Some(FilterId::Readers) => {
                     if let FilterValue::NumberRange(range) = &filter.value {
                         if let Some(min) = range.min {
                             form_builder = form_builder.param("min_readers", min.to_string());
@@ -237,7 +238,7 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "reviews" => {
+                Some(FilterId::Reviews) => {
                     if let FilterValue::NumberRange(range) = &filter.value {
                         if let Some(min) = range.min {
                             form_builder = form_builder.param("min_reviews", min.to_string());
@@ -247,7 +248,7 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "pages" => {
+                Some(FilterId::Pages) => {
                     if let FilterValue::NumberRange(range) = &filter.value {
                         if let Some(min) = range.min {
                             form_builder = form_builder.param("min_pages", min.to_string());
@@ -257,7 +258,7 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "pageviews" => {
+                Some(FilterId::Pageviews) => {
                     if let FilterValue::NumberRange(range) = &filter.value {
                         if let Some(min) = range.min {
                             form_builder = form_builder.param("min_pageviews", min.to_string());
@@ -267,7 +268,7 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "totalwords" => {
+                Some(FilterId::TotalWords) => {
                     if let FilterValue::NumberRange(range) = &filter.value {
                         if let Some(min) = range.min {
                             form_builder = form_builder.param("min_totalwords", min.to_string());
@@ -277,12 +278,12 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "genre_mode" => {
+                Some(FilterId::GenreMode) => {
                     if let FilterValue::Select(value) = &filter.value {
                         form_builder = form_builder.param("gi_mm", value.as_str());
                     }
                 }
-                "genres" => {
+                Some(FilterId::Genres) => {
                     if let FilterValue::TriState(tristate_values) = &filter.value {
                         for (option_id, state) in tristate_values {
                             match state {
@@ -301,7 +302,7 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "tags" => {
+                Some(FilterId::Tags) => {
                     if let FilterValue::TriState(tristate_values) = &filter.value {
                         for (option_id, state) in tristate_values {
                             match state {
@@ -320,7 +321,7 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "content_warnings" => {
+                Some(FilterId::ContentWarnings) => {
                     if let FilterValue::TriState(tristate_values) = &filter.value {
                         for (option_id, state) in tristate_values {
                             match state {
@@ -339,17 +340,17 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                "story_status" => {
+                Some(FilterId::StoryStatus) => {
                     if let FilterValue::Select(value) = &filter.value {
                         form_builder = form_builder.param("storystatus", value.as_str());
                     }
                 }
-                "fandom" => {
+                Some(FilterId::Fandom) => {
                     if let FilterValue::Text(value) = &filter.value {
                         form_builder = form_builder.param("fandomsearch", value.as_str());
                     }
                 }
-                "last_update" => {
+                Some(FilterId::LastUpdate) => {
                     if let FilterValue::DateRange(range) = &filter.value {
                         if let Some(start) = &range.start {
                             form_builder = form_builder.param("dp_release_min", start.as_str());
@@ -359,7 +360,10 @@ impl QuelleExtension for Extension {
                         }
                     }
                 }
-                _ => {}
+                None => {
+                    // Unknown filter ID - log a warning or handle gracefully
+                    tracing::warn!("Unknown filter ID: {}", filter.filter_id);
+                }
             }
         }
 
