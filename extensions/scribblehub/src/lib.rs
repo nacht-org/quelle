@@ -1,6 +1,6 @@
 use eyre::{OptionExt, eyre};
 use once_cell::sync::Lazy;
-use quelle_extension::novel::{ComplexSearchQuery, FilterValue};
+use quelle_extension::novel::{ComplexSearchQuery, FilterValue, TriState};
 use quelle_extension::source::SortOrder;
 use quelle_extension::{common::time::parse_date_or_relative_time, prelude::*};
 
@@ -282,57 +282,60 @@ impl QuelleExtension for Extension {
                         form_builder = form_builder.param("gi_mm", value.as_str());
                     }
                 }
-                "genres_include" => {
-                    if let FilterValue::MultiSelect(values) = &filter.value {
-                        for value in values {
-                            form_builder = form_builder.param("genreselected[]", value.as_str());
+                "genres" => {
+                    if let FilterValue::TriState(tristate_values) = &filter.value {
+                        for (option_id, state) in tristate_values {
+                            match state {
+                                TriState::MustInclude => {
+                                    form_builder =
+                                        form_builder.param("genreselected[]", option_id.as_str());
+                                }
+                                TriState::MustExclude => {
+                                    form_builder =
+                                        form_builder.param("genreexcluded[]", option_id.as_str());
+                                }
+                                TriState::DontCare => {
+                                    // Don't add to form - ignore this option
+                                }
+                            }
                         }
                     }
                 }
-                "genres_exclude" => {
-                    if let FilterValue::MultiSelect(values) = &filter.value {
-                        for value in values {
-                            form_builder = form_builder.param("genreexcluded[]", value.as_str());
+                "tags" => {
+                    if let FilterValue::TriState(tristate_values) = &filter.value {
+                        for (option_id, state) in tristate_values {
+                            match state {
+                                TriState::MustInclude => {
+                                    form_builder = form_builder
+                                        .param("tagsalledit_include[]", option_id.as_str());
+                                }
+                                TriState::MustExclude => {
+                                    form_builder = form_builder
+                                        .param("tagsalledit_exclude[]", option_id.as_str());
+                                }
+                                TriState::DontCare => {
+                                    // Don't add to form - ignore this option
+                                }
+                            }
                         }
                     }
                 }
-                "tags_mode" => {
-                    if let FilterValue::Select(value) = &filter.value {
-                        form_builder = form_builder.param("tgi_mm", value.as_str());
-                    }
-                }
-                "tags_include" => {
-                    if let FilterValue::MultiSelect(values) = &filter.value {
-                        for value in values {
-                            form_builder =
-                                form_builder.param("tagsalledit_include[]", value.as_str());
-                        }
-                    }
-                }
-                "tags_exclude" => {
-                    if let FilterValue::MultiSelect(values) = &filter.value {
-                        for value in values {
-                            form_builder =
-                                form_builder.param("tagsalledit_exclude[]", value.as_str());
-                        }
-                    }
-                }
-                "content_warning_mode" => {
-                    if let FilterValue::Select(value) = &filter.value {
-                        form_builder = form_builder.param("ctgi_mm", value.as_str());
-                    }
-                }
-                "content_warnings_include" => {
-                    if let FilterValue::MultiSelect(values) = &filter.value {
-                        for value in values {
-                            form_builder = form_builder.param("ctselected[]", value.as_str());
-                        }
-                    }
-                }
-                "content_warnings_exclude" => {
-                    if let FilterValue::MultiSelect(values) = &filter.value {
-                        for value in values {
-                            form_builder = form_builder.param("ctexcluded[]", value.as_str());
+                "content_warnings" => {
+                    if let FilterValue::TriState(tristate_values) = &filter.value {
+                        for (option_id, state) in tristate_values {
+                            match state {
+                                TriState::MustInclude => {
+                                    form_builder =
+                                        form_builder.param("ctselected[]", option_id.as_str());
+                                }
+                                TriState::MustExclude => {
+                                    form_builder =
+                                        form_builder.param("ctexcluded[]", option_id.as_str());
+                                }
+                                TriState::DontCare => {
+                                    // Don't add to form - ignore this option
+                                }
+                            }
                         }
                     }
                 }

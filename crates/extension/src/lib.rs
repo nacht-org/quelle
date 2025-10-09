@@ -7,6 +7,7 @@ mod modules;
 mod register;
 
 pub mod common;
+pub mod filters;
 pub mod prelude;
 
 use crate::register::extension;
