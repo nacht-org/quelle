@@ -1,6 +1,5 @@
 use quelle_extension::filters::{FilterBuilder, SortOptionBuilder};
 use quelle_extension::prelude::*;
-use std::fmt;
 use std::str::FromStr;
 
 /// Strongly typed filter IDs for compile-time safety.

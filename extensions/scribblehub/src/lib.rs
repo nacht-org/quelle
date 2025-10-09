@@ -4,7 +4,8 @@ use quelle_extension::novel::{ComplexSearchQuery, FilterValue, TriState};
 use quelle_extension::source::SortOrder;
 use quelle_extension::{common::time::parse_date_or_relative_time, prelude::*};
 
-mod filters;
+pub mod filters;
+
 use filters::FilterId;
 
 register_extension!(Extension);
@@ -163,13 +164,21 @@ impl QuelleExtension for Extension {
     fn complex_search(&self, query: ComplexSearchQuery) -> Result<SearchResult, eyre::Report> {
         let current_page = query.page.unwrap_or(1);
 
+        // Get filter definitions and sort options
+        let filter_definitions = filters::create_filter_definitions();
+        let sort_options = filters::create_sort_options();
+
+        // Validate the entire search query (filters, pagination, sorting)
+        // This returns validated data back or an error
+        let validated_query = validate_search_query(&filter_definitions, &sort_options, &query)?;
+
         let mut request =
             Request::post("https://www.scribblehub.com/series-finder/").param("sf", "1");
 
         let mut form_builder = RequestFormBuilder::new();
 
-        // Process filters
-        for filter in &query.filters {
+        // Process validated filters (guaranteed to be valid at this point)
+        for filter in &validated_query.filters {
             match FilterId::from_str(&filter.filter_id) {
                 Some(FilterId::TitleContains) => {
                     if let FilterValue::Text(value) = &filter.value {

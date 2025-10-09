@@ -11,4 +11,8 @@ pub use crate::source::{
     FilterDefinition, FilterOption, FilterType, ReadingDirection, SearchCapabilities, SortOption,
     SortOrder, SourceCapabilities, SourceMeta, TriStateFilter,
 };
+pub use crate::validation::{
+    FilterValidator, ValidationError, validate_filters, validate_filters_with_business_rules,
+    validate_search_query,
+};
 pub use crate::{QuelleExtension, RequestFormBuilder};
