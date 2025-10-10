@@ -460,7 +460,7 @@ where
     Ok(applied_filters.to_vec())
 }
 
-/// Validated search parameters that can be easily mapped to different output formats
+/// Validated search parameters with fluent form mapping capabilities
 #[derive(Debug, Clone)]
 pub struct ValidatedSearchParams {
     pub filters: Vec<crate::novel::AppliedFilter>,
@@ -471,18 +471,18 @@ pub struct ValidatedSearchParams {
 }
 
 impl ValidatedSearchParams {
-    /// Start building a form with mapping capabilities
+    /// Start building a form
     pub fn into_form(self) -> FormBuilder {
         FormBuilder::new(self)
     }
 
-    /// Get filters by ID for easy access
+    /// Get filter by ID
     pub fn get_filter_by_id(&self, filter_id: &str) -> Option<&crate::novel::AppliedFilter> {
         self.filters.iter().find(|f| f.filter_id == filter_id)
     }
 }
 
-/// Builder for mapping validated search params to form data
+/// Form builder for mapping validated search params
 pub struct FormBuilder {
     params: ValidatedSearchParams,
     mappings: std::collections::HashMap<String, String>,
@@ -498,25 +498,119 @@ impl FormBuilder {
         }
     }
 
-    /// Map a filter ID to a form field name
+    /// Map a filter to a form field
     pub fn with_mapping<T: AsRef<str>>(mut self, filter_id: T, form_field: &str) -> Self {
-        let filter_id_str = filter_id.as_ref().to_string();
+        let filter_id_str = filter_id.as_ref();
         self.mappings
-            .insert(filter_id_str.clone(), form_field.to_string());
+            .insert(filter_id_str.to_string(), form_field.to_string());
 
-        // Process the filter if it exists
+        // Process the filter if it exists - automatically handle all types
         let filter_data = self
             .params
-            .get_filter_by_id(&filter_id_str)
-            .map(|f| (f.filter_id.clone(), f.value.clone()));
-        if let Some((_, filter_value)) = filter_data {
+            .get_filter_by_id(filter_id_str)
+            .map(|f| f.value.clone());
+
+        if let Some(filter_value) = filter_data {
             self.process_filter_value(&filter_value, form_field);
         }
 
         self
     }
 
-    /// Add pagination mapping
+    /// Map a number range filter with custom min/max field names
+    pub fn with_mapping_range<T: AsRef<str>>(
+        mut self,
+        filter_id: T,
+        min_field: &str,
+        max_field: &str,
+    ) -> Self {
+        let filter_data = self
+            .params
+            .get_filter_by_id(filter_id.as_ref())
+            .map(|f| f.value.clone());
+        if let Some(crate::novel::FilterValue::NumberRange(range)) = filter_data {
+            if let Some(min) = range.min {
+                self.form_data
+                    .entry(min_field.to_string())
+                    .or_default()
+                    .push(min.to_string());
+            }
+            if let Some(max) = range.max {
+                self.form_data
+                    .entry(max_field.to_string())
+                    .or_default()
+                    .push(max.to_string());
+            }
+        }
+        self
+    }
+
+    /// Map a date range filter with custom field names
+    pub fn with_mapping_date_range<T: AsRef<str>>(
+        mut self,
+        filter_id: T,
+        start_field: &str,
+        end_field: &str,
+    ) -> Self {
+        let filter_data = self
+            .params
+            .get_filter_by_id(filter_id.as_ref())
+            .map(|f| f.value.clone());
+        if let Some(crate::novel::FilterValue::DateRange(range)) = filter_data {
+            if let Some(start) = &range.start {
+                self.form_data
+                    .entry(start_field.to_string())
+                    .or_default()
+                    .push(start.clone());
+            }
+            if let Some(end) = &range.end {
+                self.form_data
+                    .entry(end_field.to_string())
+                    .or_default()
+                    .push(end.clone());
+            }
+        }
+        self
+    }
+
+    /// Map a tristate filter with custom include/exclude field names
+    pub fn with_mapping_tristate<T: AsRef<str>>(
+        mut self,
+        filter_id: T,
+        include_field: &str,
+        exclude_field: &str,
+    ) -> Self {
+        let filter_data = self
+            .params
+            .get_filter_by_id(filter_id.as_ref())
+            .map(|f| f.value.clone());
+
+        if let Some(crate::novel::FilterValue::TriState(tristate_values)) = filter_data {
+            use crate::novel::TriState;
+            for (option_id, state) in tristate_values {
+                match state {
+                    TriState::MustInclude => {
+                        let field_name = format!("{}[]", include_field);
+                        self.form_data
+                            .entry(field_name)
+                            .or_default()
+                            .push(option_id.clone());
+                    }
+                    TriState::MustExclude => {
+                        let field_name = format!("{}[]", exclude_field);
+                        self.form_data
+                            .entry(field_name)
+                            .or_default()
+                            .push(option_id.clone());
+                    }
+                    TriState::DontCare => {}
+                }
+            }
+        }
+        self
+    }
+
+    /// Add pagination field
     pub fn with_pagination(mut self, page_field: &str) -> Self {
         if let Some(page) = self.params.page {
             self.form_data
@@ -527,7 +621,7 @@ impl FormBuilder {
         self
     }
 
-    /// Add sorting mapping
+    /// Add sorting fields
     pub fn with_sort(mut self, sort_field: &str, order_field: &str) -> Self {
         if let Some(sort_by) = &self.params.sort_by {
             self.form_data
@@ -550,7 +644,7 @@ impl FormBuilder {
         self
     }
 
-    /// Add a default sort if no sort was specified
+    /// Add default sort value
     pub fn with_default_sort(mut self, sort_field: &str, default_sort: &str) -> Self {
         if self.params.sort_by.is_none() {
             self.form_data
@@ -561,7 +655,7 @@ impl FormBuilder {
         self
     }
 
-    /// Add a custom form field
+    /// Add custom form field
     pub fn with_custom_field(mut self, field_name: &str, value: &str) -> Self {
         self.form_data
             .entry(field_name.to_string())
@@ -570,103 +664,7 @@ impl FormBuilder {
         self
     }
 
-    /// Map a filter with custom tristate field names (for include/exclude patterns)
-    pub fn with_custom_tristate_mapping<T: AsRef<str>>(
-        mut self,
-        filter_id: T,
-        include_field: &str,
-        exclude_field: &str,
-    ) -> Self {
-        let filter_data = self
-            .params
-            .get_filter_by_id(filter_id.as_ref())
-            .map(|f| f.value.clone());
-        if let Some(crate::novel::FilterValue::TriState(tristate_values)) = filter_data {
-            use crate::novel::TriState;
-            for (option_id, state) in tristate_values {
-                match state {
-                    TriState::MustInclude => {
-                        let field_name = format!("{}[]", include_field);
-                        self.form_data
-                            .entry(field_name)
-                            .or_default()
-                            .push(option_id.clone());
-                    }
-                    TriState::MustExclude => {
-                        let field_name = format!("{}[]", exclude_field);
-                        self.form_data
-                            .entry(field_name)
-                            .or_default()
-                            .push(option_id.clone());
-                    }
-                    TriState::DontCare => {
-                        // Skip
-                    }
-                }
-            }
-        }
-        self
-    }
-
-    /// Map a filter with custom range field names (for min/max patterns)
-    pub fn with_custom_range_mapping<T: AsRef<str>>(
-        mut self,
-        filter_id: T,
-        base_field: &str,
-    ) -> Self {
-        let filter_data = self
-            .params
-            .get_filter_by_id(filter_id.as_ref())
-            .map(|f| f.value.clone());
-        if let Some(crate::novel::FilterValue::NumberRange(range)) = filter_data {
-            if let Some(min) = range.min {
-                let min_field = format!("min_{}", base_field);
-                self.form_data
-                    .entry(min_field)
-                    .or_default()
-                    .push(min.to_string());
-            }
-            if let Some(max) = range.max {
-                let max_field = format!("max_{}", base_field);
-                self.form_data
-                    .entry(max_field)
-                    .or_default()
-                    .push(max.to_string());
-            }
-        }
-        self
-    }
-
-    /// Map a filter with custom date range field names
-    pub fn with_custom_date_range_mapping<T: AsRef<str>>(
-        mut self,
-        filter_id: T,
-        base_field: &str,
-    ) -> Self {
-        let filter_data = self
-            .params
-            .get_filter_by_id(filter_id.as_ref())
-            .map(|f| f.value.clone());
-        if let Some(crate::novel::FilterValue::DateRange(range)) = filter_data {
-            if let Some(start) = &range.start {
-                let start_field = format!("{}_min", base_field);
-                self.form_data
-                    .entry(start_field)
-                    .or_default()
-                    .push(start.clone());
-            }
-            if let Some(end) = &range.end {
-                let end_field = format!("{}_max", base_field);
-                self.form_data
-                    .entry(end_field)
-                    .or_default()
-                    .push(end.clone());
-            }
-        }
-        self
-    }
-
-    /// Build into RequestFormBuilder
+    /// Build RequestFormBuilder
     pub fn build(self) -> crate::RequestFormBuilder {
         let mut form_builder = crate::RequestFormBuilder::new();
 
@@ -688,6 +686,26 @@ impl FormBuilder {
                     .entry(form_field.to_string())
                     .or_default()
                     .push(text.clone());
+            }
+            FilterValue::Select(value) => {
+                self.form_data
+                    .entry(form_field.to_string())
+                    .or_default()
+                    .push(value.clone());
+            }
+            FilterValue::MultiSelect(values) => {
+                for value in values {
+                    self.form_data
+                        .entry(form_field.to_string())
+                        .or_default()
+                        .push(value.clone());
+                }
+            }
+            FilterValue::Boolean(val) => {
+                self.form_data
+                    .entry(form_field.to_string())
+                    .or_default()
+                    .push(val.to_string());
             }
             FilterValue::NumberRange(range) => {
                 if let Some(min) = range.min {
@@ -721,48 +739,26 @@ impl FormBuilder {
                         .push(end.clone());
                 }
             }
-            FilterValue::Select(value) => {
-                self.form_data
-                    .entry(form_field.to_string())
-                    .or_default()
-                    .push(value.clone());
-            }
-            FilterValue::MultiSelect(values) => {
-                for value in values {
-                    self.form_data
-                        .entry(form_field.to_string())
-                        .or_default()
-                        .push(value.clone());
-                }
-            }
             FilterValue::TriState(tristate_values) => {
                 for (option_id, state) in tristate_values {
                     match state {
                         TriState::MustInclude => {
-                            let include_field = format!("{}[]", form_field);
+                            let field_name = format!("{}[]", form_field);
                             self.form_data
-                                .entry(include_field)
+                                .entry(field_name)
                                 .or_default()
                                 .push(option_id.clone());
                         }
                         TriState::MustExclude => {
-                            let exclude_field = format!("{}_excluded[]", form_field);
+                            let field_name = format!("{}_excluded[]", form_field);
                             self.form_data
-                                .entry(exclude_field)
+                                .entry(field_name)
                                 .or_default()
                                 .push(option_id.clone());
                         }
-                        TriState::DontCare => {
-                            // Skip
-                        }
+                        TriState::DontCare => {}
                     }
                 }
-            }
-            FilterValue::Boolean(val) => {
-                self.form_data
-                    .entry(form_field.to_string())
-                    .or_default()
-                    .push(val.to_string());
             }
         }
     }

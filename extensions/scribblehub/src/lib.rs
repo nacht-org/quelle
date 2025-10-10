@@ -174,31 +174,30 @@ impl QuelleExtension for Extension {
         let mut request =
             Request::post("https://www.scribblehub.com/series-finder/").param("sf", "1");
 
-        // Use the new builder pattern to map filters to form fields
         let form_builder = validated_query
             .into_form()
             .with_mapping(FilterId::TitleContains, "seriescontains")
             .with_mapping(FilterId::Fandom, "fandomsearch")
             .with_mapping(FilterId::StoryStatus, "storystatus")
             .with_mapping(FilterId::GenreMode, "gi_mm")
-            .with_custom_tristate_mapping(FilterId::Genres, "genreselected", "genreexcluded")
-            .with_custom_tristate_mapping(
-                FilterId::Tags,
-                "tagsalledit_include",
-                "tagsalledit_exclude",
+            .with_mapping_range(FilterId::Chapters, "min_chapters", "max_chapters")
+            .with_mapping_range(
+                FilterId::ReleasesPerweek,
+                "min_releases_perweek",
+                "max_releases_perweek",
             )
-            .with_custom_tristate_mapping(FilterId::ContentWarnings, "ctselected", "ctexcluded")
-            .with_custom_range_mapping(FilterId::Chapters, "chapters")
-            .with_custom_range_mapping(FilterId::ReleasesPerweek, "releases_perweek")
-            .with_custom_range_mapping(FilterId::Favorites, "favorites")
-            .with_custom_range_mapping(FilterId::Ratings, "ratings")
-            .with_custom_range_mapping(FilterId::NumRatings, "num_ratings")
-            .with_custom_range_mapping(FilterId::Readers, "readers")
-            .with_custom_range_mapping(FilterId::Reviews, "reviews")
-            .with_custom_range_mapping(FilterId::Pages, "pages")
-            .with_custom_range_mapping(FilterId::Pageviews, "pageviews")
-            .with_custom_range_mapping(FilterId::TotalWords, "totalwords")
-            .with_custom_date_range_mapping(FilterId::LastUpdate, "dp_release")
+            .with_mapping_range(FilterId::Favorites, "min_favorites", "max_favorites")
+            .with_mapping_range(FilterId::Ratings, "min_ratings", "max_ratings")
+            .with_mapping_range(FilterId::NumRatings, "min_num_ratings", "max_num_ratings")
+            .with_mapping_range(FilterId::Readers, "min_readers", "max_readers")
+            .with_mapping_range(FilterId::Reviews, "min_reviews", "max_reviews")
+            .with_mapping_range(FilterId::Pages, "min_pages", "max_pages")
+            .with_mapping_range(FilterId::Pageviews, "min_pageviews", "max_pageviews")
+            .with_mapping_range(FilterId::TotalWords, "min_totalwords", "max_totalwords")
+            .with_mapping_date_range(FilterId::LastUpdate, "dp_release_min", "dp_release_max")
+            .with_mapping_tristate(FilterId::Genres, "genreselected", "genreexcluded")
+            .with_mapping_tristate(FilterId::Tags, "tagsalledit_include", "tagsalledit_exclude")
+            .with_mapping_tristate(FilterId::ContentWarnings, "ctselected", "ctexcluded")
             .with_pagination("pg")
             .with_sort("sortby", "order")
             .with_default_sort("sortby", "pageviews")
