@@ -1,7 +1,6 @@
 use eyre::{OptionExt, eyre};
 use once_cell::sync::Lazy;
-use quelle_extension::novel::{ComplexSearchQuery, FilterValue, TriState};
-use quelle_extension::source::SortOrder;
+use quelle_extension::novel::ComplexSearchQuery;
 use quelle_extension::{common::time::parse_date_or_relative_time, prelude::*};
 
 pub mod filters;
@@ -175,225 +174,37 @@ impl QuelleExtension for Extension {
         let mut request =
             Request::post("https://www.scribblehub.com/series-finder/").param("sf", "1");
 
-        let mut form_builder = RequestFormBuilder::new();
+        // Use the new builder pattern to map filters to form fields
+        let form_builder = validated_query
+            .into_form()
+            .with_mapping(FilterId::TitleContains, "seriescontains")
+            .with_mapping(FilterId::Fandom, "fandomsearch")
+            .with_mapping(FilterId::StoryStatus, "storystatus")
+            .with_mapping(FilterId::GenreMode, "gi_mm")
+            .with_custom_tristate_mapping(FilterId::Genres, "genreselected", "genreexcluded")
+            .with_custom_tristate_mapping(
+                FilterId::Tags,
+                "tagsalledit_include",
+                "tagsalledit_exclude",
+            )
+            .with_custom_tristate_mapping(FilterId::ContentWarnings, "ctselected", "ctexcluded")
+            .with_custom_range_mapping(FilterId::Chapters, "chapters")
+            .with_custom_range_mapping(FilterId::ReleasesPerweek, "releases_perweek")
+            .with_custom_range_mapping(FilterId::Favorites, "favorites")
+            .with_custom_range_mapping(FilterId::Ratings, "ratings")
+            .with_custom_range_mapping(FilterId::NumRatings, "num_ratings")
+            .with_custom_range_mapping(FilterId::Readers, "readers")
+            .with_custom_range_mapping(FilterId::Reviews, "reviews")
+            .with_custom_range_mapping(FilterId::Pages, "pages")
+            .with_custom_range_mapping(FilterId::Pageviews, "pageviews")
+            .with_custom_range_mapping(FilterId::TotalWords, "totalwords")
+            .with_custom_date_range_mapping(FilterId::LastUpdate, "dp_release")
+            .with_pagination("pg")
+            .with_sort("sortby", "order")
+            .with_default_sort("sortby", "pageviews")
+            .with_custom_field("sf", "1");
 
-        // Process validated filters (guaranteed to be valid at this point)
-        for filter in &validated_query.filters {
-            match FilterId::from_str(&filter.filter_id) {
-                Some(FilterId::TitleContains) => {
-                    if let FilterValue::Text(value) = &filter.value {
-                        form_builder = form_builder.param("seriescontains", value.as_str());
-                    }
-                }
-                Some(FilterId::Chapters) => {
-                    if let FilterValue::NumberRange(range) = &filter.value {
-                        if let Some(min) = range.min {
-                            form_builder = form_builder.param("min_chapters", min.to_string());
-                        }
-                        if let Some(max) = range.max {
-                            form_builder = form_builder.param("max_chapters", max.to_string());
-                        }
-                    }
-                }
-                Some(FilterId::ReleasesPerweek) => {
-                    if let FilterValue::NumberRange(range) = &filter.value {
-                        if let Some(min) = range.min {
-                            form_builder =
-                                form_builder.param("min_releases_perweek", min.to_string());
-                        }
-                        if let Some(max) = range.max {
-                            form_builder =
-                                form_builder.param("max_releases_perweek", max.to_string());
-                        }
-                    }
-                }
-                Some(FilterId::Favorites) => {
-                    if let FilterValue::NumberRange(range) = &filter.value {
-                        if let Some(min) = range.min {
-                            form_builder = form_builder.param("min_favorites", min.to_string());
-                        }
-                        if let Some(max) = range.max {
-                            form_builder = form_builder.param("max_favorites", max.to_string());
-                        }
-                    }
-                }
-                Some(FilterId::Ratings) => {
-                    if let FilterValue::NumberRange(range) = &filter.value {
-                        if let Some(min) = range.min {
-                            form_builder = form_builder.param("min_ratings", min.to_string());
-                        }
-                        if let Some(max) = range.max {
-                            form_builder = form_builder.param("max_ratings", max.to_string());
-                        }
-                    }
-                }
-                Some(FilterId::NumRatings) => {
-                    if let FilterValue::NumberRange(range) = &filter.value {
-                        if let Some(min) = range.min {
-                            form_builder = form_builder.param("min_num_ratings", min.to_string());
-                        }
-                        if let Some(max) = range.max {
-                            form_builder = form_builder.param("max_num_ratings", max.to_string());
-                        }
-                    }
-                }
-                Some(FilterId::Readers) => {
-                    if let FilterValue::NumberRange(range) = &filter.value {
-                        if let Some(min) = range.min {
-                            form_builder = form_builder.param("min_readers", min.to_string());
-                        }
-                        if let Some(max) = range.max {
-                            form_builder = form_builder.param("max_readers", max.to_string());
-                        }
-                    }
-                }
-                Some(FilterId::Reviews) => {
-                    if let FilterValue::NumberRange(range) = &filter.value {
-                        if let Some(min) = range.min {
-                            form_builder = form_builder.param("min_reviews", min.to_string());
-                        }
-                        if let Some(max) = range.max {
-                            form_builder = form_builder.param("max_reviews", max.to_string());
-                        }
-                    }
-                }
-                Some(FilterId::Pages) => {
-                    if let FilterValue::NumberRange(range) = &filter.value {
-                        if let Some(min) = range.min {
-                            form_builder = form_builder.param("min_pages", min.to_string());
-                        }
-                        if let Some(max) = range.max {
-                            form_builder = form_builder.param("max_pages", max.to_string());
-                        }
-                    }
-                }
-                Some(FilterId::Pageviews) => {
-                    if let FilterValue::NumberRange(range) = &filter.value {
-                        if let Some(min) = range.min {
-                            form_builder = form_builder.param("min_pageviews", min.to_string());
-                        }
-                        if let Some(max) = range.max {
-                            form_builder = form_builder.param("max_pageviews", max.to_string());
-                        }
-                    }
-                }
-                Some(FilterId::TotalWords) => {
-                    if let FilterValue::NumberRange(range) = &filter.value {
-                        if let Some(min) = range.min {
-                            form_builder = form_builder.param("min_totalwords", min.to_string());
-                        }
-                        if let Some(max) = range.max {
-                            form_builder = form_builder.param("max_totalwords", max.to_string());
-                        }
-                    }
-                }
-                Some(FilterId::GenreMode) => {
-                    if let FilterValue::Select(value) = &filter.value {
-                        form_builder = form_builder.param("gi_mm", value.as_str());
-                    }
-                }
-                Some(FilterId::Genres) => {
-                    if let FilterValue::TriState(tristate_values) = &filter.value {
-                        for (option_id, state) in tristate_values {
-                            match state {
-                                TriState::MustInclude => {
-                                    form_builder =
-                                        form_builder.param("genreselected[]", option_id.as_str());
-                                }
-                                TriState::MustExclude => {
-                                    form_builder =
-                                        form_builder.param("genreexcluded[]", option_id.as_str());
-                                }
-                                TriState::DontCare => {
-                                    // Don't add to form - ignore this option
-                                }
-                            }
-                        }
-                    }
-                }
-                Some(FilterId::Tags) => {
-                    if let FilterValue::TriState(tristate_values) = &filter.value {
-                        for (option_id, state) in tristate_values {
-                            match state {
-                                TriState::MustInclude => {
-                                    form_builder = form_builder
-                                        .param("tagsalledit_include[]", option_id.as_str());
-                                }
-                                TriState::MustExclude => {
-                                    form_builder = form_builder
-                                        .param("tagsalledit_exclude[]", option_id.as_str());
-                                }
-                                TriState::DontCare => {
-                                    // Don't add to form - ignore this option
-                                }
-                            }
-                        }
-                    }
-                }
-                Some(FilterId::ContentWarnings) => {
-                    if let FilterValue::TriState(tristate_values) = &filter.value {
-                        for (option_id, state) in tristate_values {
-                            match state {
-                                TriState::MustInclude => {
-                                    form_builder =
-                                        form_builder.param("ctselected[]", option_id.as_str());
-                                }
-                                TriState::MustExclude => {
-                                    form_builder =
-                                        form_builder.param("ctexcluded[]", option_id.as_str());
-                                }
-                                TriState::DontCare => {
-                                    // Don't add to form - ignore this option
-                                }
-                            }
-                        }
-                    }
-                }
-                Some(FilterId::StoryStatus) => {
-                    if let FilterValue::Select(value) = &filter.value {
-                        form_builder = form_builder.param("storystatus", value.as_str());
-                    }
-                }
-                Some(FilterId::Fandom) => {
-                    if let FilterValue::Text(value) = &filter.value {
-                        form_builder = form_builder.param("fandomsearch", value.as_str());
-                    }
-                }
-                Some(FilterId::LastUpdate) => {
-                    if let FilterValue::DateRange(range) = &filter.value {
-                        if let Some(start) = &range.start {
-                            form_builder = form_builder.param("dp_release_min", start.as_str());
-                        }
-                        if let Some(end) = &range.end {
-                            form_builder = form_builder.param("dp_release_max", end.as_str());
-                        }
-                    }
-                }
-                None => {
-                    // Unknown filter ID - log a warning or handle gracefully
-                    tracing::warn!("Unknown filter ID: {}", filter.filter_id);
-                }
-            }
-        }
-
-        // Handle sorting
-        if let Some(sort_by) = &query.sort_by {
-            form_builder = form_builder.param("sortby", sort_by.as_str());
-        } else {
-            form_builder = form_builder.param("sortby", "pageviews");
-        }
-
-        let sort_order = query.sort_order.unwrap_or(SortOrder::Desc);
-        let order_str = match sort_order {
-            SortOrder::Asc => "asc",
-            SortOrder::Desc => "desc",
-        };
-        form_builder = form_builder.param("order", order_str);
-
-        // Add pagination
-        form_builder = form_builder.param("pg", current_page.to_string());
-
-        request = request.body(form_builder.build());
+        request = request.body(form_builder.build().build());
 
         let response = request
             .send(&self.client)

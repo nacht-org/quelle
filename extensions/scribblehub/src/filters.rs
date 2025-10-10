@@ -26,7 +26,7 @@ pub enum FilterId {
 }
 
 impl FilterId {
-    pub fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             FilterId::TitleContains => "title_contains",
             FilterId::Fandom => "fandom",
@@ -80,11 +80,23 @@ impl Into<String> for FilterId {
     }
 }
 
+impl Into<String> for &FilterId {
+    fn into(self) -> String {
+        self.as_str().to_string()
+    }
+}
+
 impl FromStr for FilterId {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_str(s).ok_or(())
+    }
+}
+
+impl AsRef<str> for FilterId {
+    fn as_ref(&self) -> &str {
+        self.as_str()
     }
 }
 

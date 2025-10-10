@@ -12,7 +12,7 @@ pub use crate::source::{
     SortOrder, SourceCapabilities, SourceMeta, TriStateFilter,
 };
 pub use crate::validation::{
-    FilterValidator, ValidationError, validate_filters, validate_filters_with_business_rules,
-    validate_search_query,
+    FilterValidator, FormBuilder, ValidatedSearchParams, ValidationError, validate_filters,
+    validate_filters_with_business_rules, validate_search_query,
 };
 pub use crate::{QuelleExtension, RequestFormBuilder};
