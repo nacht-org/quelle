@@ -65,25 +65,23 @@ pub enum Commands {
         #[arg(long)]
         list: bool,
     },
-    /// Search for novels (automatically uses simple or complex search)
     Search {
-        /// Search query
         query: String,
-        /// Filter by author
         #[arg(long)]
         author: Option<String>,
-        /// Filter by tags (switches to complex search)
         #[arg(long, value_delimiter = ',')]
         tags: Vec<String>,
-        /// Filter by categories (switches to complex search)
         #[arg(long, value_delimiter = ',')]
         categories: Vec<String>,
-        /// Maximum number of results
         #[arg(long)]
         limit: Option<usize>,
+        #[arg(long)]
+        page: Option<u32>,
+        #[arg(long)]
+        advanced: bool,
+        #[arg(long)]
+        simple: bool,
     },
-    /// Remove a novel and all its data from your library
-    /// Example: quelle remove "Novel Title" --force
     Remove {
         /// Novel ID, URL, or title
         novel: String,
