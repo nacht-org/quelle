@@ -32,9 +32,9 @@ pub async fn handle_search_command(
     };
 
     if use_complex_search {
-        println!("🔍 Using complex search with filters");
+        println!("Using complex search with filters");
     } else {
-        println!("🔍 Using simple search");
+        println!("Using simple search");
     }
     let mut search_query = SearchQuery::new();
 
@@ -57,7 +57,7 @@ pub async fn handle_search_command(
     }
 
     if page.is_some() && page != Some(1) {
-        println!("⚠️  Pagination not yet fully supported, showing first page");
+        println!("Pagination not yet fully supported, showing first page");
     }
 
     println!("Searching...");
@@ -71,7 +71,7 @@ pub async fn handle_search_command(
         }
         Err(e) => {
             warn!("Search failed: {}", e);
-            println!("❌ Search failed: {}", e);
+            println!("Search failed: {}", e);
         }
     }
 
