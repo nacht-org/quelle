@@ -1,3 +1,5 @@
+//! Search command handlers for finding novels across installed extension sources.
+
 use eyre::Result;
 use quelle_store::{SearchQuery, StoreManager};
 use tracing::warn;
