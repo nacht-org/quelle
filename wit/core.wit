@@ -45,6 +45,7 @@ interface source {
         text(text-filter),
         select(select-filter),
         multi-select(multi-select-filter),
+        tri-state(tri-state-filter),
         number-range(number-range-filter),
         date-range(date-range-filter),
         boolean(boolean-filter),
@@ -62,6 +63,10 @@ interface source {
     record multi-select-filter {
         options: list<filter-option>,
         max-selections: option<u32>,
+    }
+
+    record tri-state-filter {
+        options: list<filter-option>,
     }
 
     record filter-option {
@@ -165,6 +170,12 @@ interface novel {
         data: string,
     }
 
+    enum tri-state {
+        must-include,
+        must-exclude,
+        dont-care,
+    }
+
     // Search queries
     record simple-search-query {
         query: string,
@@ -190,6 +201,7 @@ interface novel {
         text(string),
         select(string),
         multi-select(list<string>),
+        tri-state(list<tuple<string, tri-state>>),
         number-range(number-range-value),
         date-range(date-range-value),
         boolean(bool),

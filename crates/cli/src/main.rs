@@ -113,6 +113,9 @@ async fn main() -> Result<()> {
             tags,
             categories,
             limit,
+            page,
+            advanced,
+            simple,
         } => {
             handle_search_command(
                 &store_manager,
@@ -121,6 +124,9 @@ async fn main() -> Result<()> {
                 tags,
                 categories,
                 limit,
+                page,
+                advanced,
+                simple,
                 cli.dry_run,
             )
             .await

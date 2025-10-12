@@ -4104,6 +4104,7 @@ dependencies = [
  "eyre",
  "parse_datetime",
  "scraper 0.24.0",
+ "thiserror 2.0.12",
  "tracing",
  "tracing-subscriber",
  "wit-bindgen",

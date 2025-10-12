@@ -1,6 +1,11 @@
 use eyre::{OptionExt, eyre};
 use once_cell::sync::Lazy;
+use quelle_extension::novel::ComplexSearchQuery;
 use quelle_extension::{common::time::parse_date_or_relative_time, prelude::*};
+
+pub mod filters;
+
+use filters::FilterId;
 
 register_extension!(Extension);
 
@@ -17,7 +22,9 @@ const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     capabilities: SourceCapabilities {
         search: Some(SearchCapabilities {
             supports_simple_search: true,
-            ..Default::default()
+            supports_complex_search: true,
+            available_filters: filters::create_filter_definitions(),
+            available_sort_options: filters::create_sort_options(),
         }),
     },
 });
@@ -103,6 +110,102 @@ impl QuelleExtension for Extension {
             .param("sh", query.query)
             .param("order", "desc")
             .param("pg", current_page.to_string())
+            .send(&self.client)
+            .map_err(|e| eyre!(e))?
+            .error_for_status()?;
+
+        let text = response
+            .text()?
+            .ok_or_else(|| eyre!("Failed to get search data"))?;
+
+        let doc = Html::new(&text);
+
+        let mut novels = Vec::new();
+
+        for element in doc.select(".search_main_box")? {
+            let title = element
+                .select_first(".search_title > a")?
+                .text_opt()
+                .ok_or_eyre("Failed to get title")?;
+
+            let url = element
+                .select_first(".search_title > a")?
+                .attr_opt("href")
+                .map(|href| make_absolute_url(&href, BASE_URL))
+                .ok_or_eyre("Failed to get url")?;
+
+            let cover = element
+                .select_first(".search_img > img")?
+                .attr_opt("src")
+                .map(|src| make_absolute_url(&src, BASE_URL));
+
+            novels.push(BasicNovel { title, cover, url });
+        }
+
+        let total_pages = doc
+            .select(".simple-pagination > li")?
+            .into_iter()
+            .filter_map(|li| li.text_opt())
+            .filter_map(|s| s.parse::<u32>().ok())
+            .max()
+            .unwrap_or(current_page);
+
+        Ok(SearchResult {
+            novels,
+            total_count: None,
+            current_page,
+            total_pages: Some(total_pages),
+            has_next_page: current_page < total_pages,
+            has_previous_page: current_page > 1,
+        })
+    }
+
+    fn complex_search(&self, query: ComplexSearchQuery) -> Result<SearchResult, eyre::Report> {
+        let current_page = query.page.unwrap_or(1);
+
+        // Get filter definitions and sort options
+        let filter_definitions = filters::create_filter_definitions();
+        let sort_options = filters::create_sort_options();
+
+        // Validate the entire search query (filters, pagination, sorting)
+        // This returns validated data back or an error
+        let validated_query = validate_search_query(&filter_definitions, &sort_options, &query)?;
+
+        let mut request =
+            Request::post("https://www.scribblehub.com/series-finder/").param("sf", "1");
+
+        let form_builder = validated_query
+            .into_form()
+            .with_mapping(FilterId::TitleContains, "seriescontains")
+            .with_mapping(FilterId::Fandom, "fandomsearch")
+            .with_mapping(FilterId::StoryStatus, "storystatus")
+            .with_mapping(FilterId::GenreMode, "gi_mm")
+            .with_mapping_range(FilterId::Chapters, "min_chapters", "max_chapters")
+            .with_mapping_range(
+                FilterId::ReleasesPerweek,
+                "min_releases_perweek",
+                "max_releases_perweek",
+            )
+            .with_mapping_range(FilterId::Favorites, "min_favorites", "max_favorites")
+            .with_mapping_range(FilterId::Ratings, "min_ratings", "max_ratings")
+            .with_mapping_range(FilterId::NumRatings, "min_num_ratings", "max_num_ratings")
+            .with_mapping_range(FilterId::Readers, "min_readers", "max_readers")
+            .with_mapping_range(FilterId::Reviews, "min_reviews", "max_reviews")
+            .with_mapping_range(FilterId::Pages, "min_pages", "max_pages")
+            .with_mapping_range(FilterId::Pageviews, "min_pageviews", "max_pageviews")
+            .with_mapping_range(FilterId::TotalWords, "min_totalwords", "max_totalwords")
+            .with_mapping_date_range(FilterId::LastUpdate, "dp_release_min", "dp_release_max")
+            .with_mapping_tristate(FilterId::Genres, "genreselected", "genreexcluded")
+            .with_mapping_tristate(FilterId::Tags, "tagsalledit_include", "tagsalledit_exclude")
+            .with_mapping_tristate(FilterId::ContentWarnings, "ctselected", "ctexcluded")
+            .with_pagination("pg")
+            .with_sort("sortby", "order")
+            .with_default_sort("sortby", "pageviews")
+            .with_custom_field("sf", "1");
+
+        request = request.body(form_builder.build().build());
+
+        let response = request
             .send(&self.client)
             .map_err(|e| eyre!(e))?
             .error_for_status()?;

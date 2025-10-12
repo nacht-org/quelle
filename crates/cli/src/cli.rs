@@ -81,6 +81,15 @@ pub enum Commands {
         /// Maximum number of results
         #[arg(long)]
         limit: Option<usize>,
+        /// Page number for pagination
+        #[arg(long)]
+        page: Option<u32>,
+        /// Use complex search with interactive filter selection
+        #[arg(long)]
+        advanced: bool,
+        /// Force simple search even when tags/categories are provided
+        #[arg(long)]
+        simple: bool,
     },
     /// Remove a novel and all its data from your library
     /// Example: quelle remove "Novel Title" --force

@@ -152,6 +152,7 @@ async fn validate_build(_extension_name: &str, extension_path: &Path) -> Result<
     // Try WASM build
     let output = tokio::process::Command::new("cargo")
         .args(&[
+            "component",
             "build",
             "--target",
             "wasm32-unknown-unknown",
