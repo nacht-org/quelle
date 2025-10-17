@@ -14,6 +14,9 @@ pub mod providers;
 #[cfg(feature = "git")]
 pub mod git;
 
+#[cfg(feature = "github")]
+pub mod github;
+
 // Future store implementations
 // pub mod http;
 // pub mod s3;
@@ -41,6 +44,9 @@ pub use providers::{GitAuth, GitProvider, GitReference};
 #[cfg(feature = "git")]
 pub use git::{GitStore, GitStoreBuilder};
 
+#[cfg(feature = "github")]
+pub use github::{GitHubStore, GitHubStoreBuilder};
+
 /// Configuration for creating different types of stores
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -55,12 +61,23 @@ pub enum StoreConfig {
         #[serde(default)]
         readonly: bool,
     },
-    /// Git repository store (future implementation)
+    /// Git repository store
     Git {
         url: String,
         name: String,
         trusted: bool,
         branch: Option<String>,
+        #[serde(default)]
+        cache_enabled: bool,
+        auth: Option<GitAuthConfig>,
+    },
+    /// GitHub repository store
+    GitHub {
+        owner: String,
+        repo: String,
+        name: String,
+        trusted: bool,
+        reference: Option<String>,
         #[serde(default)]
         cache_enabled: bool,
         auth: Option<GitAuthConfig>,
@@ -149,6 +166,7 @@ impl StoreFactory {
         let store_type = match &config {
             StoreConfig::Local { .. } => "local",
             StoreConfig::Git { .. } => "git",
+            StoreConfig::GitHub { .. } => "github",
             StoreConfig::Http { .. } => "http",
         };
 
@@ -278,13 +296,26 @@ impl StoreConfig {
         }
     }
 
-    /// Create a git store configuration (future implementation)
+    /// Create a git store configuration
     pub fn git(url: String, name: String) -> Self {
         Self::Git {
             url,
             name,
             trusted: false,
             branch: None,
+            cache_enabled: true,
+            auth: None,
+        }
+    }
+
+    /// Create a GitHub store configuration
+    pub fn github(owner: String, repo: String, name: String) -> Self {
+        Self::GitHub {
+            owner,
+            repo,
+            name,
+            trusted: false,
+            reference: None,
             cache_enabled: true,
             auth: None,
         }
@@ -306,6 +337,14 @@ impl StoreConfig {
     pub fn path(&self) -> Option<&PathBuf> {
         match self {
             StoreConfig::Local { path, .. } => Some(path),
+            _ => None,
+        }
+    }
+
+    /// Get the GitHub repository info (owner, repo)
+    pub fn github_repo(&self) -> Option<(&str, &str)> {
+        match self {
+            StoreConfig::GitHub { owner, repo, .. } => Some((owner, repo)),
             _ => None,
         }
     }

@@ -449,4 +449,47 @@ pub enum AddStoreCommands {
         #[arg(long)]
         cache_dir: Option<String>,
     },
+    /// Add a GitHub repository store (API-based reads, git-based writes)
+    #[cfg(feature = "github")]
+    GitHub {
+        /// Store name
+        name: String,
+        /// GitHub repository owner (username or organization)
+        owner: String,
+        /// GitHub repository name
+        repo: String,
+        /// Priority (lower = higher priority)
+        #[arg(long, default_value = "100")]
+        priority: u32,
+        /// Git branch to track
+        #[arg(long)]
+        branch: Option<String>,
+        /// Git tag to track
+        #[arg(long)]
+        tag: Option<String>,
+        /// Git commit hash to pin to
+        #[arg(long)]
+        commit: Option<String>,
+        /// GitHub personal access token for API and git operations
+        #[arg(long)]
+        token: Option<String>,
+        /// SSH private key path for git authentication
+        #[arg(long)]
+        ssh_key: Option<String>,
+        /// SSH public key path (optional, will be inferred if not provided)
+        #[arg(long)]
+        ssh_pub_key: Option<String>,
+        /// SSH key passphrase
+        #[arg(long)]
+        ssh_passphrase: Option<String>,
+        /// Username for basic authentication
+        #[arg(long)]
+        username: Option<String>,
+        /// Password for basic authentication
+        #[arg(long)]
+        password: Option<String>,
+        /// Custom cache directory (defaults to data_dir/stores/name)
+        #[arg(long)]
+        cache_dir: Option<String>,
+    },
 }

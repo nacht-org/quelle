@@ -97,6 +97,8 @@ pub use stores::{LocallyCachedStore, StoreProvider, SyncResult};
 pub use stores::providers::git::{CommitStyle, GitAuthor, GitStatus, GitWriteConfig};
 #[cfg(feature = "git")]
 pub use stores::{GitAuth, GitProvider, GitReference, GitStore, GitStoreBuilder};
+#[cfg(feature = "github")]
+pub use stores::{GitHubStore, GitHubStoreBuilder};
 pub use validation::{
     create_default_validator, ManifestValidationRule, SecurityValidationRule, ValidationEngine,
     ValidationRule,

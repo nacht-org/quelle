@@ -20,6 +20,9 @@ use crate::stores::git::GitStore;
 #[cfg(feature = "git")]
 use crate::stores::providers::git::{GitAuth, GitReference};
 
+#[cfg(feature = "github")]
+use crate::stores::github::GitHubStore;
+
 /// Type of extension store with associated data
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
@@ -36,6 +39,17 @@ pub enum StoreType {
         #[serde(default)]
         auth: GitAuth,
     },
+    /// GitHub repository store (API-based reads, git-based writes)
+    #[cfg(feature = "github")]
+    GitHub {
+        owner: String,
+        repo: String,
+        cache_dir: PathBuf,
+        #[serde(default)]
+        reference: GitReference,
+        #[serde(default)]
+        auth: GitAuth,
+    },
 }
 
 impl StoreType {
@@ -45,15 +59,19 @@ impl StoreType {
             StoreType::Local { .. } => "local",
             #[cfg(feature = "git")]
             StoreType::Git { .. } => "git",
+            #[cfg(feature = "github")]
+            StoreType::GitHub { .. } => "github",
         }
     }
 
-    /// Get the path for Local store type or cache_dir for Git store type
+    /// Get the path for Local store type or cache_dir for Git/GitHub store type
     pub fn path(&self) -> Option<&PathBuf> {
         match self {
             StoreType::Local { path } => Some(path),
             #[cfg(feature = "git")]
             StoreType::Git { cache_dir, .. } => Some(cache_dir),
+            #[cfg(feature = "github")]
+            StoreType::GitHub { cache_dir, .. } => Some(cache_dir),
         }
     }
 
@@ -63,6 +81,19 @@ impl StoreType {
         match self {
             StoreType::Local { .. } => None,
             StoreType::Git { url, .. } => Some(url),
+            #[cfg(feature = "github")]
+            StoreType::GitHub { .. } => None, // GitHub stores use owner/repo instead
+        }
+    }
+
+    /// Get the GitHub repository info (owner, repo)
+    #[cfg(feature = "github")]
+    pub fn github_repo(&self) -> Option<(&str, &str)> {
+        match self {
+            StoreType::Local { .. } => None,
+            #[cfg(feature = "git")]
+            StoreType::Git { .. } => None,
+            StoreType::GitHub { owner, repo, .. } => Some((owner, repo)),
         }
     }
 }
@@ -224,11 +255,66 @@ impl ExtensionSource {
         }
     }
 
+    #[cfg(feature = "github")]
+    pub fn github(name: String, owner: String, repo: String, cache_dir: PathBuf) -> Self {
+        Self {
+            name,
+            store_type: StoreType::GitHub {
+                owner,
+                repo,
+                cache_dir,
+                reference: GitReference::Default,
+                auth: GitAuth::None,
+            },
+            enabled: true,
+            priority: 100,
+            trusted: false,
+            added_at: Utc::now(),
+        }
+    }
+
+    #[cfg(feature = "github")]
+    pub fn github_with_config(
+        name: String,
+        owner: String,
+        repo: String,
+        cache_dir: PathBuf,
+        reference: GitReference,
+        auth: GitAuth,
+    ) -> Self {
+        Self {
+            name,
+            store_type: StoreType::GitHub {
+                owner,
+                repo,
+                cache_dir,
+                reference,
+                auth,
+            },
+            enabled: true,
+            priority: 100,
+            trusted: false,
+            added_at: Utc::now(),
+        }
+    }
+
     #[cfg(feature = "git")]
     pub fn official(stores_dir: &Path) -> Self {
         ExtensionSource::git(
             "official".to_string(),
             "https://github.com/nacht-org/extensions".to_string(),
+            stores_dir.join("official"),
+        )
+        .with_priority(50) // Higher priority than default (100)
+        .trusted() // Mark as trusted since it's official
+    }
+
+    #[cfg(feature = "github")]
+    pub fn official_github(stores_dir: &Path) -> Self {
+        ExtensionSource::github(
+            "official".to_string(),
+            "nacht-org".to_string(),
+            "extensions".to_string(),
             stores_dir.join("official"),
         )
         .with_priority(50) // Higher priority than default (100)
@@ -285,6 +371,26 @@ impl ExtensionSource {
                     })?;
                 Ok(Box::new(git_store))
             }
+            #[cfg(feature = "github")]
+            StoreType::GitHub {
+                owner,
+                repo,
+                cache_dir,
+                reference,
+                auth,
+            } => {
+                let github_store = GitHubStore::builder(owner.clone(), repo.clone())
+                    .auth(auth.clone())
+                    .reference(reference.clone())
+                    .cache_dir(cache_dir.clone())
+                    .name(self.name.clone())
+                    .build()
+                    .map_err(|e| StoreError::StoreCreationError {
+                        store_type: "github".to_string(),
+                        source: Box::new(e),
+                    })?;
+                Ok(Box::new(github_store))
+            }
         }
     }
 
@@ -321,6 +427,28 @@ impl ExtensionSource {
                 // Git stores can be writable if properly configured
                 Ok(Some(Box::new(git_store)))
             }
+            #[cfg(feature = "github")]
+            StoreType::GitHub {
+                owner,
+                repo,
+                cache_dir,
+                reference,
+                auth,
+            } => {
+                let github_store = GitHubStore::builder(owner.clone(), repo.clone())
+                    .auth(auth.clone())
+                    .reference(reference.clone())
+                    .cache_dir(cache_dir.clone())
+                    .name(self.name.clone())
+                    .writable()
+                    .build()
+                    .map_err(|e| StoreError::StoreCreationError {
+                        store_type: "github".to_string(),
+                        source: Box::new(e),
+                    })?;
+                // GitHub stores can be writable for publishing operations
+                Ok(Some(Box::new(github_store)))
+            }
         }
     }
 
@@ -354,6 +482,26 @@ impl ExtensionSource {
                         source: Box::new(e),
                     })?;
                 Ok(Some(Box::new(git_store)))
+            }
+            #[cfg(feature = "github")]
+            StoreType::GitHub {
+                owner,
+                repo,
+                cache_dir,
+                reference,
+                auth,
+            } => {
+                let github_store = GitHubStore::builder(owner.clone(), repo.clone())
+                    .auth(auth.clone())
+                    .reference(reference.clone())
+                    .cache_dir(cache_dir.clone())
+                    .name(self.name.clone())
+                    .build()
+                    .map_err(|e| StoreError::StoreCreationError {
+                        store_type: "github".to_string(),
+                        source: Box::new(e),
+                    })?;
+                Ok(Some(Box::new(github_store)))
             }
         }
     }
@@ -394,6 +542,27 @@ pub async fn create_readable_store_from_source(
                 })?;
 
             Ok(Box::new(git_store))
+        }
+        #[cfg(feature = "github")]
+        StoreType::GitHub {
+            owner,
+            repo,
+            cache_dir,
+            reference,
+            auth,
+        } => {
+            let github_store = GitHubStore::builder(owner.clone(), repo.clone())
+                .auth(auth.clone())
+                .reference(reference.clone())
+                .cache_dir(cache_dir.clone())
+                .name(source.name.clone())
+                .build()
+                .map_err(|e| StoreError::StoreCreationError {
+                    store_type: "github".to_string(),
+                    source: Box::new(e),
+                })?;
+
+            Ok(Box::new(github_store))
         }
     }
 }
