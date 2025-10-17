@@ -5,9 +5,7 @@
 //! it uses git operations by lazy-initializing a GitProvider.
 
 use async_trait::async_trait;
-use base64::Engine;
-use octocrab::Octocrab;
-use serde::Deserialize;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -26,25 +24,14 @@ use crate::publish::{
     ValidationReport,
 };
 use crate::store_manifest::StoreManifest;
-use crate::stores::local::LocalStore;
+use crate::stores::local::{LocalStore, LocalStoreManifest};
 use crate::stores::providers::git::{GitAuth, GitProvider, GitReference, GitWriteConfig};
 use crate::stores::traits::{BaseStore, CacheStats, CacheableStore, ReadableStore, WritableStore};
-
-/// GitHub API response for repository information
-#[derive(Debug, Clone, Deserialize)]
-struct GitHubRepository {
-    name: String,
-    full_name: String,
-    default_branch: String,
-    clone_url: String,
-}
 
 /// File cache entry
 #[derive(Debug, Clone)]
 struct CacheEntry {
     content: Vec<u8>,
-    etag: Option<String>,
-    last_modified: Option<String>,
     cached_at: Instant,
 }
 
@@ -61,7 +48,7 @@ pub struct GitHubStore {
     /// Authentication for GitHub API
     auth: GitAuth,
     /// Octocrab client for GitHub API requests
-    client: Octocrab,
+    client: reqwest::Client,
     /// Local cache directory for storing files and git operations
     cache_dir: PathBuf,
     /// In-memory file cache
@@ -76,8 +63,6 @@ pub struct GitHubStore {
     _git_provider_placeholder: (),
     /// Write configuration for git operations
     write_config: Option<GitWriteConfig>,
-    /// Repository information cache
-    repo_info: RwLock<Option<GitHubRepository>>,
     /// Local store for extension management (lazy-initialized)
     local_store: RwLock<Option<Arc<LocalStore>>>,
 }
@@ -254,20 +239,12 @@ impl GitHubStoreBuilder {
             )
         })?;
 
-        let client = match &self.auth {
-            GitAuth::Token { token } => Octocrab::builder()
-                .personal_token(token.clone())
-                .build()
-                .map_err(|e| {
-                StoreError::InvalidConfiguration(format!("Failed to create octocrab client: {}", e))
-            })?,
-            GitAuth::None => Octocrab::builder().build().map_err(|e| {
-                StoreError::InvalidConfiguration(format!("Failed to create octocrab client: {}", e))
-            })?,
-            _ => Octocrab::builder().build().map_err(|e| {
-                StoreError::InvalidConfiguration(format!("Failed to create octocrab client: {}", e))
-            })?,
-        };
+        let client = reqwest::Client::builder()
+            .user_agent("quelle-store/0.1.0")
+            .build()
+            .map_err(|e| {
+                StoreError::InvalidConfiguration(format!("Failed to create reqwest client: {}", e))
+            })?;
 
         Ok(GitHubStore {
             name,
@@ -283,7 +260,6 @@ impl GitHubStoreBuilder {
             check_interval: self.check_interval,
             _git_provider_placeholder: (),
             write_config: self.write_config,
-            repo_info: RwLock::new(None),
             local_store: RwLock::new(None),
         })
     }
@@ -365,14 +341,9 @@ impl GitHubStore {
 
         let local_store = Arc::new(LocalStore::new(&local_path)?);
 
-        // Initialize if needed
+        // Initialize if needed with GitHub-specific manifest
         if local_store.get_store_manifest().await.is_err() {
-            local_store
-                .initialize_store(
-                    self.name.clone(),
-                    Some("GitHub-based extension store".to_string()),
-                )
-                .await?;
+            self.initialize_github_store(&local_store).await?;
         }
 
         let local_store_clone = Arc::clone(&local_store);
@@ -384,59 +355,30 @@ impl GitHubStore {
         Ok(local_store_clone)
     }
 
-    /// Get repository information from GitHub API
-    async fn get_repository_info(&self) -> Result<GitHubRepository> {
-        {
-            let repo_info_guard = self.repo_info.read().unwrap();
-            if let Some(ref repo_info) = *repo_info_guard {
-                return Ok(repo_info.clone());
-            }
-        }
+    /// Initialize the GitHub store with proper GitHub-specific manifest
+    async fn initialize_github_store(&self, local_store: &LocalStore) -> Result<()> {
+        // Create GitHub-specific base manifest
+        let base_manifest =
+            StoreManifest::new(self.name.clone(), "github".to_string(), "1.0.0".to_string())
+                .with_url(self.github_url())
+                .with_description("GitHub-based extension store".to_string());
 
-        let repo = self
-            .client
-            .repos(&self.owner, &self.repo)
-            .get()
-            .await
-            .map_err(|e| {
-                StoreError::NetworkError(format!("Failed to fetch repository info: {}", e))
-            })?;
-
-        let repo_info = GitHubRepository {
-            name: repo.name,
-            full_name: repo
-                .full_name
-                .unwrap_or_else(|| format!("{}/{}", self.owner, self.repo)),
-            default_branch: repo.default_branch.unwrap_or_else(|| "main".to_string()),
-            clone_url: repo
-                .clone_url
-                .map(|url| url.to_string())
-                .unwrap_or_else(|| format!("https://github.com/{}/{}.git", self.owner, self.repo)),
-        };
-
-        {
-            let mut repo_info_guard = self.repo_info.write().unwrap();
-            *repo_info_guard = Some(repo_info.clone());
-        }
-
-        Ok(repo_info)
+        let local_manifest = LocalStoreManifest::new(base_manifest);
+        local_store.write_store_manifest(local_manifest).await
     }
 
     /// Get the effective reference (resolve default branch)
+    /// Get the effective reference to use for file reads
     async fn get_effective_reference(&self) -> Result<String> {
         match &self.reference {
-            GitReference::Default => {
-                let repo_info = self.get_repository_info().await?;
-                Ok(repo_info.default_branch)
-            }
+            GitReference::Default => Ok("main".to_string()), // Default to main for raw URLs
             GitReference::Branch(branch) => Ok(branch.clone()),
             GitReference::Tag(tag) => Ok(tag.clone()),
             GitReference::Commit(commit) => Ok(commit.clone()),
         }
     }
 
-    /// Read a file from GitHub API
-    /// Read a file from the GitHub repository
+    /// Read a file from GitHub using raw URLs
     pub async fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         // Check cache first
         if let Some(cached_content) = self.get_cached_file(path) {
@@ -445,77 +387,47 @@ impl GitHubStore {
 
         let reference = self.get_effective_reference().await?;
 
-        debug!(
-            "Fetching file from GitHub API: {}/{} at {}",
-            self.owner, self.repo, path
+        // Construct raw GitHub URL
+        let raw_url = format!(
+            "https://raw.githubusercontent.com/{}/{}/{}/{}",
+            self.owner, self.repo, reference, path
         );
 
-        let content = self
-            .client
-            .repos(&self.owner, &self.repo)
-            .get_content()
-            .path(path)
-            .r#ref(&reference)
-            .send()
+        debug!("Fetching file from raw GitHub URL: {}", raw_url);
+
+        let response = self.client.get(&raw_url).send().await.map_err(|e| {
+            StoreError::NetworkError(format!("Failed to fetch file {}: {}", path, e))
+        })?;
+
+        if response.status() == 404 {
+            return Err(StoreError::ExtensionNotFound(path.to_string()));
+        }
+
+        if !response.status().is_success() {
+            return Err(StoreError::NetworkError(format!(
+                "HTTP error {} when fetching file {}: {}",
+                response.status(),
+                path,
+                response
+                    .status()
+                    .canonical_reason()
+                    .unwrap_or("Unknown error")
+            )));
+        }
+
+        let content_bytes = response
+            .bytes()
             .await
             .map_err(|e| {
-                // Check if it's a 404 error by examining the error message
-                let error_str = e.to_string();
-                if error_str.contains("404") || error_str.contains("Not Found") {
-                    StoreError::ExtensionNotFound(path.to_string())
-                } else {
-                    StoreError::NetworkError(format!("Failed to fetch file {}: {}", path, e))
-                }
-            })?;
+                StoreError::NetworkError(format!(
+                    "Failed to read response content for {}: {}",
+                    path, e
+                ))
+            })?
+            .to_vec();
 
-        let content_bytes = match content.items.first() {
-            Some(item) => {
-                if let Some(content_str) = &item.content {
-                    if item.encoding.as_deref() == Some("base64") {
-                        base64::engine::general_purpose::STANDARD
-                            .decode(content_str.replace('\n', ""))
-                            .map_err(|e| {
-                                StoreError::NetworkError(format!(
-                                    "Failed to decode base64 content for {}: {}",
-                                    path, e
-                                ))
-                            })?
-                    } else {
-                        content_str.clone().into_bytes()
-                    }
-                } else if let Some(download_url) = &item.download_url {
-                    // For large files, GitHub provides a download URL
-                    let download_response = reqwest::get(download_url).await.map_err(|e| {
-                        StoreError::NetworkError(format!(
-                            "Failed to download large file {}: {}",
-                            path, e
-                        ))
-                    })?;
-
-                    download_response
-                        .bytes()
-                        .await
-                        .map_err(|e| {
-                            StoreError::NetworkError(format!(
-                                "Failed to read download content for {}: {}",
-                                path, e
-                            ))
-                        })?
-                        .to_vec()
-                } else {
-                    return Err(StoreError::NetworkError(format!(
-                        "No content available for file: {}",
-                        path
-                    )));
-                }
-            }
-            None => {
-                return Err(StoreError::ExtensionNotFound(path.to_string()));
-            }
-        };
-
-        // Cache the file (we'll use None for etag and last_modified since octocrab doesn't expose headers easily)
-        self.cache_file(path, &content_bytes, None, None);
+        // Cache the file
+        self.cache_file(path, &content_bytes);
 
         Ok(content_bytes)
     }
@@ -533,20 +445,12 @@ impl GitHubStore {
     }
 
     /// Cache file in memory
-    fn cache_file(
-        &self,
-        path: &str,
-        content: &[u8],
-        etag: Option<String>,
-        last_modified: Option<String>,
-    ) {
+    fn cache_file(&self, path: &str, content: &[u8]) {
         let mut cache = self.file_cache.write().unwrap();
         cache.insert(
             path.to_string(),
             CacheEntry {
                 content: content.to_vec(),
-                etag,
-                last_modified,
                 cached_at: Instant::now(),
             },
         );
@@ -579,8 +483,18 @@ impl BaseStore for GitHubStore {
     }
 
     async fn health_check(&self) -> Result<StoreHealth> {
-        // Check GitHub API connectivity
-        match self.get_repository_info().await {
+        // Check GitHub raw URL connectivity by trying to fetch README
+        let test_result = if let Ok(content) = self.read_file("README.md").await {
+            Ok(content)
+        } else if let Ok(content) = self.read_file("README.rst").await {
+            Ok(content)
+        } else if let Ok(content) = self.read_file("README.txt").await {
+            Ok(content)
+        } else {
+            self.read_file("README").await
+        };
+
+        match test_result {
             Ok(_) => Ok(StoreHealth {
                 healthy: true,
                 last_check: chrono::Utc::now(),
@@ -593,7 +507,7 @@ impl BaseStore for GitHubStore {
                 healthy: false,
                 last_check: chrono::Utc::now(),
                 response_time: None,
-                error: Some(format!("GitHub API error: {}", e)),
+                error: Some(format!("GitHub raw URL error: {}", e)),
                 extension_count: None,
                 store_version: None,
             }),
@@ -760,13 +674,8 @@ impl CacheableStore for GitHubStore {
         self.clear_cache();
 
         // Refresh repository info
-        {
-            let mut repo_info_guard = self.repo_info.write().unwrap();
-            *repo_info_guard = None;
-        }
-
-        // Get fresh repository info
-        let _ = self.get_repository_info().await?;
+        // Clear the file cache to force refresh
+        self.clear_cache();
 
         // Update last check time
         {
@@ -818,7 +727,6 @@ impl Clone for GitHubStore {
             check_interval: self.check_interval,
             _git_provider_placeholder: (), // Placeholder for git provider
             write_config: self.write_config.clone(),
-            repo_info: RwLock::new(self.repo_info.read().unwrap().clone()),
             local_store: RwLock::new(None), // Don't clone the local store, let it be lazy-initialized
         }
     }

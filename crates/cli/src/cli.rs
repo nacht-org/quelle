@@ -451,6 +451,7 @@ pub enum AddStoreCommands {
     },
     /// Add a GitHub repository store (API-based reads, git-based writes)
     #[cfg(feature = "github")]
+    #[command(name = "github")]
     GitHub {
         /// Store name
         name: String,

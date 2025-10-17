@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs::{self};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
     #[serde(default)]
     pub data_dir: Option<PathBuf>,
@@ -51,7 +50,6 @@ impl Default for FetchConfig {
         }
     }
 }
-
 
 impl Config {
     pub fn get_config_path() -> PathBuf {
@@ -109,6 +107,9 @@ impl Config {
             return Ok(());
         }
 
+        #[cfg(feature = "github")]
+        let official_store = quelle_store::ExtensionSource::official_github(&self.get_stores_dir());
+        #[cfg(not(feature = "github"))]
         let official_store = quelle_store::ExtensionSource::official(&self.get_stores_dir());
 
         if self
@@ -127,6 +128,10 @@ impl Config {
             .iter()
             .any(|s| s.name == official_store.name)
         {
+            #[cfg(feature = "github")]
+            self.registry
+                .add_source(ExtensionSource::official_github(&self.get_stores_dir()));
+            #[cfg(not(feature = "github"))]
             self.registry
                 .add_source(ExtensionSource::official(&self.get_stores_dir()));
         }
