@@ -6,7 +6,7 @@
 //!
 //! # Features
 //!
-//! - **Multiple Store Types**: Local, Git, HTTP, and S3 backends
+//! - **Multiple Store Types**: Local, Git, HTTP, and GitHub backends
 //! - **Package Management**: Install, update, and remove extensions
 //! - **Version Management**: Semantic versioning support with dependency resolution
 //! - **Search and Discovery**: Find extensions across multiple stores
