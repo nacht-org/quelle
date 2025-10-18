@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use std::sync::Arc;
 
@@ -202,7 +202,7 @@ impl StoreManager {
     // Discovery Operations
 
     /// Search across all stores for extensions
-    pub async fn search_all_stores(&self, query: &SearchQuery) -> Result<Vec<ExtensionInfo>> {
+    pub async fn search_all_stores(&self, query: &SearchQuery) -> Result<Vec<ExtensionSummary>> {
         let mut all_results = Vec::new();
         let mut search_futures = Vec::new();
 
@@ -219,12 +219,7 @@ impl StoreManager {
                 {
                     Ok(Ok(results)) => {
                         debug!("Store '{}' returned {} results", store_name, results.len());
-                        // Convert ExtensionSummary to ExtensionInfo
-                        let converted: Vec<ExtensionInfo> = results
-                            .into_iter()
-                            .map(|ext_summary| self.summary_to_info(ext_summary, &store_name))
-                            .collect();
-                        Ok(converted)
+                        Ok(results)
                     }
                     Ok(Err(e)) => {
                         warn!("Search failed for store '{}': {}", store_name, e);
@@ -251,7 +246,7 @@ impl StoreManager {
             }
         }
 
-        Ok(self.deduplicate_and_sort(all_results, &query.sort_by))
+        Ok(self.deduplicate_summaries_and_sort(all_results, &query.sort_by))
     }
 
     /// Search for novels using installed extensions only
@@ -442,7 +437,7 @@ impl StoreManager {
     }
 
     /// List all extensions from all stores
-    pub async fn list_all_extensions(&self) -> Result<Vec<ExtensionInfo>> {
+    pub async fn list_all_extensions(&self) -> Result<Vec<ExtensionSummary>> {
         let mut all_extensions = Vec::new();
         let mut futures = Vec::new();
 
@@ -457,12 +452,7 @@ impl StoreManager {
                 match tokio::time::timeout(self.config.timeout, store.list_extensions()).await {
                     Ok(Ok(extensions)) => {
                         debug!("Store '{}' has {} extensions", store_name, extensions.len());
-                        // Convert ExtensionSummary to ExtensionInfo
-                        let converted: Vec<ExtensionInfo> = extensions
-                            .into_iter()
-                            .map(|ext_summary| self.summary_to_info(ext_summary, &store_name))
-                            .collect();
-                        Ok::<Vec<ExtensionInfo>, crate::error::StoreError>(converted)
+                        Ok::<Vec<ExtensionSummary>, crate::error::StoreError>(extensions)
                     }
                     Ok(Err(e)) => {
                         warn!(
@@ -493,25 +483,6 @@ impl StoreManager {
         }
 
         Ok(all_extensions)
-    }
-
-    /// Convert ExtensionSummary to ExtensionInfo
-    fn summary_to_info(&self, ext_summary: ExtensionSummary, store_name: &str) -> ExtensionInfo {
-        ExtensionInfo {
-            id: ext_summary.id,
-            name: ext_summary.name,
-            version: ext_summary.version,
-            description: None,
-            author: "".to_string(),
-            tags: Vec::new(),
-            last_updated: Some(ext_summary.last_updated),
-            download_count: None,
-            size: None,
-            homepage: None,
-            repository: None,
-            license: None,
-            store_source: store_name.to_string(),
-        }
     }
 
     /// Get extension information from the best available store
@@ -586,24 +557,6 @@ impl StoreManager {
                     // Return the first match with highest priority - now returns (id, name)
                     let (id, _name) = &matching_extensions[0];
                     return Ok(Some((id.clone(), managed_store.config.store_name.clone())));
-                }
-            }
-        }
-
-        // 2. Fallback: check individual extension manifests for base_urls
-        let extensions = self.list_all_extensions().await?;
-
-        for ext in extensions {
-            // Try to get the manifest for this extension to check base_urls
-            if let Ok(manifest) = self
-                .get_extension_manifest(&ext.id, Some(&ext.version))
-                .await
-            {
-                // Check if any of the extension's base URLs match the given URL
-                for base_url in &manifest.base_urls {
-                    if url.starts_with(base_url) {
-                        return Ok(Some((ext.id.clone(), ext.store_source.clone())));
-                    }
                 }
             }
         }
@@ -947,30 +900,18 @@ impl StoreManager {
 
     // Private helper methods
 
-    fn deduplicate_extensions(&self, mut extensions: Vec<ExtensionInfo>) -> Vec<ExtensionInfo> {
-        // Remove duplicates based on name + version, preferring trusted stores
-        let mut seen: HashMap<String, String> = HashMap::new();
+    fn deduplicate_extensions(
+        &self,
+        mut extensions: Vec<ExtensionSummary>,
+    ) -> Vec<ExtensionSummary> {
+        // Remove duplicates based on id + version
+        let mut seen: HashSet<String> = HashSet::new();
         extensions.retain(|ext| {
-            let key = format!("{}@{}", ext.name, ext.version);
-            if let Some(existing_store) = seen.get(&key) {
-                // Check if existing extension is from a trusted store
-                let existing_trusted = self
-                    .get_extension_store(existing_store)
-                    .map(|ms| ms.config.trusted)
-                    .unwrap_or(false);
-                let current_trusted = self
-                    .get_extension_store(&ext.store_source)
-                    .map(|ms| ms.config.trusted)
-                    .unwrap_or(false);
-
-                if current_trusted && !existing_trusted {
-                    seen.insert(key, ext.store_source.clone());
-                    true
-                } else {
-                    false
-                }
+            let key = format!("{}@{}", ext.id, ext.version);
+            if seen.contains(&key) {
+                false
             } else {
-                seen.insert(key, ext.store_source.clone());
+                seen.insert(key);
                 true
             }
         });
@@ -978,11 +919,11 @@ impl StoreManager {
         extensions
     }
 
-    fn deduplicate_and_sort(
+    fn deduplicate_summaries_and_sort(
         &self,
-        extensions: Vec<ExtensionInfo>,
+        extensions: Vec<ExtensionSummary>,
         sort_by: &SearchSortBy,
-    ) -> Vec<ExtensionInfo> {
+    ) -> Vec<ExtensionSummary> {
         let mut deduplicated = self.deduplicate_extensions(extensions);
 
         match sort_by {
@@ -996,15 +937,18 @@ impl StoreManager {
             SearchSortBy::LastUpdated => {
                 deduplicated.sort_by(|a, b| b.last_updated.cmp(&a.last_updated))
             }
-            SearchSortBy::Author => deduplicated.sort_by(|a, b| a.author.cmp(&b.author)),
-            SearchSortBy::Size => {
-                deduplicated.sort_by(|a, b| b.size.unwrap_or(0).cmp(&a.size.unwrap_or(0)))
+            SearchSortBy::Author => {
+                // ExtensionSummary doesn't have author field, sort by name instead
+                deduplicated.sort_by(|a, b| a.name.cmp(&b.name))
             }
-            SearchSortBy::DownloadCount => deduplicated.sort_by(|a, b| {
-                b.download_count
-                    .unwrap_or(0)
-                    .cmp(&a.download_count.unwrap_or(0))
-            }),
+            SearchSortBy::Size => {
+                // ExtensionSummary doesn't have size field, sort by name instead
+                deduplicated.sort_by(|a, b| a.name.cmp(&b.name))
+            }
+            SearchSortBy::DownloadCount => {
+                // ExtensionSummary doesn't have download_count field, sort by name instead
+                deduplicated.sort_by(|a, b| a.name.cmp(&b.name))
+            }
             SearchSortBy::Relevance => {
                 // Keep original order for relevance
             }
