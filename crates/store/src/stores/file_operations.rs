@@ -119,17 +119,20 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         version: Option<&str>,
     ) -> Result<ExtensionManifest> {
         let version = self.resolve_version(extension_id, version).await?;
-        let manifest_path = format!("extensions/{}/{}/manifest.json", extension_id, version);
 
-        // Try to read as LocalExtensionManifest first, then fallback to ExtensionManifest
-        if let Ok(local_manifest) = self
-            .read_json_file::<LocalExtensionManifest>(&manifest_path)
-            .await
-        {
-            Ok(local_manifest.into())
-        } else {
-            self.read_json_file(&manifest_path).await
-        }
+        // Get the manifest path from the extension summary
+        let summaries = self.list_extensions().await?;
+        let manifest_path = summaries
+            .iter()
+            .find(|s| s.id == extension_id && s.version == version)
+            .map(|s| s.manifest_path.clone())
+            .ok_or_else(|| {
+                StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
+            })?;
+
+        // File-based stores always use LocalExtensionManifest
+        let local_manifest: LocalExtensionManifest = self.read_json_file(&manifest_path).await?;
+        Ok(local_manifest.into())
     }
 
     /// Get extension WASM with checksum verification
@@ -164,23 +167,24 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         version: Option<&str>,
     ) -> Result<Option<ExtensionMetadata>> {
         let version = self.resolve_version(extension_id, version).await?;
-        let manifest_path = format!("extensions/{}/{}/manifest.json", extension_id, version);
 
-        // Try to read as LocalExtensionManifest first (which has embedded metadata)
-        if let Ok(local_manifest) = self
+        // Get the manifest path from the extension summary
+        let summaries = self.list_extensions().await?;
+        let manifest_path = summaries
+            .iter()
+            .find(|s| s.id == extension_id && s.version == version)
+            .map(|s| s.manifest_path.clone())
+            .ok_or_else(|| {
+                StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
+            })?;
+
+        // File-based stores always use LocalExtensionManifest
+        match self
             .read_json_file::<LocalExtensionManifest>(&manifest_path)
             .await
         {
-            Ok(local_manifest.metadata)
-        } else {
-            // Fallback: try to read regular ExtensionManifest but don't create nonsensical metadata
-            match self
-                .read_json_file::<ExtensionManifest>(&manifest_path)
-                .await
-            {
-                Ok(_) => Ok(None),  // Regular manifest exists but has no metadata
-                Err(_) => Ok(None), // No manifest found
-            }
+            Ok(local_manifest) => Ok(local_manifest.metadata),
+            Err(_) => Ok(None),
         }
     }
 
@@ -338,13 +342,15 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
     /// List all available versions for an extension
     pub async fn list_extension_versions(&self, extension_id: &str) -> Result<Vec<String>> {
-        let extension_dir = format!("extensions/{}", extension_id);
+        // Get versions from extension summaries
+        let summaries = self.list_extensions().await?;
+        let versions: Vec<String> = summaries
+            .iter()
+            .filter(|s| s.id == extension_id)
+            .map(|s| s.version.clone())
+            .collect();
 
-        if !self.file_ops.file_exists(&extension_dir).await? {
-            return Ok(Vec::new());
-        }
-
-        self.file_ops.list_directory(&extension_dir).await
+        Ok(versions)
     }
 
     /// Check if a specific version exists for an extension
@@ -353,10 +359,17 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         extension_id: &str,
         version: &str,
     ) -> Result<bool> {
-        let version_dir = format!("extensions/{}/{}", extension_id, version);
-        let manifest_path = format!("{}/manifest.json", version_dir);
+        // Get the manifest path from the extension summary
+        let summaries = self.list_extensions().await?;
+        let manifest_path = summaries
+            .iter()
+            .find(|s| s.id == extension_id && s.version == version)
+            .map(|s| s.manifest_path.clone());
 
-        self.file_ops.file_exists(&manifest_path).await
+        match manifest_path {
+            Some(path) => self.file_ops.file_exists(&path).await,
+            None => Ok(false), // Extension version doesn't exist
+        }
     }
 
     /// Find extensions that can handle the given URL
