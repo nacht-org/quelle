@@ -261,24 +261,45 @@ impl LocalStore {
 
     /// Generate a local store manifest with URL routing information
     async fn generate_local_store_manifest(&self) -> Result<LocalStoreManifest> {
-        let base_manifest = self.processor.get_store_manifest().await?;
+        // Create base manifest from scratch
+        let base_manifest =
+            StoreManifest::new(self.name.clone(), "local".to_string(), "1.0.0".to_string());
         let mut local_manifest = LocalStoreManifest::new(base_manifest);
 
-        // Scan all extensions and build the manifest
-        let extensions_list = self.processor.list_extensions().await?;
+        // Manually scan extensions directory to build the manifest
+        let extensions_dir = self.root_path.join("extensions");
+        if extensions_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&extensions_dir) {
+                for entry in entries.flatten() {
+                    if entry.file_type().map_or(false, |ft| ft.is_dir()) {
+                        let extension_id = entry.file_name().to_string_lossy().to_string();
 
-        for ext_info in extensions_list {
-            // Get the full manifest for each extension
-            if let Ok(manifest) = self
-                .processor
-                .get_extension_manifest(&ext_info.id, Some(&ext_info.version))
-                .await
-            {
-                let manifest_path = format!(
-                    "extensions/{}/{}/manifest.json",
-                    ext_info.id, ext_info.version
-                );
-                local_manifest.add_extension(&manifest, manifest_path);
+                        // Find latest version
+                        let extension_path = entry.path();
+                        if let Ok(version_entries) = std::fs::read_dir(&extension_path) {
+                            for version_entry in version_entries.flatten() {
+                                if version_entry.file_type().map_or(false, |ft| ft.is_dir()) {
+                                    let version =
+                                        version_entry.file_name().to_string_lossy().to_string();
+
+                                    // Try to load the extension manifest
+                                    if let Ok(manifest) = self
+                                        .processor
+                                        .get_extension_manifest(&extension_id, Some(&version))
+                                        .await
+                                    {
+                                        let manifest_path = format!(
+                                            "extensions/{}/{}/manifest.json",
+                                            extension_id, version
+                                        );
+                                        local_manifest.add_extension(&manifest, manifest_path);
+                                        break; // Only add the first version found
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 

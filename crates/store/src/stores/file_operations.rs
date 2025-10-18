@@ -63,9 +63,39 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         })
     }
 
-    /// Get the store manifest
+    /// Get the basic store manifest for BaseStore trait implementation
     pub async fn get_store_manifest(&self) -> Result<StoreManifest> {
-        self.read_json_file("store.json").await
+        use crate::store_manifest::StoreManifest;
+        use crate::stores::local::store::LocalStoreManifest;
+
+        // Try to load as LocalStoreManifest first, then extract base
+        match self
+            .read_json_file::<LocalStoreManifest>("store.json")
+            .await
+        {
+            Ok(local_manifest) => Ok(local_manifest.base),
+            Err(_) => {
+                // Fallback to basic StoreManifest
+                self.read_json_file::<StoreManifest>("store.json")
+                    .await
+                    .map_err(|e| {
+                        StoreError::ParseError(format!("Failed to load store manifest: {}", e))
+                    })
+            }
+        }
+    }
+
+    /// Get the local store manifest for URL routing and extension listing
+    pub async fn get_local_store_manifest(
+        &self,
+    ) -> Result<crate::stores::local::store::LocalStoreManifest> {
+        use crate::stores::local::store::LocalStoreManifest;
+
+        self.read_json_file::<LocalStoreManifest>("store.json")
+            .await
+            .map_err(|e| {
+                StoreError::ParseError(format!("Failed to load local store manifest: {}", e))
+            })
     }
 
     /// Resolve version (get latest if None provided)
@@ -177,29 +207,35 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
     /// List all extensions in the store
     pub async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
-        let extensions_dir = "extensions";
-
-        if !self.file_ops.file_exists(extensions_dir).await? {
-            return Ok(Vec::new());
-        }
-
-        let extension_names = self.file_ops.list_directory(extensions_dir).await?;
-        let mut all_extensions = Vec::new();
-
-        for extension_name in extension_names {
-            match self.get_extension_info(&extension_name).await {
-                Ok(mut versions) => all_extensions.append(&mut versions),
-                Err(e) => {
-                    warn!(
-                        "Failed to load extension info for {}: {}",
-                        extension_name, e
-                    );
-                    continue;
+        match self.get_local_store_manifest().await {
+            Ok(local_manifest) => {
+                // Use the authoritative extension list from the manifest
+                let mut all_extensions = Vec::new();
+                for ext_summary in &local_manifest.extensions {
+                    let ext_info = ExtensionInfo {
+                        id: ext_summary.id.clone(),
+                        name: ext_summary.name.clone(),
+                        version: ext_summary.version.clone(),
+                        description: None,
+                        author: "".to_string(), // Not available in summary
+                        tags: Vec::new(),
+                        last_updated: Some(ext_summary.last_updated),
+                        download_count: None,
+                        size: None,
+                        homepage: None,
+                        repository: None,
+                        license: None,
+                        store_source: self.store_name.clone(),
+                    };
+                    all_extensions.push(ext_info);
                 }
+                Ok(all_extensions)
+            }
+            Err(_) => {
+                // No LocalStoreManifest available, return empty
+                Ok(Vec::new())
             }
         }
-
-        Ok(all_extensions)
     }
 
     /// Get information about all versions of a specific extension
@@ -344,25 +380,13 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
     /// Find extensions that can handle the given URL
     pub async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<(String, String)>> {
-        use crate::stores::local::store::LocalStoreManifest;
-
-        // Try to load the local store manifest for optimized URL routing
-        let store_path = "store.json";
-        if self.file_ops.file_exists(store_path).await? {
-            match self.read_json_file::<LocalStoreManifest>(store_path).await {
-                Ok(local_manifest) => {
-                    return Ok(local_manifest.find_extensions_for_url(url));
-                }
-                Err(_) => {
-                    // If it's not a LocalStoreManifest, return empty for now
-                    // Other store types can override this method if needed
-                    return Ok(Vec::new());
-                }
+        match self.get_local_store_manifest().await {
+            Ok(local_manifest) => Ok(local_manifest.find_extensions_for_url(url)),
+            Err(_) => {
+                // No LocalStoreManifest available, return empty
+                Ok(Vec::new())
             }
         }
-
-        // No store manifest found
-        Ok(Vec::new())
     }
 
     /// List extension assets by type
