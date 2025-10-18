@@ -1,14 +1,11 @@
 //! Local filesystem store implementation using FileBasedProcessor
-//!
-//! This module provides LocalStore which reads and writes extensions to/from
-//! the local filesystem. It leverages the FileBasedProcessor for all common
-//! store operations, dramatically reducing code duplication with other store types.
 
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tracing::{debug, info, warn};
 
+use super::file_operations::LocalFileOperations;
 use crate::error::{Result, StoreError};
 use crate::manifest::ExtensionManifest;
 use crate::models::{
@@ -21,7 +18,6 @@ use crate::publish::{
 };
 use crate::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
 use crate::stores::file_operations::FileBasedProcessor;
-use crate::stores::local_file_operations::LocalFileOperations;
 use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
 
 /// Local store manifest that extends the base StoreManifest with URL routing
