@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
+use std::path::Path;
 use tracing::{debug, warn};
 
 use crate::error::{Result, StoreError};
@@ -142,12 +143,32 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         version: Option<&str>,
     ) -> Result<Vec<u8>> {
         let manifest = self.get_extension_manifest(extension_id, version).await?;
-        let wasm_path = format!(
-            "extensions/{}/{}/{}",
-            extension_id, manifest.version, manifest.wasm_file.path
-        );
 
-        let wasm_bytes = self.file_ops.read_file(&wasm_path).await?;
+        // Get the manifest path from the extension summary
+        let version = self.resolve_version(extension_id, version).await?;
+        let summaries = self.list_extensions().await?;
+        let manifest_path = summaries
+            .iter()
+            .find(|s| s.id == extension_id && s.version == version)
+            .map(|s| s.manifest_path.clone())
+            .ok_or_else(|| {
+                StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
+            })?;
+
+        // Construct WASM path relative to manifest directory
+        let manifest_path = Path::new(&manifest_path);
+        let manifest_dir = manifest_path.parent().ok_or_else(|| {
+            StoreError::InvalidPath(format!(
+                "Cannot get parent directory of manifest path: {}",
+                manifest_path.display()
+            ))
+        })?;
+        let wasm_path = manifest_dir.join(&manifest.wasm_file.path);
+
+        let wasm_path_str = wasm_path.to_str().ok_or_else(|| {
+            StoreError::InvalidPath(format!("Invalid UTF-8 in WASM path: {:?}", wasm_path))
+        })?;
+        let wasm_bytes = self.file_ops.read_file(wasm_path_str).await?;
 
         // Verify checksum using manifest's file reference
         if !manifest.wasm_file.verify(&wasm_bytes) {
@@ -209,12 +230,34 @@ impl<F: FileOperations> FileBasedProcessor<F> {
                 ))
             })?;
 
-        let full_asset_path = format!(
-            "extensions/{}/{}/{}",
-            extension_id, manifest.version, asset_path
-        );
+        // Get the manifest path from the extension summary
+        let version = self.resolve_version(extension_id, version).await?;
+        let summaries = self.list_extensions().await?;
+        let manifest_path = summaries
+            .iter()
+            .find(|s| s.id == extension_id && s.version == version)
+            .map(|s| s.manifest_path.clone())
+            .ok_or_else(|| {
+                StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
+            })?;
 
-        let asset_bytes = self.file_ops.read_file(&full_asset_path).await?;
+        // Construct asset path relative to manifest directory
+        let manifest_path = Path::new(&manifest_path);
+        let manifest_dir = manifest_path.parent().ok_or_else(|| {
+            StoreError::InvalidPath(format!(
+                "Cannot get parent directory of manifest path: {}",
+                manifest_path.display()
+            ))
+        })?;
+        let full_asset_path = manifest_dir.join(asset_path);
+
+        let asset_path_str = full_asset_path.to_str().ok_or_else(|| {
+            StoreError::InvalidPath(format!(
+                "Invalid UTF-8 in asset path: {:?}",
+                full_asset_path
+            ))
+        })?;
+        let asset_bytes = self.file_ops.read_file(asset_path_str).await?;
 
         // Verify checksum
         if !asset_ref.verify(&asset_bytes) {
