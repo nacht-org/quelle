@@ -899,7 +899,7 @@ async fn handle_store_info(
                                             "  - {} v{} (langs: {})",
                                             ext.name,
                                             ext.version,
-                                            ext.langs.join(", ")
+                                            ext.tags.join(", ")
                                         );
                                     }
                                     if extensions.len() > 5 {

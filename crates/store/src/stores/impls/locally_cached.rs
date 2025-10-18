@@ -16,7 +16,8 @@ use crate::manager::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
     ValidationReport,
 };
-use crate::manager::store_manifest::ExtensionSummary;
+
+use crate::models::ExtensionListing;
 use crate::stores::{
     impls::local::LocalStore,
     providers::{
@@ -420,12 +421,12 @@ impl<T: StoreProvider> ReadableStore for LocallyCachedStore<T> {
         self.local_store.find_extensions_for_url(url).await
     }
 
-    async fn list_extensions(&self) -> Result<Vec<ExtensionSummary>> {
+    async fn list_extensions(&self) -> Result<Vec<ExtensionListing>> {
         self.ensure_synced().await?;
         self.local_store.list_extensions().await
     }
 
-    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionSummary>> {
+    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionListing>> {
         self.ensure_synced().await?;
         self.local_store.search_extensions(query).await
     }

@@ -11,11 +11,11 @@ use crate::manager::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
     ValidationReport,
 };
-use crate::manager::store_manifest::ExtensionSummary;
+
 use crate::manager::store_manifest::StoreManifest;
 use crate::models::{
-    ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstalledExtension, SearchQuery,
-    StoreHealth, UpdateInfo,
+    ExtensionInfo, ExtensionListing, ExtensionMetadata, ExtensionPackage, InstalledExtension,
+    SearchQuery, StoreHealth, UpdateInfo,
 };
 use crate::registry::manifest::ExtensionManifest;
 use crate::stores::file_operations::FileBasedProcessor;
@@ -343,12 +343,22 @@ impl ReadableStore for GitHubStore {
         self.processor.find_extensions_for_url(url).await
     }
 
-    async fn list_extensions(&self) -> Result<Vec<ExtensionSummary>> {
-        self.processor.list_extensions().await
+    async fn list_extensions(&self) -> Result<Vec<ExtensionListing>> {
+        let summaries = self.processor.list_extensions().await?;
+        let store_source = format!("github:{}", self.owner);
+        Ok(summaries
+            .iter()
+            .map(|summary| ExtensionListing::from_summary(summary, store_source.clone()))
+            .collect())
     }
 
-    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionSummary>> {
-        self.processor.search_extensions(query).await
+    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionListing>> {
+        let summaries = self.processor.search_extensions(query).await?;
+        let store_source = format!("github:{}", self.owner);
+        Ok(summaries
+            .iter()
+            .map(|summary| ExtensionListing::from_summary(summary, store_source.clone()))
+            .collect())
     }
 
     async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>> {

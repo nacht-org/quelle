@@ -10,8 +10,8 @@ use tracing::{debug, error, info, warn};
 use super::store_manifest::ExtensionSummary;
 use crate::error::{Result, StoreError};
 use crate::models::{
-    ExtensionInfo, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy, StoreConfig,
-    UpdateInfo, UpdateOptions,
+    ExtensionInfo, ExtensionListing, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy,
+    StoreConfig, UpdateInfo, UpdateOptions,
 };
 use crate::registry::{manifest::ExtensionManifest, RegistryStore};
 use crate::stores::{config::RegistryStoreConfig, ReadableStore};
@@ -200,7 +200,7 @@ impl StoreManager {
     // Discovery Operations
 
     /// Search across all stores for extensions
-    pub async fn search_all_stores(&self, query: &SearchQuery) -> Result<Vec<ExtensionSummary>> {
+    pub async fn search_all_stores(&self, query: &SearchQuery) -> Result<Vec<ExtensionListing>> {
         let mut all_results = Vec::new();
         let mut search_futures = Vec::new();
 
@@ -244,7 +244,7 @@ impl StoreManager {
             }
         }
 
-        Ok(self.deduplicate_summaries_and_sort(all_results, &query.sort_by))
+        Ok(self.deduplicate_extensions_and_sort(all_results, &query.sort_by))
     }
 
     /// Search for novels using installed extensions only
@@ -435,7 +435,7 @@ impl StoreManager {
     }
 
     /// List all extensions from all stores
-    pub async fn list_all_extensions(&self) -> Result<Vec<ExtensionSummary>> {
+    pub async fn list_all_extensions(&self) -> Result<Vec<ExtensionListing>> {
         let mut all_extensions = Vec::new();
         let mut futures = Vec::new();
 
@@ -450,7 +450,7 @@ impl StoreManager {
                 match tokio::time::timeout(self.config.timeout, store.list_extensions()).await {
                     Ok(Ok(extensions)) => {
                         debug!("Store '{}' has {} extensions", store_name, extensions.len());
-                        Ok::<Vec<ExtensionSummary>, crate::error::StoreError>(extensions)
+                        Ok::<Vec<ExtensionListing>, crate::error::StoreError>(extensions)
                     }
                     Ok(Err(e)) => {
                         warn!(
@@ -917,12 +917,31 @@ impl StoreManager {
         extensions
     }
 
-    fn deduplicate_summaries_and_sort(
+    fn deduplicate_extension_listings(
         &self,
-        extensions: Vec<ExtensionSummary>,
+        mut extensions: Vec<ExtensionListing>,
+    ) -> Vec<ExtensionListing> {
+        // Remove duplicates based on id + version
+        let mut seen: HashSet<String> = HashSet::new();
+        extensions.retain(|ext| {
+            let key = format!("{}@{}", ext.id, ext.version);
+            if seen.contains(&key) {
+                false
+            } else {
+                seen.insert(key);
+                true
+            }
+        });
+
+        extensions
+    }
+
+    fn deduplicate_extensions_and_sort(
+        &self,
+        extensions: Vec<ExtensionListing>,
         sort_by: &SearchSortBy,
-    ) -> Vec<ExtensionSummary> {
-        let mut deduplicated = self.deduplicate_extensions(extensions);
+    ) -> Vec<ExtensionListing> {
+        let mut deduplicated = self.deduplicate_extension_listings(extensions);
 
         match sort_by {
             SearchSortBy::Name => deduplicated.sort_by(|a, b| a.name.cmp(&b.name)),
@@ -933,18 +952,20 @@ impl StoreManager {
                 }
             }),
             SearchSortBy::LastUpdated => {
-                deduplicated.sort_by(|a, b| b.last_updated.cmp(&a.last_updated))
+                deduplicated.sort_by(|a, b| match (a.last_updated, b.last_updated) {
+                    (Some(a_time), Some(b_time)) => b_time.cmp(&a_time),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
+                })
             }
-            SearchSortBy::Author => {
-                // ExtensionSummary doesn't have author field, sort by name instead
-                deduplicated.sort_by(|a, b| a.name.cmp(&b.name))
-            }
+            SearchSortBy::Author => deduplicated.sort_by(|a, b| a.author.cmp(&b.author)),
             SearchSortBy::Size => {
-                // ExtensionSummary doesn't have size field, sort by name instead
+                // ExtensionListing doesn't have size field, sort by name instead
                 deduplicated.sort_by(|a, b| a.name.cmp(&b.name))
             }
             SearchSortBy::DownloadCount => {
-                // ExtensionSummary doesn't have download_count field, sort by name instead
+                // ExtensionListing doesn't have download_count field, sort by name instead
                 deduplicated.sort_by(|a, b| a.name.cmp(&b.name))
             }
             SearchSortBy::Relevance => {

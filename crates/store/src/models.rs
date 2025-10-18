@@ -26,6 +26,84 @@ pub struct ExtensionInfo {
     pub store_source: String, // Which store this info came from
 }
 
+/// Minimal extension information for listing and search operations
+/// This is a clean interface type without implementation-specific details
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtensionListing {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub author: String,
+    pub tags: Vec<String>,
+    pub last_updated: Option<DateTime<Utc>>,
+    pub store_source: String,
+}
+
+impl ExtensionListing {
+    /// Convert from ExtensionSummary to ExtensionListing
+    /// This eliminates implementation-specific details like manifest_path and manifest_checksum
+    pub fn from_summary(
+        summary: &crate::manager::store_manifest::ExtensionSummary,
+        store_source: String,
+    ) -> Self {
+        Self {
+            id: summary.id.clone(),
+            name: summary.name.clone(),
+            version: summary.version.clone(),
+            description: None, // ExtensionSummary doesn't have description
+            author: "Unknown".to_string(), // ExtensionSummary doesn't have author
+            tags: summary.langs.clone(), // Use langs as tags for now
+            last_updated: Some(summary.last_updated),
+            store_source,
+        }
+    }
+
+    /// Convert to full ExtensionInfo with additional optional fields
+    pub fn to_extension_info(self) -> ExtensionInfo {
+        ExtensionInfo {
+            id: self.id,
+            name: self.name,
+            version: self.version,
+            description: self.description,
+            author: self.author,
+            tags: self.tags,
+            last_updated: self.last_updated,
+            download_count: None,
+            size: None,
+            homepage: None,
+            repository: None,
+            license: None,
+            store_source: self.store_source,
+        }
+    }
+}
+
+impl ExtensionInfo {
+    /// Convert from ExtensionSummary to ExtensionInfo
+    /// This eliminates implementation-specific details like manifest_path and manifest_checksum
+    pub fn from_summary(
+        summary: &crate::manager::store_manifest::ExtensionSummary,
+        store_source: String,
+    ) -> Self {
+        Self {
+            id: summary.id.clone(),
+            name: summary.name.clone(),
+            version: summary.version.clone(),
+            description: None, // ExtensionSummary doesn't have description
+            author: "Unknown".to_string(), // ExtensionSummary doesn't have author
+            tags: summary.langs.clone(), // Use langs as tags for now
+            last_updated: Some(summary.last_updated),
+            download_count: None,
+            size: None,
+            homepage: None,
+            repository: None,
+            license: None,
+            store_source,
+        }
+    }
+}
+
 /// Complete extension package with all files and metadata
 #[derive(Debug, Clone)]
 pub struct ExtensionPackage {
