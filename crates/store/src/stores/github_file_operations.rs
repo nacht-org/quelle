@@ -166,6 +166,9 @@ impl GitHubFileOperationsBuilder {
     }
 
     /// Build GitHubFileOperations asynchronously with accurate default branch resolution
+    ///
+    /// This method uses the GitHub API to determine the actual default branch when
+    /// GitReference::Default is used, with graceful fallback to testing common branches.
     pub async fn build(self) -> Result<GitHubFileOperations> {
         let client = self.client.unwrap_or_else(|| reqwest::Client::new());
         let resolved_reference =
@@ -182,6 +185,13 @@ impl GitHubFileOperationsBuilder {
     }
 
     /// Resolve the reference to an actual branch name (static version)
+    ///
+    /// For GitReference::Default, this method:
+    /// 1. First tries the GitHub API to get the repository's actual default branch
+    /// 2. Falls back to testing common branch names ("main", "master")
+    /// 3. Finally defaults to "main" if nothing else works
+    ///
+    /// This approach is more reliable than assuming specific files exist.
     async fn resolve_reference_static(
         reference: &GitReference,
         owner: &str,
@@ -189,26 +199,52 @@ impl GitHubFileOperationsBuilder {
         client: &reqwest::Client,
     ) -> Result<String> {
         if matches!(reference, GitReference::Default) {
-            // For Default reference, we need to find the actual default branch
-            let default_branches = ["main", "master"];
+            // First try: Use GitHub API to get the actual default branch
+            let api_url = format!("https://api.github.com/repos/{}/{}", owner, repo);
 
+            if let Ok(response) = client
+                .get(&api_url)
+                .header("User-Agent", "quelle-store/0.1.0")
+                .header("Accept", "application/vnd.github.v3+json")
+                .send()
+                .await
+            {
+                if response.status().is_success() {
+                    if let Ok(repo_info) = response.json::<serde_json::Value>().await {
+                        if let Some(default_branch) =
+                            repo_info.get("default_branch").and_then(|v| v.as_str())
+                        {
+                            debug!("Resolved default branch via GitHub API: {}", default_branch);
+                            return Ok(default_branch.to_string());
+                        }
+                    }
+                }
+            }
+
+            // Fallback: Test common branches by trying to access repository contents
+            let default_branches = ["main", "master"];
             for branch in &default_branches {
                 let test_url = format!(
-                    "https://raw.githubusercontent.com/{}/{}/{}/README.md",
+                    "https://api.github.com/repos/{}/{}/contents?ref={}",
                     owner, repo, branch
                 );
 
-                if let Ok(response) = client.head(&test_url).send().await {
+                if let Ok(response) = client
+                    .head(&test_url)
+                    .header("User-Agent", "quelle-store/0.1.0")
+                    .send()
+                    .await
+                {
                     if response.status().is_success() {
-                        debug!("Resolved default branch to: {}", branch);
+                        debug!("Resolved default branch via fallback: {}", branch);
                         return Ok(branch.to_string());
                     }
                 }
             }
 
-            // Fallback to main if we can't determine
+            // Final fallback: assume "main"
             warn!(
-                "Could not resolve default branch for {}/{}, using 'main'",
+                "Could not resolve default branch for {}/{}, using 'main' as fallback",
                 owner, repo
             );
             Ok("main".to_string())
