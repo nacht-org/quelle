@@ -1,8 +1,4 @@
 //! GitHub store implementation using FileBasedProcessor
-//!
-//! This module provides GitHubStore which reads files from GitHub repositories
-//! using raw.githubusercontent.com URLs. It leverages the FileBasedProcessor for
-//! all common store operations, dramatically reducing code duplication.
 
 use async_trait::async_trait;
 use std::path::PathBuf;

@@ -1,15 +1,13 @@
-//! GitHub-specific file operations implementation using raw.githubusercontent.com
-//!
-//! This implementation uses GitHub's raw file URLs to access repository contents
-//! without requiring the GitHub API, making it simpler and not subject to API rate limits.
+//! GitHub file operations using raw.githubusercontent.com URLs
 
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, warn};
+use tracing::debug;
 
+use super::api;
 use crate::error::{Result, StoreError};
 use crate::stores::file_operations::FileOperations;
 use crate::stores::providers::git::GitReference;
@@ -32,7 +30,7 @@ pub struct GitHubFileOperations {
     cache_ttl: Duration,
 }
 
-/// Builder for GitHubFileOperations that can resolve references during construction
+/// Builder for GitHubFileOperations
 pub struct GitHubFileOperationsBuilder {
     owner: String,
     repo: String,
@@ -42,7 +40,7 @@ pub struct GitHubFileOperationsBuilder {
 }
 
 impl GitHubFileOperations {
-    /// Create a new GitHub file operations builder
+    /// Create a new builder
     pub fn builder(
         owner: String,
         repo: String,
@@ -139,21 +137,21 @@ impl GitHubFileOperations {
 }
 
 impl GitHubFileOperationsBuilder {
-    /// Set a custom HTTP client
+    /// Set custom HTTP client
     pub fn with_client(mut self, client: reqwest::Client) -> Self {
         self.client = Some(client);
         self
     }
 
-    /// Set the cache TTL
+    /// Set cache TTL
     pub fn with_cache_ttl(mut self, ttl: Duration) -> Self {
         self.cache_ttl = ttl;
         self
     }
 
-    /// Build GitHubFileOperations naively (assumes "main" as default branch)
+    /// Build naively (assumes "main" for default branch)
     pub fn build_naive(self) -> GitHubFileOperations {
-        let client = self.client.unwrap_or_else(|| reqwest::Client::new());
+        let client = self.client.unwrap_or_else(|| api::create_default_client());
         let resolved_reference = self.reference.to_string();
 
         GitHubFileOperations::new_with_resolved_reference(
@@ -165,12 +163,9 @@ impl GitHubFileOperationsBuilder {
         )
     }
 
-    /// Build GitHubFileOperations asynchronously with accurate default branch resolution
-    ///
-    /// This method uses the GitHub API to determine the actual default branch when
-    /// GitReference::Default is used, with graceful fallback to testing common branches.
+    /// Build with accurate default branch resolution via GitHub API
     pub async fn build(self) -> Result<GitHubFileOperations> {
-        let client = self.client.unwrap_or_else(|| reqwest::Client::new());
+        let client = self.client.unwrap_or_else(|| api::create_default_client());
         let resolved_reference =
             Self::resolve_reference_static(&self.reference, &self.owner, &self.repo, &client)
                 .await?;
@@ -198,59 +193,7 @@ impl GitHubFileOperationsBuilder {
         repo: &str,
         client: &reqwest::Client,
     ) -> Result<String> {
-        if matches!(reference, GitReference::Default) {
-            // First try: Use GitHub API to get the actual default branch
-            let api_url = format!("https://api.github.com/repos/{}/{}", owner, repo);
-
-            if let Ok(response) = client
-                .get(&api_url)
-                .header("User-Agent", "quelle-store/0.1.0")
-                .header("Accept", "application/vnd.github.v3+json")
-                .send()
-                .await
-            {
-                if response.status().is_success() {
-                    if let Ok(repo_info) = response.json::<serde_json::Value>().await {
-                        if let Some(default_branch) =
-                            repo_info.get("default_branch").and_then(|v| v.as_str())
-                        {
-                            debug!("Resolved default branch via GitHub API: {}", default_branch);
-                            return Ok(default_branch.to_string());
-                        }
-                    }
-                }
-            }
-
-            // Fallback: Test common branches by trying to access repository contents
-            let default_branches = ["main", "master"];
-            for branch in &default_branches {
-                let test_url = format!(
-                    "https://api.github.com/repos/{}/{}/contents?ref={}",
-                    owner, repo, branch
-                );
-
-                if let Ok(response) = client
-                    .head(&test_url)
-                    .header("User-Agent", "quelle-store/0.1.0")
-                    .send()
-                    .await
-                {
-                    if response.status().is_success() {
-                        debug!("Resolved default branch via fallback: {}", branch);
-                        return Ok(branch.to_string());
-                    }
-                }
-            }
-
-            // Final fallback: assume "main"
-            warn!(
-                "Could not resolve default branch for {}/{}, using 'main' as fallback",
-                owner, repo
-            );
-            Ok("main".to_string())
-        } else {
-            Ok(reference.to_string())
-        }
+        api::resolve_git_reference(client, owner, repo, reference).await
     }
 }
 
@@ -343,68 +286,9 @@ impl FileOperations for GitHubFileOperations {
     }
 
     async fn list_directory(&self, path: &str) -> Result<Vec<String>> {
-        // For GitHub raw URLs, we can't directly list directories like we can with filesystem
-        // We need to use the GitHub API for this. For now, we'll implement a simple approach
-        // that tries to read common file patterns or uses the GitHub API.
-
-        let api_url = format!(
-            "https://api.github.com/repos/{}/{}/contents/{}?ref={}",
-            self.owner, self.repo, path, self.reference
-        );
-
-        debug!("Listing GitHub directory via API: {}", api_url);
-
-        let response = self
-            .client
-            .get(&api_url)
-            .header("Accept", "application/vnd.github.v3+json")
-            .header("User-Agent", "quelle-store")
-            .send()
+        // Use centralized GitHub API function
+        api::list_directory_names(&self.client, &self.owner, &self.repo, path, &self.reference)
             .await
-            .map_err(|e| {
-                StoreError::NetworkError(format!(
-                    "Failed to list directory {} in GitHub {}/{}: {}",
-                    path, self.owner, self.repo, e
-                ))
-            })?;
-
-        if response.status() == 404 {
-            return Ok(Vec::new()); // Directory doesn't exist
-        }
-
-        if !response.status().is_success() {
-            return Err(StoreError::NetworkError(format!(
-                "GitHub API directory listing failed with status {}: {} (repo: {}/{}, path: {})",
-                response.status(),
-                response
-                    .status()
-                    .canonical_reason()
-                    .unwrap_or("Unknown error"),
-                self.owner,
-                self.repo,
-                path
-            )));
-        }
-
-        let content: serde_json::Value = response.json().await.map_err(|e| {
-            StoreError::NetworkError(format!(
-                "Failed to parse GitHub API response for directory {} in {}/{}: {}",
-                path, self.owner, self.repo, e
-            ))
-        })?;
-
-        let mut entries = Vec::new();
-
-        if let Some(array) = content.as_array() {
-            for item in array {
-                if let Some(name) = item.get("name").and_then(|n| n.as_str()) {
-                    entries.push(name.to_string());
-                }
-            }
-        }
-
-        entries.sort();
-        Ok(entries)
     }
 }
 
