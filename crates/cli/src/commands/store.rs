@@ -3,6 +3,8 @@
 use eyre::{Context, Result};
 #[cfg(feature = "github")]
 use quelle_store::GitHubStore;
+#[cfg(feature = "github")]
+use quelle_store::stores::GitHubGitReference;
 use quelle_store::stores::local::LocalStore;
 use quelle_store::{BaseStore, ExtensionSource, GitStore, RegistryConfig, StoreManager, StoreType};
 use std::io::{self, Write};
@@ -99,34 +101,25 @@ async fn handle_add_store(
             password,
             cache_dir,
         } => {
-            #[cfg(feature = "github")]
-            {
-                let source = handle_add_github_store(
-                    name.clone(),
-                    owner,
-                    repo,
-                    priority,
-                    branch,
-                    tag,
-                    commit,
-                    token,
-                    ssh_key,
-                    ssh_pub_key,
-                    ssh_passphrase,
-                    username,
-                    password,
-                    cache_dir,
-                    config,
-                )
-                .await?;
-                (name, source)
-            }
-            #[cfg(not(feature = "github"))]
-            {
-                return Err(eyre::eyre!(
-                    "GitHub support not compiled in. Please compile with --features github"
-                ));
-            }
+            let source = handle_add_github_store(
+                name.clone(),
+                owner,
+                repo,
+                priority,
+                branch,
+                tag,
+                commit,
+                token,
+                ssh_key,
+                ssh_pub_key,
+                ssh_passphrase,
+                username,
+                password,
+                cache_dir,
+                config,
+            )
+            .await?;
+            (name, source)
         }
     };
 
@@ -531,7 +524,7 @@ async fn handle_add_github_store(
 
     let github_store = GitHubStore::builder(owner.clone(), repo.clone())
         .auth(auth.clone())
-        .reference(reference.clone())
+        .reference(GitHubGitReference::from_git_reference(&reference))
         .name(name.clone())
         .cache_dir(cache_path.clone())
         .build()?;
@@ -675,36 +668,29 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
                 reference,
                 auth,
             } => {
-                #[cfg(feature = "github")]
-                {
-                    println!("     GitHub: {}/{}", owner, repo);
-                    println!("     Cache Dir: {}", cache_dir.display());
-                    println!("     Reference: {:?}", reference);
-                    println!(
-                        "     Auth: {}",
-                        match auth {
-                            GitAuth::None => "None".to_string(),
-                            GitAuth::Token { .. } => "Token".to_string(),
-                            GitAuth::SshKey { .. } => "SSH Key".to_string(),
-                            GitAuth::UserPassword { username, .. } =>
-                                format!("Username ({})", username),
-                        }
-                    );
-                    println!(
-                        "     Status: {}",
-                        if source.enabled {
-                            "Enabled"
-                        } else {
-                            "Disabled"
-                        }
-                    );
-                    if source.trusted {
-                        println!("     Trusted: Yes");
+                println!("     GitHub: {}/{}", owner, repo);
+                println!("     Cache Dir: {}", cache_dir.display());
+                println!("     Reference: {:?}", reference);
+                println!(
+                    "     Auth: {}",
+                    match auth {
+                        GitAuth::None => "None".to_string(),
+                        GitAuth::Token { .. } => "Token".to_string(),
+                        GitAuth::SshKey { .. } => "SSH Key".to_string(),
+                        GitAuth::UserPassword { username, .. } =>
+                            format!("Username ({})", username),
                     }
-                }
-                #[cfg(not(feature = "github"))]
-                {
-                    println!("     GitHub support not available");
+                );
+                println!(
+                    "     Status: {}",
+                    if source.enabled {
+                        "Enabled"
+                    } else {
+                        "Disabled"
+                    }
+                );
+                if source.trusted {
+                    println!("     Trusted: Yes");
                 }
             }
         }
@@ -846,34 +832,27 @@ async fn handle_store_info(
                     reference,
                     auth,
                 } => {
-                    #[cfg(feature = "github")]
-                    {
-                        println!("Owner: {}", owner);
-                        println!("Repository: {}", repo);
-                        println!("GitHub URL: https://github.com/{}/{}", owner, repo);
-                        println!("Cache Dir: {}", cache_dir.display());
-                        println!("Cache Exists: {}", cache_dir.exists());
-                        println!("Reference: {:?}", reference);
-                        println!(
-                            "Auth: {}",
-                            match auth {
-                                GitAuth::None => "None (public repository)".to_string(),
-                                GitAuth::Token { .. } => "Token authentication".to_string(),
-                                GitAuth::SshKey {
-                                    private_key_path, ..
-                                } => {
-                                    format!("SSH key ({})", private_key_path.display())
-                                }
-                                GitAuth::UserPassword { username, .. } => {
-                                    format!("Username/password ({})", username)
-                                }
+                    println!("Owner: {}", owner);
+                    println!("Repository: {}", repo);
+                    println!("GitHub URL: https://github.com/{}/{}", owner, repo);
+                    println!("Cache Dir: {}", cache_dir.display());
+                    println!("Cache Exists: {}", cache_dir.exists());
+                    println!("Reference: {:?}", reference);
+                    println!(
+                        "Auth: {}",
+                        match auth {
+                            GitAuth::None => "None (public repository)".to_string(),
+                            GitAuth::Token { .. } => "Token authentication".to_string(),
+                            GitAuth::SshKey {
+                                private_key_path, ..
+                            } => {
+                                format!("SSH key ({})", private_key_path.display())
                             }
-                        );
-                    }
-                    #[cfg(not(feature = "github"))]
-                    {
-                        println!("GitHub support not available");
-                    }
+                            GitAuth::UserPassword { username, .. } => {
+                                format!("Username/password ({})", username)
+                            }
+                        }
+                    );
                 }
             }
 

@@ -8,7 +8,7 @@ name = "quelle"
 path = "src/main.rs"
 
 [features]
-default = ["git", "pdf"]
+default = ["git", "github", "pdf"]
 git = ["quelle_store/git"]
 github = ["quelle_store/github"]
 pdf = ["quelle_export/pdf"]

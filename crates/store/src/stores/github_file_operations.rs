@@ -39,6 +39,20 @@ impl GitReference {
             GitReference::Default => "HEAD".to_string(),
         }
     }
+
+    /// Convert from providers::git::GitReference to github_file_operations::GitReference
+    pub fn from_git_reference(git_ref: &crate::stores::providers::git::GitReference) -> Self {
+        match git_ref {
+            crate::stores::providers::git::GitReference::Default => GitReference::Default,
+            crate::stores::providers::git::GitReference::Branch(branch) => {
+                GitReference::Branch(branch.clone())
+            }
+            crate::stores::providers::git::GitReference::Tag(tag) => GitReference::Tag(tag.clone()),
+            crate::stores::providers::git::GitReference::Commit(commit) => {
+                GitReference::Commit(commit.clone())
+            }
+        }
+    }
 }
 
 /// File operations implementation for GitHub repositories using raw URLs

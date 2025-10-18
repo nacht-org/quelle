@@ -22,6 +22,8 @@ use crate::stores::providers::git::{GitAuth, GitReference};
 
 #[cfg(feature = "github")]
 use crate::stores::github::GitHubStore;
+#[cfg(feature = "github")]
+use crate::stores::github_file_operations::GitReference as GitHubGitReference;
 
 /// Type of extension store with associated data
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -381,7 +383,7 @@ impl ExtensionSource {
             } => {
                 let github_store = GitHubStore::builder(owner.clone(), repo.clone())
                     .auth(auth.clone())
-                    .reference(reference.clone())
+                    .reference(GitHubGitReference::from_git_reference(&reference))
                     .cache_dir(cache_dir.clone())
                     .name(self.name.clone())
                     .build()
@@ -437,7 +439,7 @@ impl ExtensionSource {
             } => {
                 let github_store = GitHubStore::builder(owner.clone(), repo.clone())
                     .auth(auth.clone())
-                    .reference(reference.clone())
+                    .reference(GitHubGitReference::from_git_reference(&reference))
                     .cache_dir(cache_dir.clone())
                     .name(self.name.clone())
                     .writable()
@@ -493,7 +495,7 @@ impl ExtensionSource {
             } => {
                 let github_store = GitHubStore::builder(owner.clone(), repo.clone())
                     .auth(auth.clone())
-                    .reference(reference.clone())
+                    .reference(GitHubGitReference::from_git_reference(&reference))
                     .cache_dir(cache_dir.clone())
                     .name(self.name.clone())
                     .build()
@@ -553,7 +555,7 @@ pub async fn create_readable_store_from_source(
         } => {
             let github_store = GitHubStore::builder(owner.clone(), repo.clone())
                 .auth(auth.clone())
-                .reference(reference.clone())
+                .reference(GitHubGitReference::from_git_reference(&reference))
                 .cache_dir(cache_dir.clone())
                 .name(source.name.clone())
                 .build()
