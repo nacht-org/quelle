@@ -12,6 +12,7 @@ use tracing::warn;
 use crate::error::{Result, StoreError};
 use crate::manifest::ExtensionManifest;
 use crate::models::{ExtensionInfo, ExtensionMetadata, SearchQuery};
+use crate::store_manifest::ExtensionSummary;
 use crate::store_manifest::StoreManifest;
 
 /// Internal trait for abstracting file operations across different store backends
@@ -206,29 +207,14 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// List all extensions in the store
-    pub async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
-        let local_manifest = self.get_local_store_manifest().await?;
-
-        let mut all_extensions = Vec::new();
-        for ext_summary in &local_manifest.extensions {
-            let ext_info = ExtensionInfo {
-                id: ext_summary.id.clone(),
-                name: ext_summary.name.clone(),
-                version: ext_summary.version.clone(),
-                description: None,
-                author: "".to_string(), // Not available in summary
-                tags: Vec::new(),
-                last_updated: Some(ext_summary.last_updated),
-                download_count: None,
-                size: None,
-                homepage: None,
-                repository: None,
-                license: None,
-                store_source: self.store_name.clone(),
-            };
-            all_extensions.push(ext_info);
+    pub async fn list_extensions(&self) -> Result<Vec<ExtensionSummary>> {
+        match self.get_local_store_manifest().await {
+            Ok(local_manifest) => Ok(local_manifest.extensions.clone()),
+            Err(_) => {
+                // No LocalStoreManifest available, return empty
+                Ok(Vec::new())
+            }
         }
-        Ok(all_extensions)
     }
 
     /// Get information about all versions of a specific extension
@@ -290,38 +276,28 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// Search extensions matching the given query
-    pub async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionInfo>> {
+    pub async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionSummary>> {
         let all_extensions = self.list_extensions().await?;
 
-        let filtered: Vec<ExtensionInfo> = all_extensions
+        let filtered: Vec<ExtensionSummary> = all_extensions
             .into_iter()
             .filter(|ext| {
-                // Text search in name and description
+                // Text search in name and id
                 if let Some(text) = &query.text {
                     let text_lower = text.to_lowercase();
                     let matches_name = ext.name.to_lowercase().contains(&text_lower);
-                    let matches_desc = ext
-                        .description
-                        .as_ref()
-                        .map(|d| d.to_lowercase().contains(&text_lower))
-                        .unwrap_or(false);
+                    let matches_id = ext.id.to_lowercase().contains(&text_lower);
 
-                    if !matches_name && !matches_desc {
+                    if !matches_name && !matches_id {
                         return false;
                     }
                 }
 
-                // Author filter
-                if let Some(author) = &query.author {
-                    if &ext.author != author {
-                        return false;
-                    }
-                }
-
-                // Tag filter
+                // Language filter (using langs field from ExtensionSummary)
                 if !query.tags.is_empty() {
-                    let has_all_tags = query.tags.iter().all(|tag| ext.tags.contains(tag));
-                    if !has_all_tags {
+                    // Treat tags as language filters for ExtensionSummary
+                    let has_any_lang = query.tags.iter().any(|tag| ext.langs.contains(tag));
+                    if !has_any_lang {
                         return false;
                     }
                 }

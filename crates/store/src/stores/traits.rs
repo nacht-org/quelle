@@ -16,6 +16,7 @@ use crate::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
     ValidationReport,
 };
+use crate::store_manifest::ExtensionSummary;
 use crate::store_manifest::StoreManifest;
 
 /// Core store interface that all stores must implement
@@ -36,10 +37,10 @@ pub trait ReadableStore: BaseStore {
     async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<(String, String)>>;
 
     /// List all available extensions in this store
-    async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>>;
+    async fn list_extensions(&self) -> Result<Vec<ExtensionSummary>>;
 
     /// Search for extensions matching the given query
-    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionInfo>>;
+    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionSummary>>;
 
     /// Get information about all versions of a specific extension
     async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>>;

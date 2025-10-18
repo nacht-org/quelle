@@ -896,8 +896,10 @@ async fn handle_store_info(
                                     println!("Sample Extensions:");
                                     for ext in extensions.iter().take(5) {
                                         println!(
-                                            "  - {} v{} by {}",
-                                            ext.name, ext.version, ext.author
+                                            "  - {} v{} (langs: {})",
+                                            ext.name,
+                                            ext.version,
+                                            ext.langs.join(", ")
                                         );
                                     }
                                     if extensions.len() > 5 {

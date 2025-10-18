@@ -387,11 +387,11 @@ impl ReadableStore for LocalStore {
         self.processor.find_extensions_for_url(url).await
     }
 
-    async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
+    async fn list_extensions(&self) -> Result<Vec<ExtensionSummary>> {
         self.processor.list_extensions().await
     }
 
-    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionInfo>> {
+    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionSummary>> {
         self.processor.search_extensions(query).await
     }
 

@@ -15,6 +15,7 @@ use crate::models::{
 };
 use crate::registry::RegistryStore;
 use crate::registry_config::RegistryStoreConfig;
+use crate::store_manifest::ExtensionSummary;
 use crate::stores::ReadableStore;
 
 /// Wrapper combining a Store with its registry configuration
@@ -218,7 +219,12 @@ impl StoreManager {
                 {
                     Ok(Ok(results)) => {
                         debug!("Store '{}' returned {} results", store_name, results.len());
-                        Ok(results)
+                        // Convert ExtensionSummary to ExtensionInfo
+                        let converted: Vec<ExtensionInfo> = results
+                            .into_iter()
+                            .map(|ext_summary| self.summary_to_info(ext_summary, &store_name))
+                            .collect();
+                        Ok(converted)
                     }
                     Ok(Err(e)) => {
                         warn!("Search failed for store '{}': {}", store_name, e);
@@ -451,7 +457,12 @@ impl StoreManager {
                 match tokio::time::timeout(self.config.timeout, store.list_extensions()).await {
                     Ok(Ok(extensions)) => {
                         debug!("Store '{}' has {} extensions", store_name, extensions.len());
-                        Ok::<Vec<ExtensionInfo>, crate::error::StoreError>(extensions)
+                        // Convert ExtensionSummary to ExtensionInfo
+                        let converted: Vec<ExtensionInfo> = extensions
+                            .into_iter()
+                            .map(|ext_summary| self.summary_to_info(ext_summary, &store_name))
+                            .collect();
+                        Ok::<Vec<ExtensionInfo>, crate::error::StoreError>(converted)
                     }
                     Ok(Err(e)) => {
                         warn!(
@@ -481,7 +492,26 @@ impl StoreManager {
             }
         }
 
-        Ok(self.deduplicate_extensions(all_extensions))
+        Ok(all_extensions)
+    }
+
+    /// Convert ExtensionSummary to ExtensionInfo
+    fn summary_to_info(&self, ext_summary: ExtensionSummary, store_name: &str) -> ExtensionInfo {
+        ExtensionInfo {
+            id: ext_summary.id,
+            name: ext_summary.name,
+            version: ext_summary.version,
+            description: None,
+            author: "".to_string(),
+            tags: Vec::new(),
+            last_updated: Some(ext_summary.last_updated),
+            download_count: None,
+            size: None,
+            homepage: None,
+            repository: None,
+            license: None,
+            store_source: store_name.to_string(),
+        }
     }
 
     /// Get extension information from the best available store

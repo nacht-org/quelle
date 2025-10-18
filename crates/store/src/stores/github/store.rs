@@ -16,6 +16,7 @@ use crate::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
     ValidationReport,
 };
+use crate::store_manifest::ExtensionSummary;
 use crate::store_manifest::StoreManifest;
 use crate::stores::file_operations::FileBasedProcessor;
 use crate::stores::providers::git::GitReference;
@@ -342,11 +343,11 @@ impl ReadableStore for GitHubStore {
         self.processor.find_extensions_for_url(url).await
     }
 
-    async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
+    async fn list_extensions(&self) -> Result<Vec<ExtensionSummary>> {
         self.processor.list_extensions().await
     }
 
-    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionInfo>> {
+    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionSummary>> {
         self.processor.search_extensions(query).await
     }
 
