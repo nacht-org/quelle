@@ -247,13 +247,13 @@ impl LocallyCachedStore<GitProvider> {
         let base_manifest =
             StoreManifest::new(store_name.clone(), "git".to_string(), "1.0.0".to_string())
                 .with_url(git_url)
-                .with_description(final_description);
+                .with_description(final_description.clone());
 
-        let local_manifest = LocalStoreManifest::new(base_manifest);
+        let _local_manifest = LocalStoreManifest::new(base_manifest);
 
-        // Use the shared write function from local store
+        // Initialize the local store with the manifest data
         self.local_store
-            .write_store_manifest(local_manifest)
+            .initialize_store(store_name.clone(), Some(final_description))
             .await?;
 
         // If git is writable, commit and push the initialization
@@ -526,7 +526,7 @@ impl<T: StoreProvider> CacheableStore for LocallyCachedStore<T> {
         sync_state.last_sync = None;
 
         // Delegate to local store for its cache clearing
-        self.local_store.clear_cache(None).await
+        self.local_store.clear_cache().await
     }
 
     async fn cache_stats(&self) -> Result<crate::stores::traits::CacheStats> {

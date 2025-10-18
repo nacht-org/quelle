@@ -6,6 +6,13 @@
 
 pub mod traits;
 
+// Internal modules
+pub(crate) mod file_operations;
+pub(crate) mod local_file_operations;
+
+#[cfg(feature = "github")]
+pub(crate) mod github_file_operations;
+
 // Store implementations
 pub mod local;
 pub mod locally_cached;

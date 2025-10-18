@@ -1,14 +1,12 @@
-//! GitHub store implementation
+//! GitHub store implementation using FileBasedProcessor
 //!
-//! This module provides GitHubStore which reads individual files from GitHub
-//! repositories via the GitHub API without cloning the entire repository. For publishing,
-//! it uses git operations by lazy-initializing a GitProvider.
+//! This module provides GitHubStore which reads files from GitHub repositories
+//! using raw.githubusercontent.com URLs. It leverages the FileBasedProcessor for
+//! all common store operations, dramatically reducing code duplication.
 
 use async_trait::async_trait;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 use tracing::{debug, info};
 
 use crate::error::{Result, StoreError};
@@ -17,44 +15,24 @@ use crate::models::{
     ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstalledExtension, SearchQuery,
     StoreHealth, UpdateInfo,
 };
-use crate::publish::ExtensionVisibility;
 use crate::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
     ValidationReport,
 };
 use crate::store_manifest::StoreManifest;
+use crate::stores::file_operations::FileBasedProcessor;
+use crate::stores::github_file_operations::{GitHubFileOperations, GitReference};
+use crate::stores::providers::git::{GitAuth, GitWriteConfig};
+use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
 
-use crate::stores::providers::git::{GitAuth, GitReference, GitWriteConfig};
-use crate::stores::traits::{BaseStore, CacheStats, CacheableStore, ReadableStore, WritableStore};
-
-/// File cache entry
-#[derive(Debug, Clone)]
-struct CacheEntry {
-    content: Vec<u8>,
-    cached_at: Instant,
-}
-
-/// GitHub store that uses raw GitHub URLs for efficient file reading
+/// GitHub store that uses FileBasedProcessor with GitHub-specific file operations
 pub struct GitHubStore {
-    /// Store name
-    name: String,
-    /// Repository owner (user or organization)
+    processor: FileBasedProcessor<GitHubFileOperations>,
     owner: String,
-    /// Repository name
     repo: String,
-    /// Git reference to use (branch, tag, or commit)
     reference: GitReference,
-    /// Authentication for GitHub API
-    auth: Option<GitAuth>,
-    /// HTTP client for GitHub requests
-    client: reqwest::Client,
-    /// Local cache directory for storing files and git operations
-    cache_dir: PathBuf,
-    /// In-memory file cache
-    file_cache: Arc<RwLock<HashMap<String, CacheEntry>>>,
-    /// Cache TTL for files
-    cache_ttl: Duration,
-    /// Write configuration for git operations
+    name: String,
+    cache_dir: Option<PathBuf>,
     write_config: Option<GitWriteConfig>,
 }
 
@@ -103,38 +81,31 @@ impl GitHubStoreBuilder {
             }
         }
 
-        if let Some(path) = url.strip_prefix("git@github.com:") {
-            let parts: Vec<&str> = path.split('/').collect();
-            if parts.len() >= 2 {
-                return Ok((parts[0].to_string(), parts[1].to_string()));
-            }
-        }
-
         Err(StoreError::InvalidConfiguration(format!(
-            "Invalid GitHub URL: {}",
+            "Invalid GitHub URL: {}. Expected format: https://github.com/owner/repo",
             url
         )))
     }
 
-    /// Set the name for this store
+    /// Set the store name
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
     }
 
-    /// Set the cache directory where the repository data will be stored
+    /// Set the cache directory for git operations
     pub fn cache_dir(mut self, path: impl Into<PathBuf>) -> Self {
         self.cache_dir = Some(path.into());
         self
     }
 
-    /// Set authentication for the GitHub API and git operations
+    /// Set authentication for private repositories
     pub fn auth(mut self, auth: GitAuth) -> Self {
         self.auth = Some(auth);
         self
     }
 
-    /// Set authentication using a GitHub token
+    /// Set authentication token
     pub fn token(mut self, token: impl Into<String>) -> Self {
         self.auth = Some(GitAuth::Token {
             token: token.into(),
@@ -166,7 +137,7 @@ impl GitHubStoreBuilder {
         self
     }
 
-    /// Set the cache TTL for files (how long to keep files in memory)
+    /// Set the cache TTL for HTTP requests
     pub fn cache_ttl(mut self, ttl: Duration) -> Self {
         self.cache_ttl = ttl;
         self
@@ -210,48 +181,40 @@ impl GitHubStoreBuilder {
 
     /// Build the GitHubStore
     pub fn build(self) -> Result<GitHubStore> {
-        let cache_dir = self.cache_dir.ok_or_else(|| {
-            StoreError::InvalidConfiguration(
-                "cache_dir must be set before building GitHubStore".to_string(),
-            )
-        })?;
+        let name = self
+            .name
+            .unwrap_or_else(|| format!("{}/{}", self.owner, self.repo));
 
-        let name = self.name.ok_or_else(|| {
-            StoreError::InvalidConfiguration(
-                "name must be set before building GitHubStore".to_string(),
-            )
-        })?;
+        // Create GitHub file operations with cache TTL
+        let file_ops = GitHubFileOperations::new(
+            self.owner.clone(),
+            self.repo.clone(),
+            self.reference.clone(),
+        )
+        .with_cache_ttl(self.cache_ttl);
 
-        let client = reqwest::Client::builder()
-            .user_agent("quelle-store/0.1.0")
-            .build()
-            .map_err(|e| {
-                StoreError::InvalidConfiguration(format!("Failed to create reqwest client: {}", e))
-            })?;
+        let processor = FileBasedProcessor::new(file_ops, name.clone());
 
         Ok(GitHubStore {
-            name,
+            processor,
             owner: self.owner,
             repo: self.repo,
             reference: self.reference,
-            auth: self.auth.clone(),
-            client,
-            cache_dir,
-            file_cache: Arc::new(RwLock::new(HashMap::new())),
-            cache_ttl: self.cache_ttl,
+            name,
+            cache_dir: self.cache_dir,
             write_config: self.write_config,
         })
     }
 }
 
 impl GitHubStore {
-    /// Create a new GitHub store builder
+    /// Create a new builder
     pub fn builder(owner: impl Into<String>, repo: impl Into<String>) -> GitHubStoreBuilder {
         GitHubStoreBuilder::new(owner, repo)
     }
 
-    /// Create a GitHub store builder from a GitHub URL
-    pub fn from_url(url: impl AsRef<str>) -> Result<GitHubStoreBuilder> {
+    /// Create from a GitHub URL
+    pub fn from_url(url: &str) -> Result<GitHubStoreBuilder> {
         GitHubStoreBuilder::from_url(url)
     }
 
@@ -260,21 +223,17 @@ impl GitHubStore {
         format!("https://github.com/{}/{}", self.owner, self.repo)
     }
 
-    /// Get the git clone URL
+    /// Get the git URL for cloning
     pub fn git_url(&self) -> String {
-        match &self.auth {
-            Some(GitAuth::SshKey { .. }) => {
-                format!("git@github.com:{}/{}.git", self.owner, self.repo)
-            }
-            _ => {
-                format!("https://github.com/{}/{}.git", self.owner, self.repo)
-            }
+        match &self.write_config {
+            Some(_) => format!("git@github.com:{}/{}.git", self.owner, self.repo),
+            None => format!("https://github.com/{}/{}.git", self.owner, self.repo),
         }
     }
 
-    /// Get the cache directory where the repository data is stored
-    pub fn cache_dir(&self) -> &Path {
-        &self.cache_dir
+    /// Get the cache directory
+    pub fn cache_dir(&self) -> Option<&PathBuf> {
+        self.cache_dir.as_ref()
     }
 
     /// Check if this GitHub store supports writing operations
@@ -282,180 +241,72 @@ impl GitHubStore {
         self.write_config.is_some()
     }
 
-    /// Get the effective reference (resolve default branch)
-    /// Get the effective reference to use for file reads
-    async fn get_effective_reference(&self) -> Result<String> {
-        match &self.reference {
-            GitReference::Default => Ok("main".to_string()), // Default to main for raw URLs
-            GitReference::Branch(branch) => Ok(branch.clone()),
-            GitReference::Tag(tag) => Ok(tag.clone()),
-            GitReference::Commit(commit) => Ok(commit.clone()),
-        }
-    }
-
-    /// Read a file from GitHub using raw URLs
-    pub async fn read_file(&self, path: &str) -> Result<Vec<u8>> {
-        // Check cache first
-        if let Some(cached_content) = self.get_cached_file(path) {
-            return Ok(cached_content);
-        }
-
-        let reference = self.get_effective_reference().await?;
-
-        // Construct raw GitHub URL
-        let raw_url = format!(
-            "https://raw.githubusercontent.com/{}/{}/{}/{}",
-            self.owner, self.repo, reference, path
-        );
-
-        debug!("Fetching file from raw GitHub URL: {}", raw_url);
-
-        let response = self.client.get(&raw_url).send().await.map_err(|e| {
-            StoreError::NetworkError(format!("Failed to fetch file {}: {}", path, e))
-        })?;
-
-        if response.status() == 404 {
-            return Err(StoreError::ExtensionNotFound(path.to_string()));
-        }
-
-        if !response.status().is_success() {
-            return Err(StoreError::NetworkError(format!(
-                "HTTP error {} when fetching file {}: {}",
-                response.status(),
-                path,
-                response
-                    .status()
-                    .canonical_reason()
-                    .unwrap_or("Unknown error")
-            )));
-        }
-
-        let content_bytes = response
-            .bytes()
-            .await
-            .map_err(|e| {
-                StoreError::NetworkError(format!(
-                    "Failed to read response content for {}: {}",
-                    path, e
-                ))
-            })?
-            .to_vec();
-
-        // Cache the file
-        self.cache_file(path, &content_bytes);
-
-        Ok(content_bytes)
-    }
-
-    /// Get cached file content
-    fn get_cached_file(&self, path: &str) -> Option<Vec<u8>> {
-        let cache = self.file_cache.read().unwrap();
-        if let Some(entry) = cache.get(path) {
-            if entry.cached_at.elapsed() < self.cache_ttl {
-                debug!("Cache hit for file: {}", path);
-                return Some(entry.content.clone());
-            }
-        }
-        None
-    }
-
-    /// Cache file in memory
-    fn cache_file(&self, path: &str, content: &[u8]) {
-        let mut cache = self.file_cache.write().unwrap();
-        cache.insert(
-            path.to_string(),
-            CacheEntry {
-                content: content.to_vec(),
-                cached_at: Instant::now(),
-            },
-        );
-    }
-
-    /// Clear the file cache
-    pub fn clear_cache(&self) {
-        let mut cache = self.file_cache.write().unwrap();
-        cache.clear();
-        info!("Cleared GitHub store file cache");
+    /// Clear the HTTP cache
+    pub async fn clear_cache(&self) {
+        self.processor.file_ops().clear_cache().await;
     }
 
     /// Get cache statistics
-    pub fn cache_stats(&self) -> (usize, usize) {
-        let cache = self.file_cache.read().unwrap();
-        let total_entries = cache.len();
-        let valid_entries = cache
-            .values()
-            .filter(|entry| entry.cached_at.elapsed() < self.cache_ttl)
-            .count();
-        (valid_entries, total_entries)
+    pub async fn cache_stats(&self) -> (usize, u64) {
+        self.processor.file_ops().cache_stats().await
     }
 }
 
 #[async_trait]
 impl BaseStore for GitHubStore {
     async fn get_store_manifest(&self) -> Result<StoreManifest> {
-        // Return the GitHub store's own manifest, not the local store's
-        Ok(
-            StoreManifest::new(self.name.clone(), "github".to_string(), "1.0.0".to_string())
-                .with_url(self.github_url())
-                .with_description("GitHub-based extension store".to_string()),
-        )
+        self.processor.get_store_manifest().await
     }
 
     async fn health_check(&self) -> Result<StoreHealth> {
-        // Check GitHub raw URL connectivity by trying to fetch a manifest file
-        let test_result = if let Ok(content) = self.read_file("store.json").await {
-            Ok(content)
-        } else if let Ok(content) = self.read_file("manifest.json").await {
-            Ok(content)
-        } else if let Ok(content) = self.read_file("README.md").await {
-            Ok(content)
+        let start_time = SystemTime::now();
+
+        // Try to read the store manifest to check if repository is accessible
+        let manifest_result = self.get_store_manifest().await;
+        let is_healthy = manifest_result.is_ok();
+        let error_message = if let Err(ref e) = manifest_result {
+            Some(format!("Failed to access GitHub repository: {}", e))
         } else {
-            self.read_file("README").await
+            None
         };
 
-        match test_result {
-            Ok(_) => Ok(StoreHealth {
-                healthy: true,
-                last_check: chrono::Utc::now(),
-                response_time: None,
-                error: None,
-                extension_count: None,
-                store_version: None,
-            }),
-            Err(e) => Ok(StoreHealth {
-                healthy: false,
-                last_check: chrono::Utc::now(),
-                response_time: None,
-                error: Some(format!("GitHub raw URL error: {}", e)),
-                extension_count: None,
-                store_version: None,
-            }),
-        }
+        // Count extensions if healthy
+        let extension_count = if is_healthy {
+            match self.list_extensions().await {
+                Ok(extensions) => Some(extensions.len()),
+                Err(_) => Some(0),
+            }
+        } else {
+            Some(0)
+        };
+
+        Ok(StoreHealth {
+            healthy: is_healthy,
+            last_check: chrono::Utc::now(),
+            response_time: Some(start_time.elapsed().unwrap_or_default()),
+            error: error_message,
+            extension_count,
+            store_version: None,
+        })
     }
 }
 
 #[async_trait]
 impl ReadableStore for GitHubStore {
-    async fn find_extensions_for_url(&self, _url: &str) -> Result<Vec<(String, String)>> {
-        // GitHub store doesn't support URL-based extension discovery yet
-        Ok(vec![])
+    async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<(String, String)>> {
+        self.processor.find_extensions_for_url(url).await
     }
 
     async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
-        // Try to read extensions from a directory structure in the GitHub repo
-        // For now, return empty - this would need to be implemented based on
-        // the expected directory structure in the GitHub repository
-        Ok(vec![])
+        self.processor.list_extensions().await
     }
 
-    async fn search_extensions(&self, _query: &SearchQuery) -> Result<Vec<ExtensionInfo>> {
-        // GitHub store doesn't support searching yet
-        Ok(vec![])
+    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionInfo>> {
+        self.processor.search_extensions(query).await
     }
 
-    async fn get_extension_info(&self, _name: &str) -> Result<Vec<ExtensionInfo>> {
-        // Would need to read extension info from GitHub repo structure
-        Ok(vec![])
+    async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>> {
+        self.processor.get_extension_info(name).await
     }
 
     async fn get_extension_version_info(
@@ -463,27 +314,9 @@ impl ReadableStore for GitHubStore {
         name: &str,
         version: Option<&str>,
     ) -> Result<ExtensionInfo> {
-        // Try to read extension manifest from GitHub
-        let version = version.unwrap_or("latest");
-        let manifest_path = format!("extensions/{}/{}/manifest.json", name, version);
-        let manifest_content = self.read_file(&manifest_path).await?;
-        let manifest: ExtensionManifest = serde_json::from_slice(&manifest_content)?;
-
-        Ok(ExtensionInfo {
-            id: manifest.id,
-            name: manifest.name,
-            version: manifest.version,
-            description: None, // ExtensionManifest doesn't have description
-            author: manifest.author,
-            tags: vec![],       // ExtensionManifest doesn't have tags
-            last_updated: None, // Could be derived from Git info
-            download_count: None,
-            size: None,
-            homepage: None,   // ExtensionManifest doesn't have homepage
-            repository: None, // ExtensionManifest doesn't have repository
-            license: None,    // ExtensionManifest doesn't have license
-            store_source: self.name.clone(),
-        })
+        self.processor
+            .get_extension_version_info(name, version)
+            .await
     }
 
     async fn get_extension_manifest(
@@ -491,11 +324,7 @@ impl ReadableStore for GitHubStore {
         name: &str,
         version: Option<&str>,
     ) -> Result<ExtensionManifest> {
-        let version = version.unwrap_or("latest");
-        let manifest_path = format!("extensions/{}/{}/manifest.json", name, version);
-        let manifest_content = self.read_file(&manifest_path).await?;
-        let manifest: ExtensionManifest = serde_json::from_slice(&manifest_content)?;
-        Ok(manifest)
+        self.processor.get_extension_manifest(name, version).await
     }
 
     async fn get_extension_metadata(
@@ -503,16 +332,7 @@ impl ReadableStore for GitHubStore {
         name: &str,
         version: Option<&str>,
     ) -> Result<Option<ExtensionMetadata>> {
-        let version = version.unwrap_or("latest");
-        let metadata_path = format!("extensions/{}/{}/metadata.json", name, version);
-        match self.read_file(&metadata_path).await {
-            Ok(content) => {
-                let metadata: ExtensionMetadata = serde_json::from_slice(&content)?;
-                Ok(Some(metadata))
-            }
-            Err(StoreError::ExtensionNotFound(_)) => Ok(None),
-            Err(e) => Err(e),
-        }
+        self.processor.get_extension_metadata(name, version).await
     }
 
     async fn get_extension_package(
@@ -520,52 +340,89 @@ impl ReadableStore for GitHubStore {
         id: &str,
         version: Option<&str>,
     ) -> Result<ExtensionPackage> {
-        let version = version.unwrap_or("latest");
+        let manifest = self.processor.get_extension_manifest(id, version).await?;
+        let wasm_bytes = self
+            .processor
+            .get_extension_wasm(id, Some(&manifest.version))
+            .await?;
+        let metadata = self
+            .processor
+            .get_extension_metadata(id, Some(&manifest.version))
+            .await?;
 
-        // Read manifest
-        let manifest = self.get_extension_manifest(id, Some(version)).await?;
+        let mut package = ExtensionPackage::new(manifest.clone(), wasm_bytes, self.name.clone());
 
-        // Read WASM file
-        let wasm_path = format!("extensions/{}/{}/extension.wasm", id, version);
-        let wasm_content = self.read_file(&wasm_path).await?;
+        if let Some(meta) = metadata {
+            package = package.with_metadata(meta);
+        }
 
-        // Read metadata if available
-        let metadata = self.get_extension_metadata(id, Some(version)).await?;
+        // Load all assets
+        for asset_ref in &manifest.assets {
+            match self
+                .processor
+                .get_extension_asset(id, Some(&manifest.version), &asset_ref.path)
+                .await
+            {
+                Ok(content) => {
+                    package.add_asset(asset_ref.path.clone(), content);
+                }
+                Err(e) => {
+                    debug!("Failed to load asset {}: {}", asset_ref.path, e);
+                    // Continue loading other assets
+                }
+            }
+        }
 
-        Ok(ExtensionPackage {
-            manifest,
-            wasm_component: wasm_content,
-            metadata,
-            assets: std::collections::HashMap::new(), // TODO: implement asset reading
-            source_store: self.name.clone(),
-        })
+        Ok(package)
     }
 
-    async fn get_extension_latest_version(&self, _id: &str) -> Result<Option<String>> {
-        // Would need to scan directory structure or use Git tags
-        Ok(None)
+    async fn get_extension_latest_version(&self, id: &str) -> Result<Option<String>> {
+        self.processor.get_extension_latest_version(id).await
     }
 
-    async fn list_extension_versions(&self, _id: &str) -> Result<Vec<String>> {
-        // Would need to scan directory structure
-        Ok(vec![])
+    async fn list_extension_versions(&self, id: &str) -> Result<Vec<String>> {
+        self.processor.list_extension_versions(id).await
     }
 
     async fn check_extension_version_exists(&self, id: &str, version: &str) -> Result<bool> {
-        let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
-        match self.read_file(&manifest_path).await {
-            Ok(_) => Ok(true),
-            Err(StoreError::ExtensionNotFound(_)) => Ok(false),
-            Err(e) => Err(e),
-        }
+        self.processor
+            .check_extension_version_exists(id, version)
+            .await
     }
 
     async fn check_extension_updates(
         &self,
-        _installed: &[InstalledExtension],
+        installed: &[InstalledExtension],
     ) -> Result<Vec<UpdateInfo>> {
-        // Would need to implement version comparison
-        Ok(vec![])
+        let mut updates = Vec::new();
+
+        for installed_ext in installed {
+            if let Ok(Some(latest_version)) =
+                self.get_extension_latest_version(&installed_ext.id).await
+            {
+                if latest_version != installed_ext.version {
+                    // Simple version comparison - in practice you'd want semver
+                    if latest_version > installed_ext.version {
+                        updates.push(UpdateInfo {
+                            extension_name: installed_ext.id.clone(),
+                            current_version: installed_ext.version.clone(),
+                            latest_version,
+                            update_available: true,
+                            changelog_url: Some(format!(
+                                "https://github.com/{}/{}/releases",
+                                self.owner, self.repo
+                            )),
+                            breaking_changes: false, // Would need to analyze changes
+                            security_update: false,
+                            update_size: None,
+                            store_source: self.name.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(updates)
     }
 }
 
@@ -575,13 +432,27 @@ impl WritableStore for GitHubStore {
         PublishRequirements {
             requires_authentication: true,
             requires_signing: false,
-            max_package_size: Some(50 * 1024 * 1024), // 50MB
-            allowed_file_extensions: vec!["wasm".to_string(), "json".to_string()],
-            forbidden_patterns: vec![],
+            max_package_size: Some(25 * 1024 * 1024), // 25MB - GitHub has file size limits
+            allowed_file_extensions: vec![
+                "wasm".to_string(),
+                "json".to_string(),
+                "md".to_string(),
+                "txt".to_string(),
+                "png".to_string(),
+                "jpg".to_string(),
+                "jpeg".to_string(),
+                "svg".to_string(),
+            ],
+            forbidden_patterns: vec![
+                "*.exe".to_string(),
+                "*.dll".to_string(),
+                "*.so".to_string(),
+                "*.dylib".to_string(),
+            ],
             required_metadata: vec!["name".to_string(), "version".to_string()],
-            supported_visibility: vec![ExtensionVisibility::Public, ExtensionVisibility::Private],
+            supported_visibility: vec![crate::publish::ExtensionVisibility::Public],
             enforces_versioning: true,
-            validation_rules: vec!["manifest".to_string(), "wasm".to_string()],
+            validation_rules: Vec::new(),
         }
     }
 
@@ -590,15 +461,11 @@ impl WritableStore for GitHubStore {
         _package: ExtensionPackage,
         _options: PublishOptions,
     ) -> Result<PublishResult> {
-        if !self.is_writable() {
-            return Err(StoreError::PermissionDenied(
-                "Store is not configured for write operations".to_string(),
-            ));
-        }
-
-        // TODO: Implement direct GitHub publishing via Git operations
-        Err(StoreError::InvalidConfiguration(
-            "Publishing to GitHub store not yet implemented".to_string(),
+        // GitHub store publishing would require git operations
+        // This would typically be implemented by using a GitProvider internally
+        // for now, return an error indicating this needs implementation
+        Err(StoreError::UnsupportedOperation(
+            "Publishing to GitHub stores requires git integration (use GitStore for publishing to GitHub)".to_string(),
         ))
     }
 
@@ -607,76 +474,135 @@ impl WritableStore for GitHubStore {
         _extension_id: &str,
         _options: UnpublishOptions,
     ) -> Result<UnpublishResult> {
-        if !self.is_writable() {
-            return Err(StoreError::PermissionDenied(
-                "Store is not configured for write operations".to_string(),
-            ));
-        }
-
-        // TODO: Implement direct GitHub unpublishing via Git operations
-        Err(StoreError::InvalidConfiguration(
-            "Unpublishing from GitHub store not yet implemented".to_string(),
+        // GitHub store unpublishing would require git operations
+        Err(StoreError::UnsupportedOperation(
+            "Unpublishing from GitHub stores requires git integration (use GitStore for publishing to GitHub)".to_string(),
         ))
     }
 
     async fn validate_package(
         &self,
-        _package: &ExtensionPackage,
+        package: &ExtensionPackage,
         _options: &PublishOptions,
     ) -> Result<ValidationReport> {
-        // TODO: Implement GitHub-specific validation
-        Err(StoreError::InvalidConfiguration(
-            "Package validation for GitHub store not yet implemented".to_string(),
-        ))
+        let mut issues = Vec::new();
+        let mut warnings = Vec::new();
+
+        // Basic validation
+        if package.manifest.id.is_empty() {
+            issues.push("Extension ID cannot be empty".to_string());
+        }
+
+        if package.manifest.name.is_empty() {
+            issues.push("Extension name cannot be empty".to_string());
+        }
+
+        if package.manifest.version.is_empty() {
+            issues.push("Extension version cannot be empty".to_string());
+        }
+
+        // WASM validation
+        if package.wasm_component.is_empty() {
+            issues.push("WASM component cannot be empty".to_string());
+        }
+
+        // File size check (GitHub has lower limits)
+        let total_size = package.calculate_total_size();
+        const MAX_SIZE: u64 = 25 * 1024 * 1024; // 25MB
+        if total_size > MAX_SIZE {
+            issues.push(format!(
+                "Package size ({} bytes) exceeds GitHub maximum allowed size ({} bytes)",
+                total_size, MAX_SIZE
+            ));
+        }
+
+        if total_size > 5 * 1024 * 1024 {
+            // 5MB warning for GitHub
+            warnings.push(format!(
+                "Package size is large ({} MB) for GitHub. Consider optimizing assets.",
+                total_size / (1024 * 1024)
+            ));
+        }
+
+        use crate::registry::{IssueSeverity, ValidationIssue, ValidationIssueType};
+
+        let validation_issues: Vec<ValidationIssue> = issues
+            .into_iter()
+            .map(|msg| ValidationIssue {
+                extension_name: package.manifest.id.clone(),
+                issue_type: ValidationIssueType::InvalidManifest,
+                description: msg,
+                severity: IssueSeverity::Critical,
+            })
+            .chain(warnings.into_iter().map(|msg| ValidationIssue {
+                extension_name: package.manifest.id.clone(),
+                issue_type: ValidationIssueType::InvalidManifest,
+                description: msg,
+                severity: IssueSeverity::Warning,
+            }))
+            .collect();
+
+        Ok(ValidationReport {
+            passed: validation_issues
+                .iter()
+                .all(|issue| !matches!(issue.severity, IssueSeverity::Critical)),
+            issues: validation_issues,
+            validation_duration: std::time::Duration::from_millis(10),
+            validator_version: env!("CARGO_PKG_VERSION").to_string(),
+        })
     }
 }
 
 #[async_trait]
 impl CacheableStore for GitHubStore {
     async fn refresh_cache(&self) -> Result<()> {
-        // Clear memory cache
-        self.clear_cache();
-
-        // Refresh repository info
-        // Clear the file cache to force refresh
-        self.clear_cache();
-
+        // Clear the cache to force fresh fetches
+        self.clear_cache().await;
+        info!(
+            "Refreshed GitHub store cache for {}/{}",
+            self.owner, self.repo
+        );
         Ok(())
     }
 
     async fn clear_cache(&self) -> Result<()> {
-        self.clear_cache();
+        self.processor.file_ops().clear_cache().await;
+        info!(
+            "Cleared GitHub store cache for {}/{}",
+            self.owner, self.repo
+        );
         Ok(())
     }
 
-    async fn cache_stats(&self) -> Result<CacheStats> {
-        let (valid, total) = self.cache_stats();
-
-        Ok(CacheStats {
-            entries: valid,
-            size_bytes: 0, // We don't track size in memory cache
-            hit_rate: if total > 0 {
-                valid as f64 / total as f64
-            } else {
-                0.0
-            },
-            last_refresh: None, // Simplified - no tracking of refresh time
+    async fn cache_stats(&self) -> Result<crate::stores::traits::CacheStats> {
+        let (entries, size_bytes) = self.cache_stats().await;
+        Ok(crate::stores::traits::CacheStats {
+            entries,
+            size_bytes,
+            hit_rate: 0.0,      // Would need to track hits/misses to calculate this
+            last_refresh: None, // Would need to track refresh times
         })
     }
 }
 
 impl Clone for GitHubStore {
     fn clone(&self) -> Self {
+        // Note: This creates a new GitHubFileOperations instance with its own cache
+        let file_ops = GitHubFileOperations::new(
+            self.owner.clone(),
+            self.repo.clone(),
+            self.reference.clone(),
+        );
+
+        let processor = FileBasedProcessor::new(file_ops, self.name.clone());
+
         Self {
-            name: self.name.clone(),
+            processor,
             owner: self.owner.clone(),
             repo: self.repo.clone(),
             reference: self.reference.clone(),
-            auth: self.auth.clone(),
-            client: self.client.clone(),
+            name: self.name.clone(),
             cache_dir: self.cache_dir.clone(),
-            file_cache: Arc::clone(&self.file_cache),
-            cache_ttl: self.cache_ttl,
             write_config: self.write_config.clone(),
         }
     }
@@ -685,43 +611,34 @@ impl Clone for GitHubStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[test]
     fn test_github_store_builder_basic() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = GitHubStore::builder("octocat", "Hello-World")
-            .cache_dir(temp_dir.path())
+        let store = GitHubStore::builder("owner", "repo")
             .name("test-store")
             .build()
             .unwrap();
 
-        assert_eq!(store.github_url(), "https://github.com/octocat/Hello-World");
+        assert_eq!(store.github_url(), "https://github.com/owner/repo");
         assert!(!store.is_writable());
     }
 
     #[test]
     fn test_github_store_builder_from_url() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = GitHubStore::from_url("https://github.com/octocat/Hello-World")
+        let store = GitHubStore::from_url("https://github.com/owner/repo")
             .unwrap()
-            .cache_dir(temp_dir.path())
-            .name("test-store")
+            .name("url-store")
             .build()
             .unwrap();
 
-        assert_eq!(store.github_url(), "https://github.com/octocat/Hello-World");
+        assert_eq!(store.github_url(), "https://github.com/owner/repo");
     }
 
     #[test]
     fn test_github_store_builder_writable() {
-        let temp_dir = TempDir::new().unwrap();
-        let store = GitHubStore::builder("octocat", "Hello-World")
-            .cache_dir(temp_dir.path())
-            .name("writable-store")
+        let store = GitHubStore::builder("owner", "repo")
             .writable()
             .author("Test Author", "test@example.com")
-            .token("ghp_test_token")
             .build()
             .unwrap();
 
@@ -731,14 +648,14 @@ mod tests {
     #[test]
     fn test_parse_github_url_https() {
         let (owner, repo) =
-            GitHubStoreBuilder::parse_github_url("https://github.com/octocat/Hello-World").unwrap();
-        assert_eq!(owner, "octocat");
-        assert_eq!(repo, "Hello-World");
+            GitHubStoreBuilder::parse_github_url("https://github.com/owner/repo").unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
     }
 
     #[test]
     fn test_parse_github_url_invalid() {
-        let result = GitHubStoreBuilder::parse_github_url("https://gitlab.com/octocat/Hello-World");
+        let result = GitHubStoreBuilder::parse_github_url("https://example.com/owner/repo");
         assert!(result.is_err());
     }
 }

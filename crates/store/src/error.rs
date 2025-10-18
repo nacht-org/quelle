@@ -108,6 +108,12 @@ pub enum StoreError {
     #[error("Unsupported operation: {0}")]
     UnsupportedOperation(String),
 
+    #[error("Invalid path: {0}")]
+    InvalidPath(String),
+
+    #[error("Parse error: {0}")]
+    ParseError(String),
+
     #[error("Extension '{0}' is already installed")]
     ExtensionAlreadyInstalled(String),
 
