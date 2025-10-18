@@ -27,13 +27,6 @@ pub(crate) trait FileOperations: Send + Sync {
     async fn list_directory(&self, path: &str) -> Result<Vec<String>>;
 }
 
-/// File metadata information
-#[derive(Debug, Clone)]
-pub(crate) struct FileMetadata {
-    pub size: u64,
-    pub is_directory: bool,
-}
-
 /// Shared processor for file-based store operations
 ///
 /// This struct contains all the common logic for reading and processing
@@ -350,10 +343,25 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// Find extensions that can handle the given URL
-    pub async fn find_extensions_for_url(&self, _url: &str) -> Result<Vec<(String, String)>> {
-        // For the basic StoreManifest, we can't do URL routing
-        // This would need to be implemented by stores that have URL pattern support
-        // For now, return empty - individual stores can override this
+    pub async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<(String, String)>> {
+        use crate::stores::local::store::LocalStoreManifest;
+
+        // Try to load the local store manifest for optimized URL routing
+        let store_path = "store.json";
+        if self.file_ops.file_exists(store_path).await? {
+            match self.read_json_file::<LocalStoreManifest>(store_path).await {
+                Ok(local_manifest) => {
+                    return Ok(local_manifest.find_extensions_for_url(url));
+                }
+                Err(_) => {
+                    // If it's not a LocalStoreManifest, return empty for now
+                    // Other store types can override this method if needed
+                    return Ok(Vec::new());
+                }
+            }
+        }
+
+        // No store manifest found
         Ok(Vec::new())
     }
 
@@ -445,26 +453,70 @@ mod tests {
         }
 
         async fn list_directory(&self, path: &str) -> Result<Vec<String>> {
-            let prefix = if path.ends_with('/') {
-                path.to_string()
-            } else {
-                format!("{}/", path)
-            };
-
-            let mut entries = std::collections::HashSet::new();
-
-            for file_path in self.files.keys() {
-                if file_path.starts_with(&prefix) {
-                    let relative = &file_path[prefix.len()..];
-                    if let Some(first_part) = relative.split('/').next() {
-                        if !first_part.is_empty() {
-                            entries.insert(first_part.to_string());
+            // Handle specific directory cases for testing
+            match path {
+                "extensions" => {
+                    // Return extension names that exist
+                    let mut extensions = Vec::new();
+                    for file_path in self.files.keys() {
+                        if file_path.starts_with("extensions/")
+                            && file_path.contains("/manifest.json")
+                        {
+                            let parts: Vec<&str> = file_path.split('/').collect();
+                            if parts.len() >= 2 {
+                                let extension_name = parts[1];
+                                if !extensions.contains(&extension_name.to_string()) {
+                                    extensions.push(extension_name.to_string());
+                                }
+                            }
                         }
                     }
+                    Ok(extensions)
+                }
+                path if path.starts_with("extensions/") => {
+                    // Return versions for this extension
+                    let extension_prefix = format!("{}/", path);
+                    let mut versions = Vec::new();
+                    for file_path in self.files.keys() {
+                        if file_path.starts_with(&extension_prefix)
+                            && file_path.ends_with("/manifest.json")
+                        {
+                            let remaining = &file_path[extension_prefix.len()..];
+                            if let Some(slash_pos) = remaining.find('/') {
+                                let version = &remaining[..slash_pos];
+                                if !versions.contains(&version.to_string()) {
+                                    versions.push(version.to_string());
+                                }
+                            }
+                        }
+                    }
+                    Ok(versions)
+                }
+                _ => {
+                    // Generic directory listing logic
+                    let prefix = if path.ends_with('/') {
+                        path.to_string()
+                    } else {
+                        format!("{}/", path)
+                    };
+
+                    let mut entries = std::collections::HashSet::new();
+
+                    for file_path in self.files.keys() {
+                        if file_path.starts_with(&prefix) {
+                            let remaining = &file_path[prefix.len()..];
+                            if let Some(slash_pos) = remaining.find('/') {
+                                let first_part = &remaining[..slash_pos];
+                                if !first_part.is_empty() {
+                                    entries.insert(first_part.to_string());
+                                }
+                            }
+                        }
+                    }
+
+                    Ok(entries.into_iter().collect())
                 }
             }
-
-            Ok(entries.into_iter().collect())
         }
     }
 
@@ -495,5 +547,87 @@ mod tests {
 
         let extensions = processor.list_extensions().await.unwrap();
         assert!(extensions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_find_extensions_for_url() {
+        use crate::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
+        use crate::stores::local::store::LocalStoreManifest;
+        use std::collections::BTreeSet;
+
+        let mut mock_ops = MockFileOperations::new();
+
+        // Create a LocalStoreManifest with URL patterns
+        let base_manifest = StoreManifest::new(
+            "test-store".to_string(),
+            "local".to_string(),
+            "1.0.0".to_string(),
+        );
+
+        let mut url_pattern = UrlPattern {
+            url_prefix: "https://example.com".to_string(),
+            extensions: BTreeSet::new(),
+            priority: 100,
+        };
+        url_pattern.extensions.insert("test-extension".to_string());
+
+        let mut url_pattern2 = UrlPattern {
+            url_prefix: "https://test.org".to_string(),
+            extensions: BTreeSet::new(),
+            priority: 100,
+        };
+        url_pattern2.extensions.insert("test-extension".to_string());
+
+        let extension_summary = ExtensionSummary {
+            id: "test-extension".to_string(),
+            name: "Test Extension".to_string(),
+            version: "1.0.0".to_string(),
+            base_urls: vec![
+                "https://example.com".to_string(),
+                "https://test.org".to_string(),
+            ],
+            langs: vec!["en".to_string()],
+            last_updated: chrono::Utc::now(),
+            manifest_path: "extensions/test-extension/1.0.0/manifest.json".to_string(),
+            manifest_checksum: "test-checksum".to_string(),
+        };
+
+        let local_manifest = LocalStoreManifest {
+            base: base_manifest,
+            url_patterns: vec![url_pattern, url_pattern2],
+            supported_domains: vec!["example.com".to_string(), "test.org".to_string()],
+            extension_count: 1,
+            extensions: vec![extension_summary],
+        };
+
+        // Add the LocalStoreManifest as store.json
+        mock_ops.add_json_file("store.json", &local_manifest);
+
+        let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
+
+        // Test matching URL
+        let matches = processor
+            .find_extensions_for_url("https://example.com/some/path")
+            .await
+            .unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].0, "test-extension");
+        assert_eq!(matches[0].1, "Test Extension");
+
+        // Test another matching URL
+        let matches = processor
+            .find_extensions_for_url("https://test.org/another/path")
+            .await
+            .unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].0, "test-extension");
+        assert_eq!(matches[0].1, "Test Extension");
+
+        // Test non-matching URL
+        let matches = processor
+            .find_extensions_for_url("https://nomatch.com/path")
+            .await
+            .unwrap();
+        assert!(matches.is_empty());
     }
 }

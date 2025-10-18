@@ -304,33 +304,6 @@ impl LocalStore {
         );
         Ok(())
     }
-
-    /// Get the local store manifest with URL routing information
-    async fn get_local_store_manifest(&self) -> Result<LocalStoreManifest> {
-        let manifest_path = self.root_path.join("store.json");
-
-        if !manifest_path.exists() {
-            // Generate a new manifest
-            return self.generate_local_store_manifest().await;
-        }
-
-        let content = tokio::fs::read_to_string(&manifest_path).await?;
-
-        // Try to parse as LocalStoreManifest first
-        if let Ok(local_manifest) = serde_json::from_str::<LocalStoreManifest>(&content) {
-            return Ok(local_manifest);
-        }
-
-        // Fallback to base StoreManifest and convert
-        let base_manifest: StoreManifest = serde_json::from_str(&content)?;
-        Ok(LocalStoreManifest::new(base_manifest))
-    }
-
-    /// Find extensions that can handle the given URL using the local manifest
-    pub async fn find_extensions_for_url_local(&self, url: &str) -> Result<Vec<(String, String)>> {
-        let local_manifest = self.get_local_store_manifest().await?;
-        Ok(local_manifest.find_extensions_for_url(url))
-    }
 }
 
 #[async_trait]
@@ -390,8 +363,7 @@ impl BaseStore for LocalStore {
 #[async_trait]
 impl ReadableStore for LocalStore {
     async fn find_extensions_for_url(&self, url: &str) -> Result<Vec<(String, String)>> {
-        // Use the enhanced local store manifest for URL routing
-        self.find_extensions_for_url_local(url).await
+        self.processor.find_extensions_for_url(url).await
     }
 
     async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
