@@ -208,13 +208,8 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
     /// List all extensions in the store
     pub async fn list_extensions(&self) -> Result<Vec<ExtensionSummary>> {
-        match self.get_local_store_manifest().await {
-            Ok(local_manifest) => Ok(local_manifest.extensions.clone()),
-            Err(_) => {
-                // No LocalStoreManifest available, return empty
-                Ok(Vec::new())
-            }
-        }
+        let local_manifest = self.get_local_store_manifest().await?;
+        Ok(local_manifest.extensions.clone())
     }
 
     /// Get information about all versions of a specific extension
