@@ -26,63 +26,59 @@ pub(crate) struct GitHubFileOperations {
     owner: String,
     repo: String,
     reference: String,
-    original_reference: GitReference,
     base_url: String,
     client: reqwest::Client,
     cache: Arc<RwLock<HashMap<String, CacheEntry>>>,
     cache_ttl: Duration,
 }
 
+/// Builder for GitHubFileOperations that can resolve references during construction
+pub struct GitHubFileOperationsBuilder {
+    owner: String,
+    repo: String,
+    reference: GitReference,
+    client: Option<reqwest::Client>,
+    cache_ttl: Duration,
+}
+
 impl GitHubFileOperations {
-    /// Create a new GitHub file operations instance
-    pub fn new(owner: String, repo: String, reference: GitReference) -> Self {
-        let reference_str = reference.to_string();
-        let base_url = format!(
-            "https://raw.githubusercontent.com/{}/{}/{}",
-            owner, repo, reference_str
-        );
-
-        Self {
-            owner,
-            repo,
-            reference: reference_str,
-            original_reference: reference.clone(),
-            base_url,
-            client: reqwest::Client::new(),
-            cache: Arc::new(RwLock::new(HashMap::new())),
-            cache_ttl: Duration::from_secs(300), // 5 minutes default
-        }
-    }
-
-    /// Create with custom client
-    pub fn with_client(
+    /// Create a new GitHub file operations builder
+    pub fn builder(
         owner: String,
         repo: String,
         reference: GitReference,
-        client: reqwest::Client,
-    ) -> Self {
-        let reference_str = reference.to_string();
-        let base_url = format!(
-            "https://raw.githubusercontent.com/{}/{}/{}",
-            owner, repo, reference_str
-        );
-
-        Self {
+    ) -> GitHubFileOperationsBuilder {
+        GitHubFileOperationsBuilder {
             owner,
             repo,
-            reference: reference_str,
-            original_reference: reference.clone(),
-            base_url,
-            client,
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            reference,
+            client: None,
             cache_ttl: Duration::from_secs(300),
         }
     }
 
-    /// Set the cache TTL
-    pub fn with_cache_ttl(mut self, ttl: Duration) -> Self {
-        self.cache_ttl = ttl;
-        self
+    /// Internal constructor with resolved reference (used by builder)
+    pub(crate) fn new_with_resolved_reference(
+        owner: String,
+        repo: String,
+        resolved_reference: String,
+        client: reqwest::Client,
+        cache_ttl: Duration,
+    ) -> Self {
+        let base_url = format!(
+            "https://raw.githubusercontent.com/{}/{}/{}",
+            owner, repo, resolved_reference
+        );
+
+        Self {
+            owner,
+            repo,
+            reference: resolved_reference,
+            base_url,
+            client,
+            cache: Arc::new(RwLock::new(HashMap::new())),
+            cache_ttl,
+        }
     }
 
     /// Get repository information
@@ -140,37 +136,69 @@ impl GitHubFileOperations {
         let clean_path = path.trim_start_matches('/');
         format!("{}/{}", self.base_url, clean_path)
     }
+}
 
-    /// Get effective reference by resolving default branch if needed.
-    ///
-    /// When GitReference::Default is used, this method will probe the repository
-    /// to determine the actual default branch (main vs master) by testing common
-    /// branch names. This is useful for accurate branch resolution since GitHub
-    /// repositories may use either "main" or "master" as their default.
-    ///
-    /// # Returns
-    /// - The actual branch name for Default references (e.g., "main" or "master")
-    /// - The original reference string for explicit branches, tags, or commits
-    ///
-    /// # Example
-    /// ```ignore
-    /// let ops = GitHubFileOperations::new("owner".to_string(), "repo".to_string(), GitReference::Default);
-    /// let actual_branch = ops.get_effective_reference().await?;
-    /// // actual_branch will be "main" or "master" depending on the repo's default
-    /// ```
-    pub async fn get_effective_reference(&self) -> Result<String> {
-        if matches!(self.original_reference, GitReference::Default) {
+impl GitHubFileOperationsBuilder {
+    /// Set a custom HTTP client
+    pub fn with_client(mut self, client: reqwest::Client) -> Self {
+        self.client = Some(client);
+        self
+    }
+
+    /// Set the cache TTL
+    pub fn with_cache_ttl(mut self, ttl: Duration) -> Self {
+        self.cache_ttl = ttl;
+        self
+    }
+
+    /// Build GitHubFileOperations naively (assumes "main" as default branch)
+    pub fn build_naive(self) -> GitHubFileOperations {
+        let client = self.client.unwrap_or_else(|| reqwest::Client::new());
+        let resolved_reference = self.reference.to_string();
+
+        GitHubFileOperations::new_with_resolved_reference(
+            self.owner,
+            self.repo,
+            resolved_reference,
+            client,
+            self.cache_ttl,
+        )
+    }
+
+    /// Build GitHubFileOperations asynchronously with accurate default branch resolution
+    pub async fn build(self) -> Result<GitHubFileOperations> {
+        let client = self.client.unwrap_or_else(|| reqwest::Client::new());
+        let resolved_reference =
+            Self::resolve_reference_static(&self.reference, &self.owner, &self.repo, &client)
+                .await?;
+
+        Ok(GitHubFileOperations::new_with_resolved_reference(
+            self.owner,
+            self.repo,
+            resolved_reference,
+            client,
+            self.cache_ttl,
+        ))
+    }
+
+    /// Resolve the reference to an actual branch name (static version)
+    async fn resolve_reference_static(
+        reference: &GitReference,
+        owner: &str,
+        repo: &str,
+        client: &reqwest::Client,
+    ) -> Result<String> {
+        if matches!(reference, GitReference::Default) {
             // For Default reference, we need to find the actual default branch
-            // We can try common default branches in order
             let default_branches = ["main", "master"];
 
             for branch in &default_branches {
                 let test_url = format!(
                     "https://raw.githubusercontent.com/{}/{}/{}/README.md",
-                    self.owner, self.repo, branch
+                    owner, repo, branch
                 );
 
-                if let Ok(response) = self.client.head(&test_url).send().await {
+                if let Ok(response) = client.head(&test_url).send().await {
                     if response.status().is_success() {
                         debug!("Resolved default branch to: {}", branch);
                         return Ok(branch.to_string());
@@ -181,36 +209,12 @@ impl GitHubFileOperations {
             // Fallback to main if we can't determine
             warn!(
                 "Could not resolve default branch for {}/{}, using 'main'",
-                self.owner, self.repo
+                owner, repo
             );
             Ok("main".to_string())
         } else {
-            Ok(self.reference.clone())
+            Ok(reference.to_string())
         }
-    }
-
-    /// Resolve the default branch and update the base URL if needed.
-    ///
-    /// This method calls `get_effective_reference()` and updates the internal
-    /// base URL to use the resolved branch. This is useful for optimizing
-    /// subsequent file operations when using GitReference::Default.
-    ///
-    /// # Returns
-    /// The resolved reference string that is now being used.
-    pub async fn resolve_and_update_reference(&mut self) -> Result<String> {
-        let effective_ref = self.get_effective_reference().await?;
-
-        // Only update if the reference actually changed
-        if effective_ref != self.reference {
-            self.reference = effective_ref.clone();
-            self.base_url = format!(
-                "https://raw.githubusercontent.com/{}/{}/{}",
-                self.owner, self.repo, effective_ref
-            );
-            debug!("Updated base URL to: {}", self.base_url);
-        }
-
-        Ok(effective_ref)
     }
 }
 
@@ -388,11 +392,12 @@ mod tests {
 
     #[test]
     fn test_github_file_operations_creation() {
-        let ops = GitHubFileOperations::new(
+        let ops = GitHubFileOperations::builder(
             "owner".to_string(),
             "repo".to_string(),
             GitReference::Branch("main".to_string()),
-        );
+        )
+        .build_naive();
 
         let (owner, repo, reference) = ops.repo_info();
         assert_eq!(owner, "owner");
@@ -407,11 +412,12 @@ mod tests {
 
     #[test]
     fn test_raw_url_construction() {
-        let ops = GitHubFileOperations::new(
+        let ops = GitHubFileOperations::builder(
             "owner".to_string(),
             "repo".to_string(),
             GitReference::Branch("main".to_string()),
-        );
+        )
+        .build_naive();
 
         assert_eq!(
             ops.construct_raw_url("file.txt"),
@@ -427,13 +433,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_builder_pattern() {
+        let ops = GitHubFileOperations::builder(
+            "owner".to_string(),
+            "repo".to_string(),
+            GitReference::Branch("develop".to_string()),
+        )
+        .with_cache_ttl(Duration::from_secs(600))
+        .build_naive();
+
+        let (owner, repo, reference) = ops.repo_info();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
+        assert_eq!(reference, "develop");
+
+        assert_eq!(
+            ops.base_url(),
+            "https://raw.githubusercontent.com/owner/repo/develop"
+        );
+    }
+
     #[tokio::test]
     async fn test_cache_operations() {
-        let ops = GitHubFileOperations::new(
+        let ops = GitHubFileOperations::builder(
             "owner".to_string(),
             "repo".to_string(),
             GitReference::Branch("main".to_string()),
-        );
+        )
+        .build_naive();
 
         // Initially no cache
         assert!(ops.get_cached_file("test.txt").await.is_none());
@@ -453,11 +481,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_stats() {
-        let ops = GitHubFileOperations::new(
+        let ops = GitHubFileOperations::builder(
             "owner".to_string(),
             "repo".to_string(),
             GitReference::Branch("main".to_string()),
-        );
+        )
+        .build_naive();
 
         let (entries, size) = ops.cache_stats().await;
         assert_eq!(entries, 0);

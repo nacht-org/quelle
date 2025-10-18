@@ -180,19 +180,67 @@ impl GitHubStoreBuilder {
         self
     }
 
-    /// Build the GitHubStore
+    /// Build the GitHubStore naively (assumes "main" as default branch)
     pub fn build(self) -> Result<GitHubStore> {
         let name = self
             .name
             .unwrap_or_else(|| format!("{}/{}", self.owner, self.repo));
 
         // Create GitHub file operations with cache TTL
-        let file_ops = GitHubFileOperations::new(
+        let file_ops = GitHubFileOperations::builder(
             self.owner.clone(),
             self.repo.clone(),
             self.reference.clone(),
         )
-        .with_cache_ttl(self.cache_ttl);
+        .with_cache_ttl(self.cache_ttl)
+        .build_naive();
+
+        let processor = FileBasedProcessor::new(file_ops, name.clone());
+
+        Ok(GitHubStore {
+            processor,
+            owner: self.owner,
+            repo: self.repo,
+            reference: self.reference,
+            name,
+            cache_dir: self.cache_dir,
+            write_config: self.write_config,
+        })
+    }
+
+    /// Build the GitHubStore asynchronously with accurate default branch resolution
+    ///
+    /// This method will probe the repository to determine the actual default branch
+    /// when GitReference::Default is used, ensuring accurate branch resolution.
+    /// Use this instead of `build()` when you need precise default branch detection.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Naive - assumes "main" (fast)
+    /// let store = GitHubStore::builder("owner", "repo")
+    ///     .reference(GitReference::Default)
+    ///     .build()?;
+    ///
+    /// // Accurate - probes repository (slower but correct)
+    /// let store = GitHubStore::builder("owner", "repo")
+    ///     .reference(GitReference::Default)
+    ///     .build_async()
+    ///     .await?;
+    /// ```
+    pub async fn build_async(self) -> Result<GitHubStore> {
+        let name = self
+            .name
+            .unwrap_or_else(|| format!("{}/{}", self.owner, self.repo));
+
+        // Create GitHub file operations with accurate branch resolution
+        let file_ops = GitHubFileOperations::builder(
+            self.owner.clone(),
+            self.repo.clone(),
+            self.reference.clone(),
+        )
+        .with_cache_ttl(self.cache_ttl)
+        .build()
+        .await?;
 
         let processor = FileBasedProcessor::new(file_ops, name.clone());
 
@@ -589,11 +637,12 @@ impl CacheableStore for GitHubStore {
 impl Clone for GitHubStore {
     fn clone(&self) -> Self {
         // Note: This creates a new GitHubFileOperations instance with its own cache
-        let file_ops = GitHubFileOperations::new(
+        let file_ops = GitHubFileOperations::builder(
             self.owner.clone(),
             self.repo.clone(),
             self.reference.clone(),
-        );
+        )
+        .build_naive();
 
         let processor = FileBasedProcessor::new(file_ops, self.name.clone());
 
