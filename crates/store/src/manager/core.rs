@@ -7,16 +7,14 @@ use semver::Version;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
+use super::store_manifest::ExtensionSummary;
 use crate::error::{Result, StoreError};
-use crate::manifest::ExtensionManifest;
 use crate::models::{
     ExtensionInfo, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy, StoreConfig,
     UpdateInfo, UpdateOptions,
 };
-use crate::registry::RegistryStore;
-use crate::registry_config::RegistryStoreConfig;
-use crate::store_manifest::ExtensionSummary;
-use crate::stores::ReadableStore;
+use crate::registry::{manifest::ExtensionManifest, RegistryStore};
+use crate::stores::{registry_config::RegistryStoreConfig, ReadableStore};
 
 /// Wrapper combining a Store with its registry configuration
 pub struct ManagedStore {

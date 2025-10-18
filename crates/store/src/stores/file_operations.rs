@@ -10,10 +10,10 @@ use std::collections::HashMap;
 use tracing::warn;
 
 use crate::error::{Result, StoreError};
-use crate::manifest::ExtensionManifest;
+use crate::manager::store_manifest::ExtensionSummary;
+use crate::manager::store_manifest::StoreManifest;
 use crate::models::{ExtensionInfo, ExtensionMetadata, SearchQuery};
-use crate::store_manifest::ExtensionSummary;
-use crate::store_manifest::StoreManifest;
+use crate::registry::manifest::ExtensionManifest;
 
 /// Internal trait for abstracting file operations across different store backends
 #[async_trait]
@@ -66,7 +66,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
     /// Get the basic store manifest for BaseStore trait implementation
     pub async fn get_store_manifest(&self) -> Result<StoreManifest> {
-        use crate::store_manifest::StoreManifest;
+        use crate::manager::store_manifest::StoreManifest;
         use crate::stores::local::store::LocalStoreManifest;
 
         // Try to load as LocalStoreManifest first, then extract base
@@ -544,7 +544,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_extensions_for_url() {
-        use crate::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
+        use crate::manager::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
         use crate::stores::local::store::LocalStoreManifest;
         use std::collections::BTreeSet;
 

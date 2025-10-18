@@ -231,9 +231,12 @@ impl ValidationReport {
 
     /// Check if there are any critical issues
     pub fn has_critical_issues(&self) -> bool {
-        self.issues
-            .iter()
-            .any(|issue| matches!(issue.severity, crate::registry::IssueSeverity::Critical))
+        self.issues.iter().any(|issue| {
+            matches!(
+                issue.severity,
+                crate::registry::core::IssueSeverity::Critical
+            )
+        })
     }
 }
 

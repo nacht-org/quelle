@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
-use crate::manifest::ExtensionManifest;
+use crate::registry::manifest::ExtensionManifest;
 
 /// Information about an available extension in a store
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,10 +119,10 @@ impl ExtensionPackage {
                 .into_iter()
                 .map(|rd| match rd {
                     quelle_engine::bindings::quelle::extension::source::ReadingDirection::Ltr => {
-                        crate::manifest::ReadingDirection::Ltr
+                        crate::registry::manifest::ReadingDirection::Ltr
                     }
                     quelle_engine::bindings::quelle::extension::source::ReadingDirection::Rtl => {
-                        crate::manifest::ReadingDirection::Rtl
+                        crate::registry::manifest::ReadingDirection::Rtl
                     }
                 })
                 .collect(),
@@ -131,13 +131,13 @@ impl ExtensionPackage {
                 .into_iter()
                 .map(|attr| match attr {
                     quelle_engine::bindings::quelle::extension::source::SourceAttr::Fanfiction => {
-                        crate::manifest::Attribute::Fanfiction
+                        crate::registry::manifest::Attribute::Fanfiction
                     }
                 })
                 .collect(),
 
             signature: None,
-            wasm_file: crate::manifest::FileReference::new(
+            wasm_file: crate::registry::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
                 &wasm_content,
             ),
@@ -255,7 +255,7 @@ pub struct InstalledExtension {
     pub last_updated: Option<DateTime<Utc>>,
     pub source_store: String, // Store where this was installed from
     pub auto_update: bool,
-    pub checksum: Option<crate::manifest::Checksum>, // For integrity verification
+    pub checksum: Option<crate::registry::manifest::Checksum>, // For integrity verification
 }
 
 impl InstalledExtension {
@@ -626,18 +626,18 @@ mod tests {
     async fn test_installed_extension_size_tracking() {
         // Create a test extension package
         let wasm_data = b"fake wasm content for testing";
-        let manifest = crate::manifest::ExtensionManifest {
+        let manifest = crate::registry::manifest::ExtensionManifest {
             id: "test-ext".to_string(),
             name: "Test Extension".to_string(),
             version: "1.0.0".to_string(),
             author: "Test Author".to_string(),
             langs: vec!["en".to_string()],
             base_urls: vec!["https://example.com".to_string()],
-            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            rds: vec![crate::registry::manifest::ReadingDirection::Ltr],
             attrs: vec![],
 
             signature: None,
-            wasm_file: crate::manifest::FileReference::new(
+            wasm_file: crate::registry::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
                 wasm_data,
             ),
@@ -664,18 +664,18 @@ mod tests {
 
         // Create a test extension with checksum
         let wasm_data = b"test wasm content";
-        let manifest = crate::manifest::ExtensionManifest {
+        let manifest = crate::registry::manifest::ExtensionManifest {
             id: "integrity-test".to_string(),
             name: "Integrity Test".to_string(),
             version: "1.0.0".to_string(),
             author: "Test".to_string(),
             langs: vec!["en".to_string()],
             base_urls: vec!["https://test.com".to_string()],
-            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            rds: vec![crate::registry::manifest::ReadingDirection::Ltr],
             attrs: vec![],
 
             signature: None,
-            wasm_file: crate::manifest::FileReference::new(
+            wasm_file: crate::registry::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
                 wasm_data,
             ),
@@ -684,9 +684,10 @@ mod tests {
 
         let package = ExtensionPackage::new(manifest, wasm_data.to_vec(), "test".to_string());
         let mut installed = InstalledExtension::from_package(package.clone());
-        installed.checksum = Some(crate::manifest::Checksum {
-            algorithm: crate::manifest::checksum::ChecksumAlgorithm::Sha256,
-            value: crate::manifest::checksum::ChecksumAlgorithm::Sha256.calculate(wasm_data),
+        installed.checksum = Some(crate::registry::manifest::Checksum {
+            algorithm: crate::registry::manifest::checksum::ChecksumAlgorithm::Sha256,
+            value: crate::registry::manifest::checksum::ChecksumAlgorithm::Sha256
+                .calculate(wasm_data),
         });
 
         // Test integrity verification without files (should return false)
@@ -710,18 +711,18 @@ mod tests {
             "size-test".to_string(),
             "Size Test".to_string(),
             "1.0.0".to_string(),
-            crate::manifest::ExtensionManifest {
+            crate::registry::manifest::ExtensionManifest {
                 id: "size-test".to_string(),
                 name: "Size Test".to_string(),
                 version: "1.0.0".to_string(),
                 author: "Test".to_string(),
                 langs: vec!["en".to_string()],
                 base_urls: vec!["https://test.com".to_string()],
-                rds: vec![crate::manifest::ReadingDirection::Ltr],
+                rds: vec![crate::registry::manifest::ReadingDirection::Ltr],
                 attrs: vec![],
 
                 signature: None,
-                wasm_file: crate::manifest::FileReference::new(
+                wasm_file: crate::registry::manifest::FileReference::new(
                     "./extension.wasm".to_string(),
                     b"fake wasm content",
                 ),

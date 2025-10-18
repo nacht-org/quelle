@@ -12,11 +12,11 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::error::Result;
-use crate::publish::{
+use crate::manager::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
     ValidationReport,
 };
-use crate::store_manifest::ExtensionSummary;
+use crate::manager::store_manifest::ExtensionSummary;
 use crate::stores::{
     local::LocalStore,
     providers::{
@@ -26,7 +26,7 @@ use crate::stores::{
     traits::{BaseStore, CacheableStore, ReadableStore, WritableStore},
 };
 use crate::{
-    manifest::ExtensionManifest, ExtensionInfo, ExtensionMetadata, ExtensionPackage,
+    registry::manifest::ExtensionManifest, ExtensionInfo, ExtensionMetadata, ExtensionPackage,
     InstalledExtension, SearchQuery, StoreHealth, StoreManifest, UpdateInfo,
 };
 
@@ -234,7 +234,7 @@ impl LocallyCachedStore<GitProvider> {
         store_name: String,
         description: Option<String>,
     ) -> Result<()> {
-        use crate::store_manifest::StoreManifest;
+        use crate::manager::store_manifest::StoreManifest;
         use crate::stores::local::LocalStoreManifest;
 
         // Get git-specific information

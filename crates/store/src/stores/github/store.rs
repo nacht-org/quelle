@@ -7,17 +7,17 @@ use tracing::{debug, info};
 
 use super::file_operations::GitHubFileOperations;
 use crate::error::{Result, StoreError};
-use crate::manifest::ExtensionManifest;
+use crate::manager::publish::{
+    PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
+    ValidationReport,
+};
+use crate::manager::store_manifest::ExtensionSummary;
+use crate::manager::store_manifest::StoreManifest;
 use crate::models::{
     ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstalledExtension, SearchQuery,
     StoreHealth, UpdateInfo,
 };
-use crate::publish::{
-    PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
-    ValidationReport,
-};
-use crate::store_manifest::ExtensionSummary;
-use crate::store_manifest::StoreManifest;
+use crate::registry::manifest::ExtensionManifest;
 use crate::stores::file_operations::FileBasedProcessor;
 use crate::stores::providers::git::GitReference;
 use crate::stores::providers::git::{GitAuth, GitWriteConfig};
@@ -496,7 +496,7 @@ impl WritableStore for GitHubStore {
                 "*.dylib".to_string(),
             ],
             required_metadata: vec!["name".to_string(), "version".to_string()],
-            supported_visibility: vec![crate::publish::ExtensionVisibility::Public],
+            supported_visibility: vec![crate::manager::publish::ExtensionVisibility::Public],
             enforces_versioning: true,
             validation_rules: Vec::new(),
         }
@@ -570,7 +570,7 @@ impl WritableStore for GitHubStore {
             ));
         }
 
-        use crate::registry::{IssueSeverity, ValidationIssue, ValidationIssueType};
+        use crate::registry::core::{IssueSeverity, ValidationIssue, ValidationIssueType};
 
         let validation_issues: Vec<ValidationIssue> = issues
             .into_iter()

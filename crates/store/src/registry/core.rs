@@ -317,9 +317,9 @@ impl RegistryStore for LocalRegistryStore {
         // Create installation record with in-memory data
         let mut installed = InstalledExtension::from_package(package.clone());
         installed.auto_update = options.auto_update;
-        installed.checksum = Some(crate::manifest::Checksum {
-            algorithm: crate::manifest::checksum::ChecksumAlgorithm::Blake3,
-            value: crate::manifest::checksum::ChecksumAlgorithm::Blake3
+        installed.checksum = Some(crate::registry::manifest::Checksum {
+            algorithm: crate::registry::manifest::checksum::ChecksumAlgorithm::Blake3,
+            value: crate::registry::manifest::checksum::ChecksumAlgorithm::Blake3
                 .calculate(&package.wasm_component),
         });
 
@@ -527,7 +527,7 @@ impl RegistryStore for LocalRegistryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::ExtensionManifest;
+    use crate::registry::manifest::ExtensionManifest;
     use tempfile::TempDir;
 
     fn create_test_extension_package(name: &str, version: &str) -> ExtensionPackage {
@@ -542,7 +542,7 @@ mod tests {
             attrs: vec![],
 
             signature: None,
-            wasm_file: crate::manifest::FileReference::new(
+            wasm_file: crate::registry::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
                 b"fake wasm content",
             ),

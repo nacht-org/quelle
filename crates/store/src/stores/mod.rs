@@ -14,6 +14,10 @@ pub mod local;
 pub mod locally_cached;
 pub mod providers;
 
+// Store configuration and factory
+pub mod registry_config;
+pub mod source;
+
 #[cfg(feature = "git")]
 pub mod git;
 
@@ -40,6 +44,10 @@ pub use traits::{
 // Re-export provider types and locally cached store
 pub use locally_cached::LocallyCachedStore;
 pub use providers::{StoreProvider, SyncResult};
+
+// Re-export store configuration and source types
+pub use registry_config::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts};
+pub use source::{create_readable_store_from_source, ExtensionSource, RegistryConfig, StoreType};
 
 #[cfg(feature = "git")]
 pub use providers::{GitAuth, GitProvider, GitReference};

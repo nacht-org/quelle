@@ -63,35 +63,41 @@
 /// ```
 pub mod error;
 pub mod manager;
-pub mod manifest;
 pub mod models;
-pub mod publish;
 pub mod registry;
-pub mod registry_config;
-pub mod source;
-pub mod store_manifest;
 pub mod stores;
-pub mod validation;
 
 // Re-export commonly used types
 pub use error::{Result, StoreError};
-pub use manager::StoreManager;
+
+// Manager module re-exports
+pub use manager::{
+    ExtensionSummary, ExtensionVisibility, ManagedStore, PublishError, PublishOptions,
+    PublishRequirements, PublishResult, StoreManager, StoreManifest, UnpublishOptions,
+    UnpublishResult, UrlPattern, ValidationReport,
+};
+
+// Models (shared across modules)
 pub use models::{
     CompatibilityInfo, ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions,
     InstalledExtension, SearchQuery, SearchSortBy, StoreConfig, StoreHealth, StoreInfo, UpdateInfo,
     UpdateOptions,
 };
-pub use publish::{
-    ExtensionVisibility, PublishError, PublishOptions, PublishRequirements, PublishResult,
-    UnpublishOptions, UnpublishResult, ValidationReport,
+
+// Registry module re-exports
+pub use registry::{
+    create_default_validator, ExtensionManifest, LocalRegistryStore, ManifestValidationRule,
+    RegistryStore, SecurityValidationRule, ValidationEngine, ValidationIssue, ValidationRule,
 };
-pub use registry::{LocalRegistryStore, RegistryStore, ValidationIssue};
-pub use registry_config::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts};
-pub use source::{create_readable_store_from_source, ExtensionSource, RegistryConfig, StoreType};
-pub use store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
+
+// Stores module re-exports
 pub use stores::local::LocalStoreBuilder;
 pub use stores::traits::{BaseStore, ReadableStore, WritableStore};
-pub use stores::{LocallyCachedStore, StoreProvider, SyncResult};
+pub use stores::{
+    create_readable_store_from_source, ExtensionSource, LocallyCachedStore, RegistryConfig,
+    RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts, StoreProvider, StoreType,
+    SyncResult,
+};
 
 #[cfg(feature = "git")]
 pub use stores::providers::git::{CommitStyle, GitAuthor, GitStatus, GitWriteConfig};
@@ -99,10 +105,6 @@ pub use stores::providers::git::{CommitStyle, GitAuthor, GitStatus, GitWriteConf
 pub use stores::{GitAuth, GitProvider, GitReference, GitStore, GitStoreBuilder};
 #[cfg(feature = "github")]
 pub use stores::{GitHubStore, GitHubStoreBuilder};
-pub use validation::{
-    create_default_validator, ManifestValidationRule, SecurityValidationRule, ValidationEngine,
-    ValidationRule,
-};
 
 // Version information
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

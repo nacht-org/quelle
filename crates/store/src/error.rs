@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::publish::PublishError;
+use crate::manager::publish::PublishError;
 
 #[derive(Error, Debug)]
 pub enum StoreError {

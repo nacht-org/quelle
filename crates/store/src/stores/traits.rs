@@ -7,17 +7,17 @@
 use async_trait::async_trait;
 
 use crate::error::Result;
-use crate::manifest::ExtensionManifest;
+use crate::manager::publish::{
+    PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
+    ValidationReport,
+};
+use crate::manager::store_manifest::ExtensionSummary;
+use crate::manager::store_manifest::StoreManifest;
 use crate::models::{
     ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstalledExtension, SearchQuery,
     StoreHealth, UpdateInfo,
 };
-use crate::publish::{
-    PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
-    ValidationReport,
-};
-use crate::store_manifest::ExtensionSummary;
-use crate::store_manifest::StoreManifest;
+use crate::registry::manifest::ExtensionManifest;
 
 /// Core store interface that all stores must implement
 #[async_trait]
