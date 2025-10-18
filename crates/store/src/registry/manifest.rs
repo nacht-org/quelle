@@ -121,6 +121,30 @@ pub struct ExtensionManifest {
     pub assets: Vec<AssetReference>,
 }
 
+/// Extension manifest with embedded metadata for local stores
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LocalExtensionManifest {
+    #[serde(flatten)]
+    pub manifest: ExtensionManifest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<ExtensionMetadata>,
+}
+
+impl From<ExtensionManifest> for LocalExtensionManifest {
+    fn from(manifest: ExtensionManifest) -> Self {
+        Self {
+            metadata: None,
+            manifest,
+        }
+    }
+}
+
+impl From<LocalExtensionManifest> for ExtensionManifest {
+    fn from(local_manifest: LocalExtensionManifest) -> Self {
+        local_manifest.manifest
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ReadingDirection {
     Ltr,
@@ -134,6 +158,8 @@ pub enum Attribute {
 
 // Re-export checksum types for convenience
 pub use checksum::{Checksum, ChecksumAlgorithm, SignatureInfo};
+
+use crate::models::ExtensionMetadata;
 
 pub mod checksum {
     use std::{fmt::Display, str::FromStr};

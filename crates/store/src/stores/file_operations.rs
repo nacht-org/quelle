@@ -13,7 +13,7 @@ use crate::error::{Result, StoreError};
 use crate::manager::store_manifest::ExtensionSummary;
 use crate::manager::store_manifest::StoreManifest;
 use crate::models::{ExtensionInfo, ExtensionMetadata, SearchQuery};
-use crate::registry::manifest::ExtensionManifest;
+use crate::registry::manifest::{ExtensionManifest, LocalExtensionManifest};
 
 /// Internal trait for abstracting file operations across different store backends
 #[async_trait]
@@ -120,7 +120,16 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     ) -> Result<ExtensionManifest> {
         let version = self.resolve_version(extension_id, version).await?;
         let manifest_path = format!("extensions/{}/{}/manifest.json", extension_id, version);
-        self.read_json_file(&manifest_path).await
+
+        // Try to read as LocalExtensionManifest first, then fallback to ExtensionManifest
+        if let Ok(local_manifest) = self
+            .read_json_file::<LocalExtensionManifest>(&manifest_path)
+            .await
+        {
+            Ok(local_manifest.into())
+        } else {
+            self.read_json_file(&manifest_path).await
+        }
     }
 
     /// Get extension WASM with checksum verification
@@ -155,15 +164,23 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         version: Option<&str>,
     ) -> Result<Option<ExtensionMetadata>> {
         let version = self.resolve_version(extension_id, version).await?;
-        let metadata_path = format!("extensions/{}/{}/metadata.json", extension_id, version);
+        let manifest_path = format!("extensions/{}/{}/manifest.json", extension_id, version);
 
-        // Metadata is optional
-        match self.file_ops.file_exists(&metadata_path).await? {
-            true => {
-                let metadata: ExtensionMetadata = self.read_json_file(&metadata_path).await?;
-                Ok(Some(metadata))
+        // Try to read as LocalExtensionManifest first (which has embedded metadata)
+        if let Ok(local_manifest) = self
+            .read_json_file::<LocalExtensionManifest>(&manifest_path)
+            .await
+        {
+            Ok(local_manifest.metadata)
+        } else {
+            // Fallback: try to read regular ExtensionManifest but don't create nonsensical metadata
+            match self
+                .read_json_file::<ExtensionManifest>(&manifest_path)
+                .await
+            {
+                Ok(_) => Ok(None),  // Regular manifest exists but has no metadata
+                Err(_) => Ok(None), // No manifest found
             }
-            false => Ok(None),
         }
     }
 

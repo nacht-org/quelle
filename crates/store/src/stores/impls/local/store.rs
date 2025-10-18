@@ -16,7 +16,7 @@ use crate::models::{
     ExtensionInfo, ExtensionListing, ExtensionMetadata, ExtensionPackage, InstalledExtension,
     SearchQuery, StoreHealth, UpdateInfo,
 };
-use crate::registry::manifest::ExtensionManifest;
+use crate::registry::manifest::{ExtensionManifest, LocalExtensionManifest};
 use crate::stores::file_operations::FileBasedProcessor;
 use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
 
@@ -585,21 +585,18 @@ impl WritableStore for LocalStore {
 
         tokio::fs::create_dir_all(&version_dir).await?;
 
-        // Write manifest
+        // Convert to LocalExtensionManifest and write manifest
+        let local_manifest = LocalExtensionManifest {
+            manifest: package.manifest.clone(),
+            metadata: package.metadata.clone(),
+        };
         let manifest_path = version_dir.join("manifest.json");
-        let manifest_content = serde_json::to_string_pretty(&package.manifest)?;
+        let manifest_content = serde_json::to_string_pretty(&local_manifest)?;
         tokio::fs::write(&manifest_path, manifest_content).await?;
 
         // Write WASM component
         let wasm_path = version_dir.join(&package.manifest.wasm_file.path);
         tokio::fs::write(&wasm_path, &package.wasm_component).await?;
-
-        // Write metadata if present
-        if let Some(metadata) = &package.metadata {
-            let metadata_path = version_dir.join("metadata.json");
-            let metadata_content = serde_json::to_string_pretty(metadata)?;
-            tokio::fs::write(&metadata_path, metadata_content).await?;
-        }
 
         // Write assets
         for (asset_name, asset_content) in &package.assets {
