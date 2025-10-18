@@ -26,6 +26,7 @@ pub(crate) struct GitHubFileOperations {
     owner: String,
     repo: String,
     reference: String,
+    original_reference: GitReference,
     base_url: String,
     client: reqwest::Client,
     cache: Arc<RwLock<HashMap<String, CacheEntry>>>,
@@ -45,6 +46,7 @@ impl GitHubFileOperations {
             owner,
             repo,
             reference: reference_str,
+            original_reference: reference.clone(),
             base_url,
             client: reqwest::Client::new(),
             cache: Arc::new(RwLock::new(HashMap::new())),
@@ -69,6 +71,7 @@ impl GitHubFileOperations {
             owner,
             repo,
             reference: reference_str,
+            original_reference: reference.clone(),
             base_url,
             client,
             cache: Arc::new(RwLock::new(HashMap::new())),
@@ -138,10 +141,26 @@ impl GitHubFileOperations {
         format!("{}/{}", self.base_url, clean_path)
     }
 
-    /// Get effective reference by resolving HEAD if needed
-    async fn get_effective_reference(&self) -> Result<String> {
-        if self.reference == "HEAD" {
-            // For HEAD, we need to find the default branch
+    /// Get effective reference by resolving default branch if needed.
+    ///
+    /// When GitReference::Default is used, this method will probe the repository
+    /// to determine the actual default branch (main vs master) by testing common
+    /// branch names. This is useful for accurate branch resolution since GitHub
+    /// repositories may use either "main" or "master" as their default.
+    ///
+    /// # Returns
+    /// - The actual branch name for Default references (e.g., "main" or "master")
+    /// - The original reference string for explicit branches, tags, or commits
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ops = GitHubFileOperations::new("owner".to_string(), "repo".to_string(), GitReference::Default);
+    /// let actual_branch = ops.get_effective_reference().await?;
+    /// // actual_branch will be "main" or "master" depending on the repo's default
+    /// ```
+    pub async fn get_effective_reference(&self) -> Result<String> {
+        if matches!(self.original_reference, GitReference::Default) {
+            // For Default reference, we need to find the actual default branch
             // We can try common default branches in order
             let default_branches = ["main", "master"];
 
@@ -153,7 +172,7 @@ impl GitHubFileOperations {
 
                 if let Ok(response) = self.client.head(&test_url).send().await {
                     if response.status().is_success() {
-                        debug!("Resolved HEAD to branch: {}", branch);
+                        debug!("Resolved default branch to: {}", branch);
                         return Ok(branch.to_string());
                     }
                 }
@@ -161,13 +180,37 @@ impl GitHubFileOperations {
 
             // Fallback to main if we can't determine
             warn!(
-                "Could not resolve HEAD for {}/{}, using 'main'",
+                "Could not resolve default branch for {}/{}, using 'main'",
                 self.owner, self.repo
             );
             Ok("main".to_string())
         } else {
             Ok(self.reference.clone())
         }
+    }
+
+    /// Resolve the default branch and update the base URL if needed.
+    ///
+    /// This method calls `get_effective_reference()` and updates the internal
+    /// base URL to use the resolved branch. This is useful for optimizing
+    /// subsequent file operations when using GitReference::Default.
+    ///
+    /// # Returns
+    /// The resolved reference string that is now being used.
+    pub async fn resolve_and_update_reference(&mut self) -> Result<String> {
+        let effective_ref = self.get_effective_reference().await?;
+
+        // Only update if the reference actually changed
+        if effective_ref != self.reference {
+            self.reference = effective_ref.clone();
+            self.base_url = format!(
+                "https://raw.githubusercontent.com/{}/{}/{}",
+                self.owner, self.repo, effective_ref
+            );
+            debug!("Updated base URL to: {}", self.base_url);
+        }
+
+        Ok(effective_ref)
     }
 }
 
@@ -340,7 +383,7 @@ mod tests {
             GitReference::Commit("abc123".to_string()).to_string(),
             "abc123"
         );
-        assert_eq!(GitReference::Default.to_string(), "HEAD");
+        assert_eq!(GitReference::Default.to_string(), "main");
     }
 
     #[test]

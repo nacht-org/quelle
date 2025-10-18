@@ -65,7 +65,7 @@ impl GitReference {
             GitReference::Branch(branch) => branch.clone(),
             GitReference::Tag(tag) => tag.clone(),
             GitReference::Commit(commit) => commit.clone(),
-            GitReference::Default => "HEAD".to_string(),
+            GitReference::Default => "main".to_string(),
         }
     }
 }
