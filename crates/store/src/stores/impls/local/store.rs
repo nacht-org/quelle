@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use super::file_operations::LocalFileOperations;
 use crate::error::{Result, StoreError};
@@ -440,40 +440,9 @@ impl ReadableStore for LocalStore {
         id: &str,
         version: Option<&str>,
     ) -> Result<ExtensionPackage> {
-        let manifest = self.processor.get_extension_manifest(id, version).await?;
-        let wasm_bytes = self
-            .processor
-            .get_extension_wasm(id, Some(&manifest.version))
-            .await?;
-        let metadata = self
-            .processor
-            .get_extension_metadata(id, Some(&manifest.version))
-            .await?;
-
-        let mut package = ExtensionPackage::new(manifest.clone(), wasm_bytes, self.name.clone());
-
-        if let Some(meta) = metadata {
-            package = package.with_metadata(meta);
-        }
-
-        // Load all assets
-        for asset_ref in &manifest.assets {
-            match self
-                .processor
-                .get_extension_asset(id, Some(&manifest.version), &asset_ref.path)
-                .await
-            {
-                Ok(content) => {
-                    package.add_asset(asset_ref.path.clone(), content);
-                }
-                Err(e) => {
-                    debug!("Failed to load asset {}: {}", asset_ref.path, e);
-                    // Continue loading other assets
-                }
-            }
-        }
-
-        Ok(package)
+        self.processor
+            .get_extension_package(id, version, self.name.clone())
+            .await
     }
 
     async fn get_extension_latest_version(&self, id: &str) -> Result<Option<String>> {

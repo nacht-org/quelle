@@ -7,12 +7,12 @@
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::error::{Result, StoreError};
 use crate::manager::store_manifest::ExtensionSummary;
 use crate::manager::store_manifest::StoreManifest;
-use crate::models::{ExtensionInfo, ExtensionMetadata, SearchQuery};
+use crate::models::{ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQuery};
 use crate::registry::manifest::{ExtensionManifest, LocalExtensionManifest};
 
 /// Internal trait for abstracting file operations across different store backends
@@ -370,6 +370,44 @@ impl<F: FileOperations> FileBasedProcessor<F> {
             Some(path) => self.file_ops.file_exists(&path).await,
             None => Ok(false), // Extension version doesn't exist
         }
+    }
+
+    /// Get the complete extension package including all files
+    pub async fn get_extension_package(
+        &self,
+        id: &str,
+        version: Option<&str>,
+        store_name: String,
+    ) -> Result<ExtensionPackage> {
+        let manifest = self.get_extension_manifest(id, version).await?;
+        let wasm_bytes = self.get_extension_wasm(id, Some(&manifest.version)).await?;
+        let metadata = self
+            .get_extension_metadata(id, Some(&manifest.version))
+            .await?;
+
+        let mut package = ExtensionPackage::new(manifest.clone(), wasm_bytes, store_name);
+
+        if let Some(meta) = metadata {
+            package = package.with_metadata(meta);
+        }
+
+        // Load all assets
+        for asset_ref in &manifest.assets {
+            match self
+                .get_extension_asset(id, Some(&manifest.version), &asset_ref.path)
+                .await
+            {
+                Ok(content) => {
+                    package.add_asset(asset_ref.path.clone(), content);
+                }
+                Err(e) => {
+                    debug!("Failed to load asset {}: {}", asset_ref.path, e);
+                    // Continue loading other assets
+                }
+            }
+        }
+
+        Ok(package)
     }
 
     /// Find extensions that can handle the given URL
