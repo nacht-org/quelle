@@ -58,6 +58,18 @@ pub enum GitReference {
     Commit(String),
 }
 
+impl GitReference {
+    /// Convert to string for GitHub raw URLs
+    pub fn to_string(&self) -> String {
+        match self {
+            GitReference::Branch(branch) => branch.clone(),
+            GitReference::Tag(tag) => tag.clone(),
+            GitReference::Commit(commit) => commit.clone(),
+            GitReference::Default => "HEAD".to_string(),
+        }
+    }
+}
+
 impl Default for GitReference {
     fn default() -> Self {
         Self::Default
@@ -726,14 +738,13 @@ impl StoreProvider for GitProvider {
 
         // Check if authentication is configured for push operations
         if let Some(write_config) = &self.write_config {
-            if write_config.auto_push
-                && matches!(self.auth, GitAuth::None) {
-                    tracing::debug!(
+            if write_config.auto_push && matches!(self.auth, GitAuth::None) {
+                tracing::debug!(
                         "Auto-push is enabled with GitAuth::None for repository '{}'. \
                          Will attempt to use system git credentials (SSH agent, credential manager, etc.)",
                         self.url
                     );
-                }
+            }
         }
 
         // Check repository status
@@ -952,9 +963,7 @@ impl GitProvider {
                 continue;
             }
 
-            index
-                .add_path(relative_path)
-                .map_err(GitStoreError::Git)?;
+            index.add_path(relative_path).map_err(GitStoreError::Git)?;
         }
 
         index.write().map_err(GitStoreError::Git)?;
@@ -1001,8 +1010,7 @@ impl GitProvider {
         let repo = Repository::open(&self.cache_dir).map_err(GitStoreError::Git)?;
 
         let author = config.effective_author();
-        let signature =
-            Signature::now(&author.name, &author.email).map_err(GitStoreError::Git)?;
+        let signature = Signature::now(&author.name, &author.email).map_err(GitStoreError::Git)?;
 
         let mut index = repo.index().map_err(GitStoreError::Git)?;
         let tree_id = index.write_tree().map_err(GitStoreError::Git)?;
@@ -1047,9 +1055,7 @@ impl GitProvider {
 
         let repo = Repository::open(&self.cache_dir).map_err(GitStoreError::Git)?;
 
-        let mut remote = repo
-            .find_remote("origin")
-            .map_err(GitStoreError::Git)?;
+        let mut remote = repo.find_remote("origin").map_err(GitStoreError::Git)?;
 
         let mut callbacks = RemoteCallbacks::new();
 

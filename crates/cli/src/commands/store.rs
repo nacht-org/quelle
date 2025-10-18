@@ -3,8 +3,6 @@
 use eyre::{Context, Result};
 #[cfg(feature = "github")]
 use quelle_store::GitHubStore;
-#[cfg(feature = "github")]
-use quelle_store::stores::GitHubGitReference;
 use quelle_store::stores::local::LocalStore;
 use quelle_store::{BaseStore, ExtensionSource, GitStore, RegistryConfig, StoreManager, StoreType};
 use std::io::{self, Write};
@@ -524,7 +522,7 @@ async fn handle_add_github_store(
 
     let github_store = GitHubStore::builder(owner.clone(), repo.clone())
         .auth(auth.clone())
-        .reference(GitHubGitReference::from_git_reference(&reference))
+        .reference(reference.clone())
         .name(name.clone())
         .cache_dir(cache_path.clone())
         .build()?;

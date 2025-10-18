@@ -13,9 +13,6 @@ pub(crate) mod local_file_operations;
 #[cfg(feature = "github")]
 pub(crate) mod github_file_operations;
 
-#[cfg(feature = "github")]
-pub use github_file_operations::GitReference as GitHubGitReference;
-
 // Store implementations
 pub mod local;
 pub mod locally_cached;

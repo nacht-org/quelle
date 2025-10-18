@@ -12,47 +12,13 @@ use tracing::{debug, warn};
 
 use crate::error::{Result, StoreError};
 use crate::stores::file_operations::FileOperations;
+use crate::stores::providers::git::GitReference;
 
 /// Cache entry for GitHub file operations
 #[derive(Debug, Clone)]
 struct CacheEntry {
     content: Vec<u8>,
     cached_at: Instant,
-}
-
-/// Git reference types for GitHub repositories
-#[derive(Debug, Clone)]
-pub enum GitReference {
-    Branch(String),
-    Tag(String),
-    Commit(String),
-    Default, // Uses repository's default branch
-}
-
-impl GitReference {
-    /// Convert to string for GitHub raw URLs
-    pub fn to_string(&self) -> String {
-        match self {
-            GitReference::Branch(branch) => branch.clone(),
-            GitReference::Tag(tag) => tag.clone(),
-            GitReference::Commit(commit) => commit.clone(),
-            GitReference::Default => "HEAD".to_string(),
-        }
-    }
-
-    /// Convert from providers::git::GitReference to github_file_operations::GitReference
-    pub fn from_git_reference(git_ref: &crate::stores::providers::git::GitReference) -> Self {
-        match git_ref {
-            crate::stores::providers::git::GitReference::Default => GitReference::Default,
-            crate::stores::providers::git::GitReference::Branch(branch) => {
-                GitReference::Branch(branch.clone())
-            }
-            crate::stores::providers::git::GitReference::Tag(tag) => GitReference::Tag(tag.clone()),
-            crate::stores::providers::git::GitReference::Commit(commit) => {
-                GitReference::Commit(commit.clone())
-            }
-        }
-    }
 }
 
 /// File operations implementation for GitHub repositories using raw URLs
