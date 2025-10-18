@@ -286,24 +286,20 @@ async fn handle_validate_extension(
                     report
                         .issues
                         .iter()
-                        .filter(|i| matches!(
-                            i.severity,
-                            quelle_store::registry::IssueSeverity::Critical
-                        ))
+                        .filter(|i| matches!(i.severity, quelle_store::IssueSeverity::Critical))
                         .count()
                 );
 
                 for issue in &report.issues {
                     if matches!(
                         issue.severity,
-                        quelle_store::registry::IssueSeverity::Critical
-                            | quelle_store::registry::IssueSeverity::Error
+                        quelle_store::IssueSeverity::Critical | quelle_store::IssueSeverity::Error
                     ) {
                         let icon = match issue.severity {
-                            quelle_store::registry::IssueSeverity::Critical => "[CRITICAL]",
-                            quelle_store::registry::IssueSeverity::Warning => "[WARNING]",
-                            quelle_store::registry::IssueSeverity::Info => "[INFO]",
-                            quelle_store::registry::IssueSeverity::Error => "[ERROR]",
+                            quelle_store::IssueSeverity::Critical => "[CRITICAL]",
+                            quelle_store::IssueSeverity::Warning => "[WARNING]",
+                            quelle_store::IssueSeverity::Info => "[INFO]",
+                            quelle_store::IssueSeverity::Error => "[ERROR]",
                         };
                         println!("  {} {:?}: {}", icon, issue.severity, issue.description);
                     }

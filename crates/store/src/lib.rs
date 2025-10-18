@@ -64,18 +64,16 @@
 pub mod error;
 pub mod manager;
 pub mod models;
+pub mod publish_compat;
 pub mod registry;
 pub mod stores;
+pub mod validation_compat;
 
 // Re-export commonly used types
 pub use error::{Result, StoreError};
 
 // Manager module re-exports
-pub use manager::{
-    ExtensionSummary, ExtensionVisibility, ManagedStore, PublishError, PublishOptions,
-    PublishRequirements, PublishResult, StoreManager, StoreManifest, UnpublishOptions,
-    UnpublishResult, UrlPattern, ValidationReport,
-};
+pub use manager::{ExtensionSummary, ManagedStore, StoreManager, StoreManifest, UrlPattern};
 
 // Models (shared across modules)
 pub use models::{
@@ -85,19 +83,28 @@ pub use models::{
 };
 
 // Registry module re-exports
-pub use registry::{
-    create_default_validator, ExtensionManifest, LocalRegistryStore, ManifestValidationRule,
-    RegistryStore, SecurityValidationRule, ValidationEngine, ValidationIssue, ValidationRule,
-};
+pub use registry::{ExtensionManifest, LocalRegistryStore, RegistryStore};
 
 // Stores module re-exports
-pub use stores::local::LocalStoreBuilder;
 pub use stores::traits::{BaseStore, ReadableStore, WritableStore};
+pub use stores::LocalStoreBuilder;
 pub use stores::{
     create_readable_store_from_source, ExtensionSource, LocallyCachedStore, RegistryConfig,
     RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts, StoreProvider, StoreType,
     SyncResult,
 };
+
+// Re-export specific types for backward compatibility with external crates
+pub use manager::publish::ExtensionVisibility;
+pub use registry::core::{IssueSeverity, ValidationIssueType};
+pub use stores::impls::local::LocalStore;
+
+// Compatibility modules for external crates
+pub use publish_compat as publish;
+pub use validation_compat as validation;
+
+// Additional re-exports needed by CLI
+// LocalStoreBuilder is already exported via stores::LocalStoreBuilder above
 
 #[cfg(feature = "git")]
 pub use stores::providers::git::{CommitStyle, GitAuthor, GitStatus, GitWriteConfig};

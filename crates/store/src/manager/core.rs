@@ -14,7 +14,7 @@ use crate::models::{
     UpdateInfo, UpdateOptions,
 };
 use crate::registry::{manifest::ExtensionManifest, RegistryStore};
-use crate::stores::{registry_config::RegistryStoreConfig, ReadableStore};
+use crate::stores::{config::RegistryStoreConfig, ReadableStore};
 
 /// Wrapper combining a Store with its registry configuration
 pub struct ManagedStore {

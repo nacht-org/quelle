@@ -3,7 +3,7 @@
 use eyre::{Context, Result};
 #[cfg(feature = "github")]
 use quelle_store::GitHubStore;
-use quelle_store::stores::local::LocalStore;
+use quelle_store::LocalStore;
 use quelle_store::{BaseStore, ExtensionSource, GitStore, RegistryConfig, StoreManager, StoreType};
 use std::io::{self, Write};
 use std::path::PathBuf;

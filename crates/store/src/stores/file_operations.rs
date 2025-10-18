@@ -67,7 +67,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     /// Get the basic store manifest for BaseStore trait implementation
     pub async fn get_store_manifest(&self) -> Result<StoreManifest> {
         use crate::manager::store_manifest::StoreManifest;
-        use crate::stores::local::store::LocalStoreManifest;
+        use crate::stores::impls::local::store::LocalStoreManifest;
 
         // Try to load as LocalStoreManifest first, then extract base
         match self
@@ -89,8 +89,8 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     /// Get the local store manifest for URL routing and extension listing
     pub async fn get_local_store_manifest(
         &self,
-    ) -> Result<crate::stores::local::store::LocalStoreManifest> {
-        use crate::stores::local::store::LocalStoreManifest;
+    ) -> Result<crate::stores::impls::local::store::LocalStoreManifest> {
+        use crate::stores::impls::local::store::LocalStoreManifest;
 
         self.read_json_file::<LocalStoreManifest>("store.json")
             .await
@@ -545,7 +545,7 @@ mod tests {
     #[tokio::test]
     async fn test_find_extensions_for_url() {
         use crate::manager::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
-        use crate::stores::local::store::LocalStoreManifest;
+        use crate::stores::impls::local::store::LocalStoreManifest;
         use std::collections::BTreeSet;
 
         let mut mock_ops = MockFileOperations::new();

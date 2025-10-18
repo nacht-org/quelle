@@ -18,7 +18,7 @@ use crate::manager::publish::{
 };
 use crate::manager::store_manifest::ExtensionSummary;
 use crate::stores::{
-    local::LocalStore,
+    impls::local::LocalStore,
     providers::{
         traits::{LifecycleEvent, StoreProvider},
         GitProvider,
@@ -235,7 +235,7 @@ impl LocallyCachedStore<GitProvider> {
         description: Option<String>,
     ) -> Result<()> {
         use crate::manager::store_manifest::StoreManifest;
-        use crate::stores::local::LocalStoreManifest;
+        use crate::stores::impls::local::LocalStoreManifest;
 
         // Get git-specific information
         let git_url = self.provider.url().to_string();

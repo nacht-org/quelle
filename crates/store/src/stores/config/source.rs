@@ -11,16 +11,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     error::{Result, StoreError},
-    stores::{local::LocalStore, traits::CacheableStore, ReadableStore, WritableStore},
+    stores::{impls::LocalStore, traits::CacheableStore, ReadableStore, WritableStore},
 };
 
 #[cfg(feature = "git")]
-use crate::stores::git::GitStore;
+use crate::stores::impls::GitStore;
 #[cfg(feature = "git")]
 use crate::stores::providers::git::{GitAuth, GitReference};
 
 #[cfg(feature = "github")]
-use crate::stores::github::GitHubStore;
+use crate::stores::impls::GitHubStore;
 
 /// Type of extension store with associated data
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -158,10 +158,10 @@ impl RegistryConfig {
         // Add all configured extension sources
         for source in &self.extension_sources {
             if source.enabled {
-                match super::source::create_readable_store_from_source(source).await {
+                match create_readable_store_from_source(source).await {
                     Ok(store) => {
                         tracing::info!("Restored store: {} ({})", source.name, source.store_type);
-                        let registry_config = super::registry_config::RegistryStoreConfig::new(
+                        let registry_config = super::registry::RegistryStoreConfig::new(
                             source.name.clone(),
                             source.store_type.to_string(),
                         );

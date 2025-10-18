@@ -10,19 +10,11 @@ pub mod traits;
 pub(crate) mod file_operations;
 
 // Store implementations
-pub mod local;
-pub mod locally_cached;
+pub mod impls;
 pub mod providers;
 
-// Store configuration and factory
-pub mod registry_config;
-pub mod source;
-
-#[cfg(feature = "git")]
-pub mod git;
-
-#[cfg(feature = "github")]
-pub mod github;
+// Store configuration
+pub mod config;
 
 // Future store implementations
 // pub mod http;
@@ -41,22 +33,22 @@ pub use traits::{
     BaseStore, CacheStats, CacheableStore, ReadWriteStore, ReadableStore, WritableStore,
 };
 
-// Re-export provider types and locally cached store
-pub use locally_cached::LocallyCachedStore;
+// Re-export store implementations and provider types
+pub use impls::{LocalStore, LocalStoreBuilder, LocallyCachedStore};
 pub use providers::{StoreProvider, SyncResult};
 
+#[cfg(feature = "git")]
+pub use impls::{GitStore, GitStoreBuilder};
+
+#[cfg(feature = "github")]
+pub use impls::{GitHubStore, GitHubStoreBuilder};
+
 // Re-export store configuration and source types
-pub use registry_config::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts};
-pub use source::{create_readable_store_from_source, ExtensionSource, RegistryConfig, StoreType};
+pub use config::{create_readable_store_from_source, ExtensionSource, RegistryConfig, StoreType};
+pub use config::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts};
 
 #[cfg(feature = "git")]
 pub use providers::{GitAuth, GitProvider, GitReference};
-
-#[cfg(feature = "git")]
-pub use git::{GitStore, GitStoreBuilder};
-
-#[cfg(feature = "github")]
-pub use github::{GitHubStore, GitHubStoreBuilder};
 
 /// Configuration for creating different types of stores
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,7 +208,7 @@ impl StoreCreator for LocalStoreCreator {
                 cache_enabled,
                 readonly,
             } => {
-                let mut builder = local::LocalStore::builder(&path);
+                let mut builder = impls::LocalStore::builder(&path);
 
                 // Configure based on options
                 if !cache_enabled {
@@ -366,7 +358,7 @@ pub async fn create_local_store<P: AsRef<Path>>(
     path: P,
     name: String,
 ) -> Result<Box<dyn BaseStore>> {
-    let store = local::LocalStore::builder(path).name(name).build()?;
+    let store = impls::LocalStore::builder(path).name(name).build()?;
     Ok(Box::new(store))
 }
 
@@ -376,7 +368,7 @@ pub async fn create_local_store_trusted<P: AsRef<Path>>(
 ) -> Result<Box<dyn BaseStore>> {
     // For trusted stores, we just create a normal store
     // The "trusted" concept is handled at the manager level
-    let store = local::LocalStore::builder(path).name(name).build()?;
+    let store = impls::LocalStore::builder(path).name(name).build()?;
     Ok(Box::new(store))
 }
 
@@ -384,7 +376,7 @@ pub async fn create_local_store_readonly<P: AsRef<Path>>(
     path: P,
     name: String,
 ) -> Result<Box<dyn BaseStore>> {
-    let store = local::LocalStore::builder(path)
+    let store = impls::LocalStore::builder(path)
         .name(name)
         .readonly()
         .build()?;
@@ -412,7 +404,7 @@ mod tests {
 
         // For local stores created via factory, we need to initialize them first
         // since they don't have a manifest yet
-        let local_store = local::LocalStore::new(config.path().unwrap()).unwrap();
+        let local_store = impls::LocalStore::new(config.path().unwrap()).unwrap();
         local_store
             .initialize_store("test-store".to_string(), Some("Test store".to_string()))
             .await
