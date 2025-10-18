@@ -207,35 +207,28 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
     /// List all extensions in the store
     pub async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
-        match self.get_local_store_manifest().await {
-            Ok(local_manifest) => {
-                // Use the authoritative extension list from the manifest
-                let mut all_extensions = Vec::new();
-                for ext_summary in &local_manifest.extensions {
-                    let ext_info = ExtensionInfo {
-                        id: ext_summary.id.clone(),
-                        name: ext_summary.name.clone(),
-                        version: ext_summary.version.clone(),
-                        description: None,
-                        author: "".to_string(), // Not available in summary
-                        tags: Vec::new(),
-                        last_updated: Some(ext_summary.last_updated),
-                        download_count: None,
-                        size: None,
-                        homepage: None,
-                        repository: None,
-                        license: None,
-                        store_source: self.store_name.clone(),
-                    };
-                    all_extensions.push(ext_info);
-                }
-                Ok(all_extensions)
-            }
-            Err(_) => {
-                // No LocalStoreManifest available, return empty
-                Ok(Vec::new())
-            }
+        let local_manifest = self.get_local_store_manifest().await?;
+
+        let mut all_extensions = Vec::new();
+        for ext_summary in &local_manifest.extensions {
+            let ext_info = ExtensionInfo {
+                id: ext_summary.id.clone(),
+                name: ext_summary.name.clone(),
+                version: ext_summary.version.clone(),
+                description: None,
+                author: "".to_string(), // Not available in summary
+                tags: Vec::new(),
+                last_updated: Some(ext_summary.last_updated),
+                download_count: None,
+                size: None,
+                homepage: None,
+                repository: None,
+                license: None,
+                store_source: self.store_name.clone(),
+            };
+            all_extensions.push(ext_info);
         }
+        Ok(all_extensions)
     }
 
     /// Get information about all versions of a specific extension
