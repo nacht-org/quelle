@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use tracing::{debug, info};
 
+use super::file_operations::GitHubFileOperations;
 use crate::error::{Result, StoreError};
 use crate::manifest::ExtensionManifest;
 use crate::models::{
@@ -21,7 +22,6 @@ use crate::publish::{
 };
 use crate::store_manifest::StoreManifest;
 use crate::stores::file_operations::FileBasedProcessor;
-use crate::stores::github_file_operations::GitHubFileOperations;
 use crate::stores::providers::git::GitReference;
 use crate::stores::providers::git::{GitAuth, GitWriteConfig};
 use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};

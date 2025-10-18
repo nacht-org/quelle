@@ -22,7 +22,7 @@ struct CacheEntry {
 }
 
 /// File operations implementation for GitHub repositories using raw URLs
-pub(crate) struct GitHubFileOperations {
+pub struct GitHubFileOperations {
     owner: String,
     repo: String,
     reference: String,
