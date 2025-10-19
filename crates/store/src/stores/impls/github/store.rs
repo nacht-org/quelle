@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
+use tempfile::TempDir;
 use tracing::info;
 
 use super::file_operations::GitHubFileOperations;
@@ -22,6 +23,7 @@ use crate::stores::file_operations::FileBasedProcessor;
 use crate::stores::providers::git::GitReference;
 use crate::stores::providers::git::{GitAuth, GitWriteConfig};
 use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
+use crate::{GitStore, GitStoreBuilder};
 
 /// GitHub store that uses FileBasedProcessor with GitHub-specific file operations
 pub struct GitHubStore {
@@ -271,10 +273,7 @@ impl GitHubStore {
 
     /// Get the git URL for cloning
     pub fn git_url(&self) -> String {
-        match &self.write_config {
-            Some(_) => format!("git@github.com:{}/{}.git", self.owner, self.repo),
-            None => format!("https://github.com/{}/{}.git", self.owner, self.repo),
-        }
+        format!("https://github.com/{}/{}.git", self.owner, self.repo)
     }
 
     /// Get the cache directory
@@ -295,6 +294,40 @@ impl GitHubStore {
     /// Get cache statistics
     pub async fn cache_stats(&self) -> (usize, u64) {
         self.processor.file_ops().cache_stats().await
+    }
+
+    pub fn as_git_store(&self) -> Result<GitStore> {
+        tracing::debug!(
+            "Attempting to create GitStore for GitHub repo: {}/{} (ref: {:?})",
+            self.owner,
+            self.repo,
+            self.reference
+        );
+
+        let write_config = match &self.write_config {
+            Some(config) => config.clone(),
+            None => {
+                tracing::warn!(
+                    "GitHubStore is not configured for writing: {}/{}",
+                    self.owner,
+                    self.repo
+                );
+                return Err(StoreError::UnsupportedOperation(
+                    "This GitHub store is not configured for writing".to_string(),
+                ));
+            }
+        };
+
+        let cache_dir = TempDir::new()?;
+
+        let git_store = GitStore::builder(self.git_url())
+            .name(self.name.clone())
+            .reference(self.reference.clone())
+            .cache_dir(cache_dir.path())
+            .write_config(write_config)
+            .build()?;
+
+        Ok(git_store)
     }
 }
 
@@ -483,98 +516,28 @@ impl WritableStore for GitHubStore {
 
     async fn publish(
         &self,
-        _package: ExtensionPackage,
-        _options: PublishOptions,
+        package: ExtensionPackage,
+        options: PublishOptions,
     ) -> Result<PublishResult> {
-        // GitHub store publishing would require git operations
-        // This would typically be implemented by using a GitProvider internally
-        // for now, return an error indicating this needs implementation
-        Err(StoreError::UnsupportedOperation(
-            "Publishing to GitHub stores requires git integration (use GitStore for publishing to GitHub)".to_string(),
-        ))
+        self.as_git_store()?.publish(package, options).await
     }
 
     async fn unpublish(
         &self,
-        _extension_id: &str,
-        _options: UnpublishOptions,
+        extension_id: &str,
+        options: UnpublishOptions,
     ) -> Result<UnpublishResult> {
-        // GitHub store unpublishing would require git operations
-        Err(StoreError::UnsupportedOperation(
-            "Unpublishing from GitHub stores requires git integration (use GitStore for publishing to GitHub)".to_string(),
-        ))
+        self.as_git_store()?.unpublish(extension_id, options).await
     }
 
     async fn validate_package(
         &self,
         package: &ExtensionPackage,
-        _options: &PublishOptions,
+        options: &PublishOptions,
     ) -> Result<ValidationReport> {
-        let mut issues = Vec::new();
-        let mut warnings = Vec::new();
-
-        // Basic validation
-        if package.manifest.id.is_empty() {
-            issues.push("Extension ID cannot be empty".to_string());
-        }
-
-        if package.manifest.name.is_empty() {
-            issues.push("Extension name cannot be empty".to_string());
-        }
-
-        if package.manifest.version.is_empty() {
-            issues.push("Extension version cannot be empty".to_string());
-        }
-
-        // WASM validation
-        if package.wasm_component.is_empty() {
-            issues.push("WASM component cannot be empty".to_string());
-        }
-
-        // File size check (GitHub has lower limits)
-        let total_size = package.calculate_total_size();
-        const MAX_SIZE: u64 = 25 * 1024 * 1024; // 25MB
-        if total_size > MAX_SIZE {
-            issues.push(format!(
-                "Package size ({} bytes) exceeds GitHub maximum allowed size ({} bytes)",
-                total_size, MAX_SIZE
-            ));
-        }
-
-        if total_size > 5 * 1024 * 1024 {
-            // 5MB warning for GitHub
-            warnings.push(format!(
-                "Package size is large ({} MB) for GitHub. Consider optimizing assets.",
-                total_size / (1024 * 1024)
-            ));
-        }
-
-        use crate::registry::core::{IssueSeverity, ValidationIssue, ValidationIssueType};
-
-        let validation_issues: Vec<ValidationIssue> = issues
-            .into_iter()
-            .map(|msg| ValidationIssue {
-                extension_name: package.manifest.id.clone(),
-                issue_type: ValidationIssueType::InvalidManifest,
-                description: msg,
-                severity: IssueSeverity::Critical,
-            })
-            .chain(warnings.into_iter().map(|msg| ValidationIssue {
-                extension_name: package.manifest.id.clone(),
-                issue_type: ValidationIssueType::InvalidManifest,
-                description: msg,
-                severity: IssueSeverity::Warning,
-            }))
-            .collect();
-
-        Ok(ValidationReport {
-            passed: validation_issues
-                .iter()
-                .all(|issue| !matches!(issue.severity, IssueSeverity::Critical)),
-            issues: validation_issues,
-            validation_duration: std::time::Duration::from_millis(10),
-            validator_version: env!("CARGO_PKG_VERSION").to_string(),
-        })
+        self.as_git_store()?
+            .validate_package(package, options)
+            .await
     }
 }
 
