@@ -268,37 +268,44 @@ impl LocalStore {
 
         // Manually scan extensions directory to build the manifest
         let extensions_dir = self.root_path.join("extensions");
-        if extensions_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(&extensions_dir) {
-                for entry in entries.flatten() {
-                    if entry.file_type().map_or(false, |ft| ft.is_dir()) {
-                        let extension_id = entry.file_name().to_string_lossy().to_string();
+        if !extensions_dir.exists() {
+            return Ok(local_manifest);
+        }
 
-                        // Find latest version
-                        let extension_path = entry.path();
-                        if let Ok(version_entries) = std::fs::read_dir(&extension_path) {
-                            for version_entry in version_entries.flatten() {
-                                if version_entry.file_type().map_or(false, |ft| ft.is_dir()) {
-                                    let version =
-                                        version_entry.file_name().to_string_lossy().to_string();
+        let entries = std::fs::read_dir(&extensions_dir)?;
+        for entry in entries.flatten() {
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
 
-                                    // Try to load the extension manifest
-                                    if let Ok(manifest) = self
-                                        .processor
-                                        .get_extension_manifest(&extension_id, Some(&version))
-                                        .await
-                                    {
-                                        let manifest_path = format!(
-                                            "extensions/{}/{}/manifest.json",
-                                            extension_id, version
-                                        );
-                                        local_manifest.add_extension(&manifest, manifest_path);
-                                        break; // Only add the first version found
-                                    }
-                                }
-                            }
-                        }
-                    }
+            let extension_file_name = entry.file_name();
+            let extension_id = extension_file_name.to_str().ok_or_else(|| {
+                StoreError::InvalidPath("Invalid extension ID in filesystem".to_string())
+            })?;
+
+            let extension_path = entry.path();
+
+            let version_entries = std::fs::read_dir(&extension_path)?;
+            for version_entry in version_entries.flatten() {
+                if !entry.file_type()?.is_dir() {
+                    continue;
+                }
+
+                let version_file_name = version_entry.file_name();
+                let version_str = version_file_name.to_str().ok_or_else(|| {
+                    StoreError::InvalidPath("Invalid version in filesystem".to_string())
+                })?;
+
+                // Try to load the extension manifest
+                if let Ok(manifest) = self
+                    .processor
+                    .get_extension_manifest(&extension_id, Some(&version_str))
+                    .await
+                {
+                    let manifest_path =
+                        format!("extensions/{}/{}/manifest.json", extension_id, version_str);
+                    local_manifest.add_extension(&manifest, manifest_path);
+                    break; // Only add the first version found
                 }
             }
         }
