@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs::{self};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[derive(Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Config {
     #[serde(default)]
     pub data_dir: Option<PathBuf>,
@@ -51,7 +50,6 @@ impl Default for FetchConfig {
         }
     }
 }
-
 
 impl Config {
     pub fn get_config_path() -> PathBuf {
@@ -98,8 +96,16 @@ impl Config {
             fs::create_dir_all(parent).await?;
         }
 
-        let content = serde_json::to_string_pretty(self)?;
+        // Filter out the official store before saving
+        let mut config = self.clone();
+        config
+            .registry
+            .extension_sources
+            .retain(|s| s.name != "official");
+
+        let content = serde_json::to_string_pretty(&config)?;
         fs::write(&config_path, content).await?;
+
         Ok(())
     }
 
@@ -109,6 +115,9 @@ impl Config {
             return Ok(());
         }
 
+        #[cfg(feature = "github")]
+        let official_store = quelle_store::ExtensionSource::official_github(&self.get_stores_dir());
+        #[cfg(not(feature = "github"))]
         let official_store = quelle_store::ExtensionSource::official(&self.get_stores_dir());
 
         if self
@@ -121,15 +130,7 @@ impl Config {
             return Ok(());
         }
 
-        if !self
-            .registry
-            .extension_sources
-            .iter()
-            .any(|s| s.name == official_store.name)
-        {
-            self.registry
-                .add_source(ExtensionSource::official(&self.get_stores_dir()));
-        }
+        self.registry.add_source(official_store);
 
         Ok(())
     }

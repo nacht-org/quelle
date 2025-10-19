@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use super::core::{IssueSeverity, ValidationIssue, ValidationIssueType};
 use crate::models::ExtensionPackage;
-use crate::registry::{IssueSeverity, ValidationIssue, ValidationIssueType};
 use crate::Result;
 
 /// Core trait for validation rules
@@ -235,8 +235,10 @@ pub fn create_default_validator() -> ValidationEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{Attribute, ExtensionManifest, FileReference, ReadingDirection};
     use crate::models::ExtensionPackage;
+    use crate::registry::manifest::{
+        Attribute, ExtensionManifest, FileReference, ReadingDirection,
+    };
 
     fn create_test_package(name: &str, wasm_content: &[u8]) -> ExtensionPackage {
         let manifest = ExtensionManifest {

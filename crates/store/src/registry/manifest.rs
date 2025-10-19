@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 /// Reference to a file with integrity information
@@ -121,6 +123,22 @@ pub struct ExtensionManifest {
     pub assets: Vec<AssetReference>,
 }
 
+/// Extension manifest with embedded metadata for local stores
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LocalExtensionManifest {
+    #[serde(flatten)]
+    pub manifest: ExtensionManifest,
+    pub path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<ExtensionMetadata>,
+}
+
+impl From<LocalExtensionManifest> for ExtensionManifest {
+    fn from(local_manifest: LocalExtensionManifest) -> Self {
+        local_manifest.manifest
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ReadingDirection {
     Ltr,
@@ -134,6 +152,8 @@ pub enum Attribute {
 
 // Re-export checksum types for convenience
 pub use checksum::{Checksum, ChecksumAlgorithm, SignatureInfo};
+
+use crate::models::ExtensionMetadata;
 
 pub mod checksum {
     use std::{fmt::Display, str::FromStr};

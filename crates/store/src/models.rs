@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
-use crate::manifest::ExtensionManifest;
+use crate::registry::manifest::ExtensionManifest;
 
 /// Information about an available extension in a store
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +24,84 @@ pub struct ExtensionInfo {
     pub repository: Option<String>,
     pub license: Option<String>,
     pub store_source: String, // Which store this info came from
+}
+
+/// Minimal extension information for listing and search operations
+/// This is a clean interface type without implementation-specific details
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtensionListing {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub author: String,
+    pub tags: Vec<String>,
+    pub last_updated: Option<DateTime<Utc>>,
+    pub store_source: String,
+}
+
+impl ExtensionListing {
+    /// Convert from ExtensionSummary to ExtensionListing
+    /// This eliminates implementation-specific details like manifest_path and manifest_checksum
+    pub fn from_summary(
+        summary: &crate::manager::store_manifest::ExtensionSummary,
+        store_source: String,
+    ) -> Self {
+        Self {
+            id: summary.id.clone(),
+            name: summary.name.clone(),
+            version: summary.version.clone(),
+            description: None, // ExtensionSummary doesn't have description
+            author: "Unknown".to_string(), // ExtensionSummary doesn't have author
+            tags: summary.langs.clone(), // Use langs as tags for now
+            last_updated: Some(summary.last_updated),
+            store_source,
+        }
+    }
+
+    /// Convert to full ExtensionInfo with additional optional fields
+    pub fn to_extension_info(self) -> ExtensionInfo {
+        ExtensionInfo {
+            id: self.id,
+            name: self.name,
+            version: self.version,
+            description: self.description,
+            author: self.author,
+            tags: self.tags,
+            last_updated: self.last_updated,
+            download_count: None,
+            size: None,
+            homepage: None,
+            repository: None,
+            license: None,
+            store_source: self.store_source,
+        }
+    }
+}
+
+impl ExtensionInfo {
+    /// Convert from ExtensionSummary to ExtensionInfo
+    /// This eliminates implementation-specific details like manifest_path and manifest_checksum
+    pub fn from_summary(
+        summary: &crate::manager::store_manifest::ExtensionSummary,
+        store_source: String,
+    ) -> Self {
+        Self {
+            id: summary.id.clone(),
+            name: summary.name.clone(),
+            version: summary.version.clone(),
+            description: None, // ExtensionSummary doesn't have description
+            author: "Unknown".to_string(), // ExtensionSummary doesn't have author
+            tags: summary.langs.clone(), // Use langs as tags for now
+            last_updated: Some(summary.last_updated),
+            download_count: None,
+            size: None,
+            homepage: None,
+            repository: None,
+            license: None,
+            store_source,
+        }
+    }
 }
 
 /// Complete extension package with all files and metadata
@@ -119,10 +197,10 @@ impl ExtensionPackage {
                 .into_iter()
                 .map(|rd| match rd {
                     quelle_engine::bindings::quelle::extension::source::ReadingDirection::Ltr => {
-                        crate::manifest::ReadingDirection::Ltr
+                        crate::registry::manifest::ReadingDirection::Ltr
                     }
                     quelle_engine::bindings::quelle::extension::source::ReadingDirection::Rtl => {
-                        crate::manifest::ReadingDirection::Rtl
+                        crate::registry::manifest::ReadingDirection::Rtl
                     }
                 })
                 .collect(),
@@ -131,13 +209,13 @@ impl ExtensionPackage {
                 .into_iter()
                 .map(|attr| match attr {
                     quelle_engine::bindings::quelle::extension::source::SourceAttr::Fanfiction => {
-                        crate::manifest::Attribute::Fanfiction
+                        crate::registry::manifest::Attribute::Fanfiction
                     }
                 })
                 .collect(),
 
             signature: None,
-            wasm_file: crate::manifest::FileReference::new(
+            wasm_file: crate::registry::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
                 &wasm_content,
             ),
@@ -255,7 +333,7 @@ pub struct InstalledExtension {
     pub last_updated: Option<DateTime<Utc>>,
     pub source_store: String, // Store where this was installed from
     pub auto_update: bool,
-    pub checksum: Option<crate::manifest::Checksum>, // For integrity verification
+    pub checksum: Option<crate::registry::manifest::Checksum>, // For integrity verification
 }
 
 impl InstalledExtension {
@@ -626,18 +704,18 @@ mod tests {
     async fn test_installed_extension_size_tracking() {
         // Create a test extension package
         let wasm_data = b"fake wasm content for testing";
-        let manifest = crate::manifest::ExtensionManifest {
+        let manifest = crate::registry::manifest::ExtensionManifest {
             id: "test-ext".to_string(),
             name: "Test Extension".to_string(),
             version: "1.0.0".to_string(),
             author: "Test Author".to_string(),
             langs: vec!["en".to_string()],
             base_urls: vec!["https://example.com".to_string()],
-            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            rds: vec![crate::registry::manifest::ReadingDirection::Ltr],
             attrs: vec![],
 
             signature: None,
-            wasm_file: crate::manifest::FileReference::new(
+            wasm_file: crate::registry::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
                 wasm_data,
             ),
@@ -664,18 +742,18 @@ mod tests {
 
         // Create a test extension with checksum
         let wasm_data = b"test wasm content";
-        let manifest = crate::manifest::ExtensionManifest {
+        let manifest = crate::registry::manifest::ExtensionManifest {
             id: "integrity-test".to_string(),
             name: "Integrity Test".to_string(),
             version: "1.0.0".to_string(),
             author: "Test".to_string(),
             langs: vec!["en".to_string()],
             base_urls: vec!["https://test.com".to_string()],
-            rds: vec![crate::manifest::ReadingDirection::Ltr],
+            rds: vec![crate::registry::manifest::ReadingDirection::Ltr],
             attrs: vec![],
 
             signature: None,
-            wasm_file: crate::manifest::FileReference::new(
+            wasm_file: crate::registry::manifest::FileReference::new(
                 "./extension.wasm".to_string(),
                 wasm_data,
             ),
@@ -684,9 +762,10 @@ mod tests {
 
         let package = ExtensionPackage::new(manifest, wasm_data.to_vec(), "test".to_string());
         let mut installed = InstalledExtension::from_package(package.clone());
-        installed.checksum = Some(crate::manifest::Checksum {
-            algorithm: crate::manifest::checksum::ChecksumAlgorithm::Sha256,
-            value: crate::manifest::checksum::ChecksumAlgorithm::Sha256.calculate(wasm_data),
+        installed.checksum = Some(crate::registry::manifest::Checksum {
+            algorithm: crate::registry::manifest::checksum::ChecksumAlgorithm::Sha256,
+            value: crate::registry::manifest::checksum::ChecksumAlgorithm::Sha256
+                .calculate(wasm_data),
         });
 
         // Test integrity verification without files (should return false)
@@ -710,18 +789,18 @@ mod tests {
             "size-test".to_string(),
             "Size Test".to_string(),
             "1.0.0".to_string(),
-            crate::manifest::ExtensionManifest {
+            crate::registry::manifest::ExtensionManifest {
                 id: "size-test".to_string(),
                 name: "Size Test".to_string(),
                 version: "1.0.0".to_string(),
                 author: "Test".to_string(),
                 langs: vec!["en".to_string()],
                 base_urls: vec!["https://test.com".to_string()],
-                rds: vec![crate::manifest::ReadingDirection::Ltr],
+                rds: vec![crate::registry::manifest::ReadingDirection::Ltr],
                 attrs: vec![],
 
                 signature: None,
-                wasm_file: crate::manifest::FileReference::new(
+                wasm_file: crate::registry::manifest::FileReference::new(
                     "./extension.wasm".to_string(),
                     b"fake wasm content",
                 ),

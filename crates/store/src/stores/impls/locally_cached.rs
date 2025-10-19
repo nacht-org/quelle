@@ -12,12 +12,14 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::error::Result;
-use crate::publish::{
+use crate::manager::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
     ValidationReport,
 };
+
+use crate::models::ExtensionListing;
 use crate::stores::{
-    local::LocalStore,
+    impls::local::LocalStore,
     providers::{
         traits::{LifecycleEvent, StoreProvider},
         GitProvider,
@@ -25,7 +27,7 @@ use crate::stores::{
     traits::{BaseStore, CacheableStore, ReadableStore, WritableStore},
 };
 use crate::{
-    manifest::ExtensionManifest, ExtensionInfo, ExtensionMetadata, ExtensionPackage,
+    registry::manifest::ExtensionManifest, ExtensionInfo, ExtensionMetadata, ExtensionPackage,
     InstalledExtension, SearchQuery, StoreHealth, StoreManifest, UpdateInfo,
 };
 
@@ -233,8 +235,8 @@ impl LocallyCachedStore<GitProvider> {
         store_name: String,
         description: Option<String>,
     ) -> Result<()> {
-        use crate::store_manifest::StoreManifest;
-        use crate::stores::local::LocalStoreManifest;
+        use crate::manager::store_manifest::StoreManifest;
+        use crate::stores::impls::local::LocalStoreManifest;
 
         // Get git-specific information
         let git_url = self.provider.url().to_string();
@@ -247,13 +249,13 @@ impl LocallyCachedStore<GitProvider> {
         let base_manifest =
             StoreManifest::new(store_name.clone(), "git".to_string(), "1.0.0".to_string())
                 .with_url(git_url)
-                .with_description(final_description);
+                .with_description(final_description.clone());
 
-        let local_manifest = LocalStoreManifest::new(base_manifest);
+        let _local_manifest = LocalStoreManifest::new(base_manifest);
 
-        // Use the shared write function from local store
+        // Initialize the local store with the manifest data
         self.local_store
-            .write_store_manifest(local_manifest)
+            .initialize_store(store_name.clone(), Some(final_description))
             .await?;
 
         // If git is writable, commit and push the initialization
@@ -419,12 +421,12 @@ impl<T: StoreProvider> ReadableStore for LocallyCachedStore<T> {
         self.local_store.find_extensions_for_url(url).await
     }
 
-    async fn list_extensions(&self) -> Result<Vec<ExtensionInfo>> {
+    async fn list_extensions(&self) -> Result<Vec<ExtensionListing>> {
         self.ensure_synced().await?;
         self.local_store.list_extensions().await
     }
 
-    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionInfo>> {
+    async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionListing>> {
         self.ensure_synced().await?;
         self.local_store.search_extensions(query).await
     }
@@ -526,7 +528,7 @@ impl<T: StoreProvider> CacheableStore for LocallyCachedStore<T> {
         sync_state.last_sync = None;
 
         // Delegate to local store for its cache clearing
-        self.local_store.clear_cache(None).await
+        self.local_store.clear_cache().await
     }
 
     async fn cache_stats(&self) -> Result<crate::stores::traits::CacheStats> {

@@ -8,13 +8,14 @@ name = "quelle"
 path = "src/main.rs"
 
 [features]
-default = ["git", "pdf"]
+default = ["git", "github", "pdf"]
 git = ["quelle_store/git"]
+github = ["quelle_store/github"]
 pdf = ["quelle_export/pdf"]
 
 [dependencies]
 quelle_engine = { path = "../engine" }
-quelle_store = { path = "../store", features = ["git"] }
+quelle_store = { path = "../store", features = ["git", "github"] }
 quelle_storage = { path = "../storage" }
 quelle_export = { path = "../export" }
 quelle_dev = { path = "../dev" }

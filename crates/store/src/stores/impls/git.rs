@@ -11,7 +11,7 @@ use std::time::Duration;
 #[cfg(feature = "git")]
 use crate::error::Result;
 #[cfg(feature = "git")]
-use crate::stores::locally_cached::LocallyCachedStore;
+use crate::stores::impls::locally_cached::LocallyCachedStore;
 #[cfg(feature = "git")]
 use crate::stores::providers::git::{
     CommitStyle, GitAuth, GitAuthor, GitProvider, GitReference, GitWriteConfig,

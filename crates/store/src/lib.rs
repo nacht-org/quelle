@@ -6,7 +6,7 @@
 //!
 //! # Features
 //!
-//! - **Multiple Store Types**: Local, Git, HTTP, and S3 backends
+//! - **Multiple Store Types**: Local, Git, HTTP, and GitHub backends
 //! - **Package Management**: Install, update, and remove extensions
 //! - **Version Management**: Semantic versioning support with dependency resolution
 //! - **Search and Discovery**: Find extensions across multiple stores
@@ -63,44 +63,55 @@
 /// ```
 pub mod error;
 pub mod manager;
-pub mod manifest;
 pub mod models;
-pub mod publish;
+pub mod publish_compat;
 pub mod registry;
-pub mod registry_config;
-pub mod source;
-pub mod store_manifest;
 pub mod stores;
-pub mod validation;
+pub mod validation_compat;
 
 // Re-export commonly used types
 pub use error::{Result, StoreError};
-pub use manager::StoreManager;
+
+// Manager module re-exports
+pub use manager::{ExtensionSummary, ManagedStore, StoreManager, StoreManifest, UrlPattern};
+
+// Models (shared across modules)
 pub use models::{
     CompatibilityInfo, ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions,
     InstalledExtension, SearchQuery, SearchSortBy, StoreConfig, StoreHealth, StoreInfo, UpdateInfo,
     UpdateOptions,
 };
-pub use publish::{
-    ExtensionVisibility, PublishError, PublishOptions, PublishRequirements, PublishResult,
-    UnpublishOptions, UnpublishResult, ValidationReport,
-};
-pub use registry::{LocalRegistryStore, RegistryStore, ValidationIssue};
-pub use registry_config::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts};
-pub use source::{create_readable_store_from_source, ExtensionSource, RegistryConfig, StoreType};
-pub use store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
-pub use stores::local::LocalStoreBuilder;
+
+// Registry module re-exports
+pub use registry::{ExtensionManifest, LocalRegistryStore, RegistryStore};
+
+// Stores module re-exports
 pub use stores::traits::{BaseStore, ReadableStore, WritableStore};
-pub use stores::{LocallyCachedStore, StoreProvider, SyncResult};
+pub use stores::LocalStoreBuilder;
+pub use stores::{
+    create_readable_store_from_source, ExtensionSource, LocallyCachedStore, RegistryConfig,
+    RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts, StoreProvider, StoreType,
+    SyncResult,
+};
+
+// Re-export specific types for backward compatibility with external crates
+pub use manager::publish::ExtensionVisibility;
+pub use registry::core::{IssueSeverity, ValidationIssueType};
+pub use stores::impls::local::LocalStore;
+
+// Compatibility modules for external crates
+pub use publish_compat as publish;
+pub use validation_compat as validation;
+
+// Additional re-exports needed by CLI
+// LocalStoreBuilder is already exported via stores::LocalStoreBuilder above
 
 #[cfg(feature = "git")]
 pub use stores::providers::git::{CommitStyle, GitAuthor, GitStatus, GitWriteConfig};
 #[cfg(feature = "git")]
 pub use stores::{GitAuth, GitProvider, GitReference, GitStore, GitStoreBuilder};
-pub use validation::{
-    create_default_validator, ManifestValidationRule, SecurityValidationRule, ValidationEngine,
-    ValidationRule,
-};
+#[cfg(feature = "github")]
+pub use stores::{GitHubStore, GitHubStoreBuilder};
 
 // Version information
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
