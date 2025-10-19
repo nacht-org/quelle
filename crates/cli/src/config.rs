@@ -96,8 +96,16 @@ impl Config {
             fs::create_dir_all(parent).await?;
         }
 
-        let content = serde_json::to_string_pretty(self)?;
+        // Filter out the official store before saving
+        let mut config = self.clone();
+        config
+            .registry
+            .extension_sources
+            .retain(|s| s.name != "official");
+
+        let content = serde_json::to_string_pretty(&config)?;
         fs::write(&config_path, content).await?;
+
         Ok(())
     }
 
