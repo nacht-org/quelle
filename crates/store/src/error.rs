@@ -125,6 +125,9 @@ pub enum StoreError {
 
     #[error("Publishing error: {0}")]
     PublishError(#[from] PublishError),
+
+    #[error("Internal error: {0}")]
+    InternalError(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;

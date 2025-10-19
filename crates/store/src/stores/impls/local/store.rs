@@ -562,10 +562,16 @@ impl WritableStore for LocalStore {
 
         tokio::fs::create_dir_all(&version_dir).await?;
 
+        // This should be fine as version_dir is inside root_path, but we handle error just in case
+        let relative_version_dir = version_dir
+            .strip_prefix(self.root_path())
+            .map_err(|e| StoreError::InternalError(Box::new(e)))?
+            .to_path_buf();
+
         // Convert to LocalExtensionManifest and write manifest
         let local_manifest = LocalExtensionManifest {
             manifest: package.manifest.clone(),
-            path: version_dir.clone(),
+            path: relative_version_dir,
             metadata: package.metadata.clone(),
         };
 
