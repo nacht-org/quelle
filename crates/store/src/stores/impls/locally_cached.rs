@@ -64,26 +64,6 @@ impl<T: StoreProvider> LocallyCachedStore<T> {
         })
     }
 
-    /// Create a new locally cached store with a custom sync directory
-    ///
-    /// **Warning:** This is an advanced method. The sync_dir must match the provider's
-    /// internal directory or behavior may be undefined. Use `new()` instead unless you
-    /// have a specific reason to override the directory.
-    #[deprecated(
-        since = "0.1.0",
-        note = "Use new() instead - provider manages its own directory"
-    )]
-    pub fn with_custom_sync_dir(provider: T, sync_dir: PathBuf, name: String) -> Result<Self> {
-        let local_store = LocalStore::new(&sync_dir)?;
-        Ok(Self {
-            provider,
-            local_store,
-            sync_dir,
-            name,
-            sync_state: Arc::new(Mutex::new(SyncState { last_sync: None })),
-        })
-    }
-
     /// Get the sync directory
     pub fn sync_dir(&self) -> &PathBuf {
         &self.sync_dir
