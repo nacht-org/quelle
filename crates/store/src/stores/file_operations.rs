@@ -7,17 +7,20 @@
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
 use tracing::{debug, warn};
 
 use crate::error::{Result, StoreError};
 use crate::manager::store_manifest::ExtensionSummary;
 use crate::manager::store_manifest::StoreManifest;
 use crate::models::{ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQuery};
-use crate::registry::manifest::{ExtensionManifest, LocalExtensionManifest};
+use crate::registry::manifest::{
+    AssetReference, ExtensionManifest, FileReference, LocalExtensionManifest,
+};
+use crate::utils::resolve_sibling_path;
 
 /// Internal trait for abstracting file operations across different store backends
-#[async_trait]
 pub(crate) trait FileOperations: Send + Sync {
     /// Read a file as bytes from the store
     async fn read_file(&self, path: &str) -> Result<Vec<u8>>;
@@ -143,9 +146,17 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         version: Option<&str>,
     ) -> Result<Vec<u8>> {
         let manifest = self.get_extension_manifest(extension_id, version).await?;
+        self.get_extension_file(extension_id, &manifest.version, &manifest.wasm_file)
+            .await
+    }
 
+    async fn get_extension_file_path(
+        &self,
+        extension_id: &str,
+        version: &str,
+        file_path: &str,
+    ) -> Result<String> {
         // Get the manifest path from the extension summary
-        let version = self.resolve_version(extension_id, version).await?;
         let summaries = self.list_extensions().await?;
         let manifest_path = summaries
             .iter()
@@ -155,30 +166,63 @@ impl<F: FileOperations> FileBasedProcessor<F> {
                 StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
             })?;
 
-        // Construct WASM path relative to manifest directory
-        let manifest_path = Path::new(&manifest_path);
-        let manifest_dir = manifest_path.parent().ok_or_else(|| {
-            StoreError::InvalidPath(format!(
-                "Cannot get parent directory of manifest path: {}",
-                manifest_path.display()
+        // Construct file path relative to manifest directory
+        let file_path = resolve_sibling_path(&manifest_path, file_path)?;
+        let file_path_str = file_path.to_str().ok_or_else(|| {
+            StoreError::ParseError(format!(
+                "Invalid WASM file path for {}@{}",
+                extension_id, version
             ))
         })?;
-        let wasm_path = manifest_dir.join(&manifest.wasm_file.path);
 
-        let wasm_path_str = wasm_path.to_str().ok_or_else(|| {
-            StoreError::InvalidPath(format!("Invalid UTF-8 in WASM path: {:?}", wasm_path))
-        })?;
-        let wasm_bytes = self.file_ops.read_file(wasm_path_str).await?;
+        Ok(file_path_str.to_string())
+    }
+
+    async fn get_extension_file(
+        &self,
+        extension_id: &str,
+        version: &str,
+        file: &FileReference,
+    ) -> Result<Vec<u8>> {
+        let file_path_str = self
+            .get_extension_file_path(extension_id, version, &file.path)
+            .await?;
+
+        let file_bytes = self.file_ops.read_file(&file_path_str).await?;
 
         // Verify checksum using manifest's file reference
-        if !manifest.wasm_file.verify(&wasm_bytes) {
+        if !file.verify(&file_bytes) {
             return Err(StoreError::ChecksumMismatch(format!(
-                "WASM file checksum mismatch for {}@{}",
-                extension_id, manifest.version
+                "file checksum mismatch for {}@{}",
+                extension_id, version
             )));
         }
 
-        Ok(wasm_bytes)
+        Ok(file_bytes)
+    }
+
+    async fn get_extension_asset(
+        &self,
+        extension_id: &str,
+        version: &str,
+        asset: &AssetReference,
+    ) -> Result<Vec<u8>> {
+        let asset_path_str = self
+            .get_extension_file_path(extension_id, version, &asset.path)
+            .await?;
+
+        // Read the asset file
+        let asset_bytes = self.file_ops.read_file(&asset_path_str).await?;
+
+        // Verify checksum using manifest's file reference
+        if !asset.verify(&asset_bytes) {
+            return Err(StoreError::ChecksumMismatch(format!(
+                "file checksum mismatch for {}@{}",
+                extension_id, version
+            )));
+        }
+
+        Ok(asset_bytes)
     }
 
     /// Get extension metadata
@@ -209,71 +253,10 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         }
     }
 
-    /// Get extension asset
-    pub async fn get_extension_asset(
-        &self,
-        extension_id: &str,
-        version: Option<&str>,
-        asset_path: &str,
-    ) -> Result<Vec<u8>> {
-        let manifest = self.get_extension_manifest(extension_id, version).await?;
-
-        // Find the asset in the manifest
-        let asset_ref = manifest
-            .assets
-            .iter()
-            .find(|asset| asset.path == asset_path)
-            .ok_or_else(|| {
-                StoreError::ExtensionNotFound(format!(
-                    "Asset {} not found in manifest for {}@{}",
-                    asset_path, extension_id, manifest.version
-                ))
-            })?;
-
-        // Get the manifest path from the extension summary
-        let version = self.resolve_version(extension_id, version).await?;
-        let summaries = self.list_extensions().await?;
-        let manifest_path = summaries
-            .iter()
-            .find(|s| s.id == extension_id && s.version == version)
-            .map(|s| s.manifest_path.clone())
-            .ok_or_else(|| {
-                StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
-            })?;
-
-        // Construct asset path relative to manifest directory
-        let manifest_path = Path::new(&manifest_path);
-        let manifest_dir = manifest_path.parent().ok_or_else(|| {
-            StoreError::InvalidPath(format!(
-                "Cannot get parent directory of manifest path: {}",
-                manifest_path.display()
-            ))
-        })?;
-        let full_asset_path = manifest_dir.join(asset_path);
-
-        let asset_path_str = full_asset_path.to_str().ok_or_else(|| {
-            StoreError::InvalidPath(format!(
-                "Invalid UTF-8 in asset path: {:?}",
-                full_asset_path
-            ))
-        })?;
-        let asset_bytes = self.file_ops.read_file(asset_path_str).await?;
-
-        // Verify checksum
-        if !asset_ref.verify(&asset_bytes) {
-            return Err(StoreError::ChecksumMismatch(format!(
-                "Asset {} checksum mismatch for {}@{}",
-                asset_path, extension_id, manifest.version
-            )));
-        }
-
-        Ok(asset_bytes)
-    }
-
     /// List all extensions in the store
     pub async fn list_extensions(&self) -> Result<Vec<ExtensionSummary>> {
         let local_manifest = self.get_local_store_manifest().await?;
-        Ok(local_manifest.extensions.clone())
+        Ok(local_manifest.extensions)
     }
 
     /// Get information about all versions of a specific extension
@@ -437,7 +420,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         // Load all assets
         for asset_ref in &manifest.assets {
             match self
-                .get_extension_asset(id, Some(&manifest.version), &asset_ref.path)
+                .get_extension_asset(id, &manifest.version, &asset_ref)
                 .await
             {
                 Ok(content) => {
@@ -477,38 +460,6 @@ impl<F: FileOperations> FileBasedProcessor<F> {
             .map(|asset| asset.path.clone())
             .collect())
     }
-
-    /// Get extension assets filtered by type
-    pub async fn get_extension_assets_by_type(
-        &self,
-        extension_id: &str,
-        version: Option<&str>,
-        asset_type: &str,
-    ) -> Result<HashMap<String, Vec<u8>>> {
-        let manifest = self.get_extension_manifest(extension_id, version).await?;
-        let mut assets = HashMap::new();
-
-        for asset_ref in &manifest.assets {
-            if &asset_ref.asset_type == asset_type {
-                match self
-                    .get_extension_asset(extension_id, Some(&manifest.version), &asset_ref.path)
-                    .await
-                {
-                    Ok(content) => {
-                        assets.insert(asset_ref.path.clone(), content);
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to load asset {} for {}@{}: {}",
-                            asset_ref.path, extension_id, manifest.version, e
-                        );
-                    }
-                }
-            }
-        }
-
-        Ok(assets)
-    }
 }
 
 #[cfg(test)]
@@ -538,7 +489,6 @@ mod tests {
         }
     }
 
-    #[async_trait]
     impl FileOperations for MockFileOperations {
         async fn read_file(&self, path: &str) -> Result<Vec<u8>> {
             self.files

@@ -197,7 +197,6 @@ impl GitHubFileOperationsBuilder {
     }
 }
 
-#[async_trait]
 impl FileOperations for GitHubFileOperations {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         // Check cache first

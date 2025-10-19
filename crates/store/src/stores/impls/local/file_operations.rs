@@ -132,7 +132,6 @@ impl LocalFileOperations {
     }
 }
 
-#[async_trait]
 impl FileOperations for LocalFileOperations {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         let full_path = self.resolve_path(path)?;
