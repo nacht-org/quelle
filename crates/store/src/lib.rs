@@ -67,7 +67,6 @@ pub mod models;
 pub mod publish_compat;
 pub mod registry;
 pub mod stores;
-mod utils;
 pub mod validation_compat;
 
 // Re-export commonly used types

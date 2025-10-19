@@ -19,7 +19,6 @@ use crate::registry::manifest::{
     AssetReference, ExtensionManifest, FileReference, LocalExtensionManifest,
 };
 use crate::stores::impls::local::LocalStoreManifest;
-use crate::utils::resolve_sibling_path;
 
 /// Internal trait for abstracting file operations across different store backends
 pub(crate) trait FileOperations: Send + Sync {
