@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 /// Reference to a file with integrity information
@@ -126,17 +128,9 @@ pub struct ExtensionManifest {
 pub struct LocalExtensionManifest {
     #[serde(flatten)]
     pub manifest: ExtensionManifest,
+    pub path: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<ExtensionMetadata>,
-}
-
-impl From<ExtensionManifest> for LocalExtensionManifest {
-    fn from(manifest: ExtensionManifest) -> Self {
-        Self {
-            metadata: None,
-            manifest,
-        }
-    }
 }
 
 impl From<LocalExtensionManifest> for ExtensionManifest {

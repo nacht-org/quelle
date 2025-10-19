@@ -18,6 +18,7 @@ use crate::models::{ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQu
 use crate::registry::manifest::{
     AssetReference, ExtensionManifest, FileReference, LocalExtensionManifest,
 };
+use crate::stores::impls::local::LocalStoreManifest;
 use crate::utils::resolve_sibling_path;
 
 /// Internal trait for abstracting file operations across different store backends
@@ -116,12 +117,24 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         }
     }
 
-    /// Get extension manifest
     pub async fn get_extension_manifest(
         &self,
         extension_id: &str,
         version: Option<&str>,
     ) -> Result<ExtensionManifest> {
+        let manifest = self
+            .get_local_extension_manifest(extension_id, version)
+            .await?;
+
+        Ok(manifest.into())
+    }
+
+    /// Get extension manifest
+    pub async fn get_local_extension_manifest(
+        &self,
+        extension_id: &str,
+        version: Option<&str>,
+    ) -> Result<LocalExtensionManifest> {
         let version = self.resolve_version(extension_id, version).await?;
 
         // Get the manifest path from the extension summary
@@ -134,59 +147,27 @@ impl<F: FileOperations> FileBasedProcessor<F> {
                 StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
             })?;
 
-        // File-based stores always use LocalExtensionManifest
-        let local_manifest: LocalExtensionManifest = self.read_json_file(&manifest_path).await?;
-        Ok(local_manifest.into())
+        self.read_json_file(&manifest_path).await
     }
 
     /// Get extension WASM with checksum verification
     pub async fn get_extension_wasm(
         &self,
-        extension_id: &str,
-        version: Option<&str>,
+        local_manifest: &LocalExtensionManifest,
     ) -> Result<Vec<u8>> {
-        let manifest = self.get_extension_manifest(extension_id, version).await?;
-        self.get_extension_file(extension_id, &manifest.version, &manifest.wasm_file)
+        self.get_extension_file(local_manifest, &local_manifest.manifest.wasm_file)
             .await
-    }
-
-    async fn get_extension_file_path(
-        &self,
-        extension_id: &str,
-        version: &str,
-        file_path: &str,
-    ) -> Result<String> {
-        // Get the manifest path from the extension summary
-        let summaries = self.list_extensions().await?;
-        let manifest_path = summaries
-            .iter()
-            .find(|s| s.id == extension_id && s.version == version)
-            .map(|s| s.manifest_path.clone())
-            .ok_or_else(|| {
-                StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
-            })?;
-
-        // Construct file path relative to manifest directory
-        let file_path = resolve_sibling_path(&manifest_path, file_path)?;
-        let file_path_str = file_path.to_str().ok_or_else(|| {
-            StoreError::ParseError(format!(
-                "Invalid WASM file path for {}@{}",
-                extension_id, version
-            ))
-        })?;
-
-        Ok(file_path_str.to_string())
     }
 
     async fn get_extension_file(
         &self,
-        extension_id: &str,
-        version: &str,
+        local_manifest: &LocalExtensionManifest,
         file: &FileReference,
     ) -> Result<Vec<u8>> {
-        let file_path_str = self
-            .get_extension_file_path(extension_id, version, &file.path)
-            .await?;
+        let file_path = local_manifest.path.join(&file.path);
+        let file_path_str = file_path.to_str().ok_or_else(|| {
+            StoreError::ParseError(format!("invalid file path for {}", file.path))
+        })?;
 
         let file_bytes = self.file_ops.read_file(&file_path_str).await?;
 
@@ -194,7 +175,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         if !file.verify(&file_bytes) {
             return Err(StoreError::ChecksumMismatch(format!(
                 "file checksum mismatch for {}@{}",
-                extension_id, version
+                local_manifest.manifest.id, local_manifest.manifest.version
             )));
         }
 
@@ -203,13 +184,13 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
     async fn get_extension_asset(
         &self,
-        extension_id: &str,
-        version: &str,
+        local_manifest: &LocalExtensionManifest,
         asset: &AssetReference,
     ) -> Result<Vec<u8>> {
-        let asset_path_str = self
-            .get_extension_file_path(extension_id, version, &asset.path)
-            .await?;
+        let asset_path = local_manifest.path.join(&asset.path);
+        let asset_path_str = asset_path.to_str().ok_or_else(|| {
+            StoreError::ParseError(format!("invalid asset path for {}", asset.path))
+        })?;
 
         // Read the asset file
         let asset_bytes = self.file_ops.read_file(&asset_path_str).await?;
@@ -218,7 +199,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         if !asset.verify(&asset_bytes) {
             return Err(StoreError::ChecksumMismatch(format!(
                 "file checksum mismatch for {}@{}",
-                extension_id, version
+                local_manifest.manifest.id, local_manifest.manifest.version
             )));
         }
 
@@ -405,24 +386,20 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         version: Option<&str>,
         store_name: String,
     ) -> Result<ExtensionPackage> {
-        let manifest = self.get_extension_manifest(id, version).await?;
-        let wasm_bytes = self.get_extension_wasm(id, Some(&manifest.version)).await?;
-        let metadata = self
-            .get_extension_metadata(id, Some(&manifest.version))
-            .await?;
+        let local_manifest = self.get_local_extension_manifest(id, version).await?;
+        let wasm_bytes = self.get_extension_wasm(&local_manifest).await?;
+        let metadata = local_manifest.metadata.clone();
 
-        let mut package = ExtensionPackage::new(manifest.clone(), wasm_bytes, store_name);
+        let mut package =
+            ExtensionPackage::new(local_manifest.manifest.clone(), wasm_bytes, store_name);
 
         if let Some(meta) = metadata {
             package = package.with_metadata(meta);
         }
 
         // Load all assets
-        for asset_ref in &manifest.assets {
-            match self
-                .get_extension_asset(id, &manifest.version, &asset_ref)
-                .await
-            {
+        for asset_ref in &local_manifest.manifest.assets {
+            match self.get_extension_asset(&local_manifest, &asset_ref).await {
                 Ok(content) => {
                     package.add_asset(asset_ref.path.clone(), content);
                 }

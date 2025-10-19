@@ -557,10 +557,13 @@ impl WritableStore for LocalStore {
         // Convert to LocalExtensionManifest and write manifest
         let local_manifest = LocalExtensionManifest {
             manifest: package.manifest.clone(),
+            path: version_dir.clone(),
             metadata: package.metadata.clone(),
         };
+
         let manifest_path = version_dir.join("manifest.json");
         let manifest_content = serde_json::to_string_pretty(&local_manifest)?;
+
         tokio::fs::write(&manifest_path, manifest_content).await?;
 
         // Write WASM component
