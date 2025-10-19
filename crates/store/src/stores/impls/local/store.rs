@@ -18,6 +18,7 @@ use crate::models::{
 };
 use crate::registry::manifest::{ExtensionManifest, LocalExtensionManifest};
 use crate::stores::file_operations::FileBasedProcessor;
+use crate::stores::impls::local;
 use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
 
 /// Local store manifest that extends the base StoreManifest with URL routing
@@ -129,6 +130,13 @@ impl LocalStoreManifest {
         }
 
         matches
+    }
+
+    pub(crate) fn reset_extensions(&mut self) {
+        self.extension_count = 0;
+        self.extensions.clear();
+        self.url_patterns.clear();
+        self.supported_domains.clear();
     }
 }
 
@@ -261,10 +269,9 @@ impl LocalStore {
 
     /// Generate a local store manifest with URL routing information
     async fn generate_local_store_manifest(&self) -> Result<LocalStoreManifest> {
-        // Create base manifest from scratch
-        let base_manifest =
-            StoreManifest::new(self.name.clone(), "local".to_string(), "1.0.0".to_string());
-        let mut local_manifest = LocalStoreManifest::new(base_manifest);
+        // Load the current store manifest and zero out the data we will rebuild
+        let mut local_manifest = self.processor.get_local_store_manifest().await?;
+        local_manifest.reset_extensions();
 
         // Manually scan extensions directory to build the manifest
         let extensions_dir = self.root_path.join("extensions");
