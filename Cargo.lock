@@ -3348,7 +3348,6 @@ dependencies = [
  "clap",
  "directories 5.0.1",
  "eyre",
- "quelle_dev",
  "quelle_engine",
  "quelle_export",
  "quelle_storage",

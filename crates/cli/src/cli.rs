@@ -148,11 +148,6 @@ pub enum Commands {
         #[command(subcommand)]
         command: FetchCommands,
     },
-    /// Extension development tools
-    Dev {
-        #[command(subcommand)]
-        command: quelle_dev::DevCommands,
-    },
 }
 
 #[derive(clap::Subcommand, Debug)]

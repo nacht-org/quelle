@@ -27,11 +27,6 @@ use config::Config;
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Handle dev commands early to avoid store initialization
-    if let Commands::Dev { command } = &cli.command {
-        return quelle_dev::handle_command(command.clone()).await;
-    }
-
     // Initialize tracing
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(if cli.verbose {
@@ -156,10 +151,6 @@ async fn main() -> Result<()> {
         Commands::Status => handle_status_command(&store_manager).await,
         Commands::Fetch { command } => {
             handle_fetch_command(command, &mut store_manager, &storage, cli.dry_run).await
-        }
-        Commands::Dev { .. } => {
-            // This case is handled early in main() to avoid store initialization
-            unreachable!("Dev commands should be handled before reaching this point")
         }
     }
 }
