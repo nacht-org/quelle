@@ -529,7 +529,7 @@ impl WritableStore for LocalStore {
     async fn publish(
         &self,
         package: ExtensionPackage,
-        _options: PublishOptions,
+        options: PublishOptions,
     ) -> Result<PublishResult> {
         if self.readonly {
             return Err(StoreError::PermissionDenied(
@@ -546,10 +546,18 @@ impl WritableStore for LocalStore {
 
         // Check if version already exists
         if version_dir.exists() {
-            return Err(StoreError::ValidationError(format!(
-                "Extension {} version {} already exists",
-                extension_id, version
-            )));
+            if options.overwrite_existing {
+                tokio::fs::remove_dir_all(&version_dir).await?;
+                info!(
+                    "Overwriting existing extension {} version {}",
+                    extension_id, version
+                );
+            } else {
+                return Err(StoreError::ValidationError(format!(
+                    "Extension {} version {} already exists",
+                    extension_id, version
+                )));
+            }
         }
 
         tokio::fs::create_dir_all(&version_dir).await?;
