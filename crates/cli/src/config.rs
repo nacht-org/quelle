@@ -122,19 +122,7 @@ impl Config {
             return Ok(());
         }
 
-        if !self
-            .registry
-            .extension_sources
-            .iter()
-            .any(|s| s.name == official_store.name)
-        {
-            #[cfg(feature = "github")]
-            self.registry
-                .add_source(ExtensionSource::official_github(&self.get_stores_dir()));
-            #[cfg(not(feature = "github"))]
-            self.registry
-                .add_source(ExtensionSource::official(&self.get_stores_dir()));
-        }
+        self.registry.add_source(official_store);
 
         Ok(())
     }
