@@ -174,19 +174,6 @@ impl GitStoreBuilder {
 
         LocallyCachedStore::new(provider, name)
     }
-
-    /// Build the GitStore with explicit cache_dir and name parameters
-    ///
-    /// This is a convenience method that's equivalent to calling
-    /// `builder.cache_dir(cache_dir).name(name).build()`
-    ///
-    /// # Deprecated
-    ///
-    /// Use `.cache_dir().name().build()` instead for a more fluent API
-    #[deprecated(since = "0.1.0", note = "Use .cache_dir().name().build() instead")]
-    pub fn build_with(self, cache_dir: PathBuf, name: impl Into<String>) -> Result<GitStore> {
-        self.cache_dir(cache_dir).name(name).build()
-    }
 }
 
 /// Convenience methods for creating git stores
