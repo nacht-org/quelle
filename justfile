@@ -5,9 +5,9 @@ build NAME:
     cargo component build -r -p extension_{{NAME}} --target wasm32-unknown-unknown
 
 # Publish extension to local store
-publish NAME:
+publish NAME STORE=official:
     just build {{NAME}}
-    cargo run -p quelle_cli -- publish extension ./target/wasm32-unknown-unknown/release/extension_{{NAME}}.wasm --store local --overwrite
+    cargo run -p quelle_cli -- publish extension ./target/wasm32-unknown-unknown/release/extension_{{NAME}}.wasm --store {{STORE}} --overwrite
 
 # Set up local store and publish scribblehub
 setup:
@@ -15,7 +15,7 @@ setup:
     rm -rf ./data
     mkdir -p ./data/stores/local
     cargo run -p quelle_cli -- store add local local
-    just publish scribblehub
+    just publish scribblehub local
 
 # Run CLI with arguments
 cli *ARGS:
