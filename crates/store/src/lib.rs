@@ -71,7 +71,7 @@ pub mod stores;
 pub use error::{Result, StoreError};
 
 // Manager module re-exports
-pub use manager::{ExtensionSummary, ManagedStore, StoreManager, StoreManifest, UrlPattern};
+pub use manager::{ExtensionVersion, ManagedStore, StoreManager, StoreManifest, UrlPattern};
 
 // Models (shared across modules)
 pub use models::{

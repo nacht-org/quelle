@@ -34,16 +34,15 @@ pub struct UrlPattern {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ExtensionSummary {
+pub struct ExtensionVersion {
     pub id: String,
     pub name: String,
     pub version: String,
     pub base_urls: Vec<String>,
     pub langs: Vec<String>,
     pub last_updated: chrono::DateTime<chrono::Utc>,
-    /// Path to the extension's manifest file
+    // Manifest storage info
     pub manifest_path: String,
-    /// Checksum of the manifest file for integrity verification
     pub manifest_checksum: String,
 }
 

@@ -44,7 +44,7 @@ impl ExtensionListing {
     /// Convert from ExtensionSummary to ExtensionListing
     /// This eliminates implementation-specific details like manifest_path and manifest_checksum
     pub fn from_summary(
-        summary: &crate::manager::store_manifest::ExtensionSummary,
+        summary: &crate::manager::store_manifest::ExtensionVersion,
         store_source: String,
     ) -> Self {
         Self {
@@ -83,7 +83,7 @@ impl ExtensionInfo {
     /// Convert from ExtensionSummary to ExtensionInfo
     /// This eliminates implementation-specific details like manifest_path and manifest_checksum
     pub fn from_summary(
-        summary: &crate::manager::store_manifest::ExtensionSummary,
+        summary: &crate::manager::store_manifest::ExtensionVersion,
         store_source: String,
     ) -> Self {
         Self {

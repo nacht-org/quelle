@@ -13,6 +13,7 @@ thiserror = "2.0.12"
 ego-tree = "0.10.0"
 url = "2.5.7"
 regex = "1.11.3"
+semver = "1.0.27"
 
 [workspace.dependencies.chrono]
 version = "0.4.22"

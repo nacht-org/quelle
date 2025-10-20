@@ -14,4 +14,4 @@ pub use publish::{
     ExtensionVisibility, PublishError, PublishOptions, PublishRequirements, PublishResult,
     UnpublishOptions, UnpublishResult, ValidationReport,
 };
-pub use store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
+pub use store_manifest::{ExtensionVersion, StoreManifest, UrlPattern};

@@ -1,6 +1,8 @@
 //! Local filesystem store implementation using FileBasedProcessor
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tracing::{info, warn};
@@ -11,18 +13,17 @@ use crate::manager::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
     ValidationReport,
 };
-use crate::manager::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
+use crate::manager::store_manifest::{ExtensionVersion, StoreManifest, UrlPattern};
 use crate::models::{
     ExtensionInfo, ExtensionListing, ExtensionMetadata, ExtensionPackage, InstalledExtension,
     SearchQuery, StoreHealth, UpdateInfo,
 };
 use crate::registry::manifest::{ExtensionManifest, LocalExtensionManifest};
 use crate::stores::file_operations::FileBasedProcessor;
-use crate::stores::impls::local;
 use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
 
 /// Local store manifest that extends the base StoreManifest with URL routing
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LocalStoreManifest {
     /// Base store manifest
     #[serde(flatten)]
@@ -33,22 +34,37 @@ pub struct LocalStoreManifest {
     pub supported_domains: Vec<String>,
 
     /// Extension Index for Fast Lookups
-    pub extension_count: u32,
-    pub extensions: Vec<ExtensionSummary>,
+    pub extensions: BTreeMap<String, ExtensionVersions>,
+}
+
+impl From<StoreManifest> for LocalStoreManifest {
+    fn from(value: StoreManifest) -> Self {
+        Self {
+            base: value,
+            url_patterns: Vec::new(),
+            supported_domains: Vec::new(),
+            extensions: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ExtensionVersions {
+    pub latest: ExtensionVersion,
+    pub all_versions: BTreeMap<String, ExtensionVersion>,
+}
+
+impl ExtensionVersions {
+    pub fn add_version(&mut self, extension_version: ExtensionVersion) {
+        self.all_versions
+            .insert(extension_version.version.clone(), extension_version.clone());
+        if extension_version.version > self.latest.version {
+            self.latest = extension_version;
+        }
+    }
 }
 
 impl LocalStoreManifest {
-    /// Create a new local store manifest
-    pub fn new(base: StoreManifest) -> Self {
-        Self {
-            base,
-            url_patterns: Vec::new(),
-            supported_domains: Vec::new(),
-            extension_count: 0,
-            extensions: Vec::new(),
-        }
-    }
-
     /// Add a URL pattern for extension matching
     fn add_url_pattern(&mut self, url_prefix: String, extension: String, priority: u8) {
         // Check if pattern already exists
@@ -77,24 +93,7 @@ impl LocalStoreManifest {
 
     /// Add extension info to the manifest
     pub(crate) fn add_extension(&mut self, manifest: &ExtensionManifest, manifest_path: String) {
-        // Update URL patterns
-        for base_url in &manifest.base_urls {
-            self.add_url_pattern(base_url.clone(), manifest.id.clone(), 100);
-        }
-
-        // Update supported domains
-        for base_url in &manifest.base_urls {
-            if let Ok(url) = url::Url::parse(base_url) {
-                if let Some(domain) = url.domain() {
-                    if !self.supported_domains.contains(&domain.to_string()) {
-                        self.supported_domains.push(domain.to_string());
-                    }
-                }
-            }
-        }
-
-        // Add extension summary
-        let summary = ExtensionSummary {
+        let version = ExtensionVersion {
             id: manifest.id.clone(),
             name: manifest.name.clone(),
             version: manifest.version.clone(),
@@ -108,11 +107,43 @@ impl LocalStoreManifest {
             ),
         };
 
-        // Remove existing entry if present
-        self.extensions.retain(|e| e.id != manifest.id);
-        self.extensions.push(summary);
+        let extension_entry = self
+            .extensions
+            .entry(manifest.id.clone())
+            .or_insert_with(|| ExtensionVersions {
+                latest: version.clone(),
+                all_versions: BTreeMap::new(),
+            });
 
-        self.extension_count = self.extensions.len() as u32;
+        extension_entry.add_version(version);
+    }
+
+    pub(crate) fn generate_index(&mut self) {
+        self.url_patterns.clear();
+        self.supported_domains.clear();
+
+        let items = self
+            .extensions
+            .iter()
+            .map(|(id, versions)| (id.clone(), versions.latest.base_urls.clone()))
+            .collect::<Vec<(String, Vec<String>)>>();
+
+        for (extension_id, base_urls) in items {
+            for base_url in &base_urls {
+                self.add_url_pattern(base_url.clone(), extension_id.clone(), 1);
+            }
+
+            // Add supported domains
+            for base_url in &base_urls {
+                if let Ok(url) = url::Url::parse(base_url) {
+                    if let Some(host) = url.host_str() {
+                        self.supported_domains.push(host.to_string());
+                    }
+                }
+            }
+        }
+
+        self.supported_domains.sort();
     }
 
     /// Find extensions that can handle the given URL
@@ -120,11 +151,15 @@ impl LocalStoreManifest {
         let mut matches = Vec::new();
 
         for pattern in &self.url_patterns {
-            if url.starts_with(&pattern.url_prefix) {
-                for extension_id in &pattern.extensions {
-                    if let Some(ext) = self.extensions.iter().find(|e| &e.id == extension_id) {
-                        matches.push((ext.id.clone(), ext.name.clone()));
-                    }
+            if !url.starts_with(&pattern.url_prefix) {
+                continue;
+            }
+
+            for ext_id in &pattern.extensions {
+                if let Some(ext_versions) = self.extensions.get(ext_id) {
+                    matches.push((ext_id.clone(), ext_versions.latest.version.clone()));
+                } else {
+                    warn!("URL pattern references unknown extension ID: {}", ext_id);
                 }
             }
         }
@@ -132,8 +167,14 @@ impl LocalStoreManifest {
         matches
     }
 
+    pub fn get_latest_versions(&self) -> Vec<ExtensionVersion> {
+        self.extensions
+            .values()
+            .map(|ev| ev.latest.clone())
+            .collect()
+    }
+
     pub(crate) fn reset_extensions(&mut self) {
-        self.extension_count = 0;
         self.extensions.clear();
         self.url_patterns.clear();
         self.supported_domains.clear();
@@ -241,6 +282,20 @@ impl LocalStore {
 
     /// Initialize a new store with basic structure
     pub async fn initialize_store(&self, name: String, description: Option<String>) -> Result<()> {
+        let mut manifest = StoreManifest::new(name, "local".to_string(), "1.0.0".to_string())
+            .with_url(format!("file://{}", self.root_path.display()));
+
+        if let Some(desc) = description {
+            manifest.description = Some(desc);
+        }
+
+        self.initialize_store_with_manifest(&manifest.into()).await
+    }
+
+    pub async fn initialize_store_with_manifest(
+        &self,
+        manifest: &LocalStoreManifest,
+    ) -> Result<()> {
         if self.readonly {
             return Err(StoreError::PermissionDenied(
                 "Cannot initialize readonly store".to_string(),
@@ -252,13 +307,6 @@ impl LocalStore {
         tokio::fs::create_dir_all(&extensions_dir).await?;
 
         // Create store manifest
-        let mut manifest = StoreManifest::new(name, "local".to_string(), "1.0.0".to_string())
-            .with_url(format!("file://{}", self.root_path.display()));
-
-        if let Some(desc) = description {
-            manifest = manifest.with_description(desc);
-        }
-
         let manifest_path = self.root_path.join("store.json");
         let manifest_content = serde_json::to_string_pretty(&manifest)?;
         tokio::fs::write(&manifest_path, manifest_content).await?;
@@ -335,7 +383,7 @@ impl LocalStore {
 
         info!(
             "Saved local store manifest with {} extensions",
-            local_manifest.extension_count
+            local_manifest.extensions.len()
         );
         Ok(())
     }

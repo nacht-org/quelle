@@ -231,11 +231,9 @@ impl LocallyCachedStore<GitProvider> {
                 .with_url(git_url)
                 .with_description(final_description.clone());
 
-        let _local_manifest = LocalStoreManifest::new(base_manifest);
-
         // Initialize the local store with the manifest data
         self.local_store
-            .initialize_store(store_name.clone(), Some(final_description))
+            .initialize_store_with_manifest(&base_manifest.into())
             .await?;
 
         // If git is writable, commit and push the initialization

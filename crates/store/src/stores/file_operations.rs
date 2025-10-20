@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
 
 use crate::error::{Result, StoreError};
-use crate::manager::store_manifest::ExtensionSummary;
+use crate::manager::store_manifest::ExtensionVersion;
 use crate::manager::store_manifest::StoreManifest;
 use crate::models::{ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQuery};
 use crate::registry::manifest::{
@@ -234,9 +234,9 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// List all extensions in the store
-    pub async fn list_extensions(&self) -> Result<Vec<ExtensionSummary>> {
+    pub async fn list_extensions(&self) -> Result<Vec<ExtensionVersion>> {
         let local_manifest = self.get_local_store_manifest().await?;
-        Ok(local_manifest.extensions)
+        Ok(local_manifest.get_latest_versions())
     }
 
     /// Get information about all versions of a specific extension
@@ -298,10 +298,10 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// Search extensions matching the given query
-    pub async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionSummary>> {
+    pub async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionVersion>> {
         let all_extensions = self.list_extensions().await?;
 
-        let filtered: Vec<ExtensionSummary> = all_extensions
+        let filtered: Vec<ExtensionVersion> = all_extensions
             .into_iter()
             .filter(|ext| {
                 // Text search in name and id
@@ -440,8 +440,10 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
 #[cfg(test)]
 mod tests {
+    use crate::stores::impls::local::store::ExtensionVersions;
+
     use super::*;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     /// Mock file operations for testing
     struct MockFileOperations {
@@ -576,7 +578,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_extensions_for_url() {
-        use crate::manager::store_manifest::{ExtensionSummary, StoreManifest, UrlPattern};
+        use crate::manager::store_manifest::{ExtensionVersion, StoreManifest, UrlPattern};
         use crate::stores::impls::local::store::LocalStoreManifest;
         use std::collections::BTreeSet;
 
@@ -603,7 +605,7 @@ mod tests {
         };
         url_pattern2.extensions.insert("test-extension".to_string());
 
-        let extension_summary = ExtensionSummary {
+        let extension_summary = ExtensionVersion {
             id: "test-extension".to_string(),
             name: "Test Extension".to_string(),
             version: "1.0.0".to_string(),
@@ -617,13 +619,25 @@ mod tests {
             manifest_checksum: "test-checksum".to_string(),
         };
 
-        let local_manifest = LocalStoreManifest {
+        let mut local_manifest = LocalStoreManifest {
             base: base_manifest,
             url_patterns: vec![url_pattern, url_pattern2],
             supported_domains: vec!["example.com".to_string(), "test.org".to_string()],
-            extension_count: 1,
-            extensions: vec![extension_summary],
+            extensions: BTreeMap::new(),
         };
+
+        let mut extension_versions = ExtensionVersions {
+            latest: extension_summary.clone(),
+            all_versions: BTreeMap::new(),
+        };
+
+        extension_versions
+            .all_versions
+            .insert("1.0.0".to_string(), extension_summary);
+
+        local_manifest
+            .extensions
+            .insert("test-extension".to_string(), extension_versions);
 
         // Add the LocalStoreManifest as store.json
         mock_ops.add_json_file("store.json", &local_manifest);
