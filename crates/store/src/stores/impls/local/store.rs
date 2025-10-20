@@ -20,6 +20,7 @@ use crate::models::{
 };
 use crate::registry::manifest::{ExtensionManifest, LocalExtensionManifest};
 use crate::stores::file_operations::FileBasedProcessor;
+use crate::stores::impls::local;
 use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
 
 /// Local store manifest that extends the base StoreManifest with URL routing
@@ -351,19 +352,29 @@ impl LocalStore {
                     StoreError::InvalidPath("Invalid version in filesystem".to_string())
                 })?;
 
-                // Try to load the extension manifest
-                if let Ok(manifest) = self
-                    .processor
-                    .get_extension_manifest(&extension_id, Some(&version_str))
-                    .await
-                {
-                    let manifest_path =
-                        format!("extensions/{}/{}/manifest.json", extension_id, version_str);
-                    local_manifest.add_extension(&manifest, manifest_path);
-                    break; // Only add the first version found
+                let manifest_path =
+                    format!("extensions/{}/{}/manifest.json", extension_id, version_str);
+                let manifest_result = self.processor.read_json_file(&manifest_path).await;
+
+                match manifest_result {
+                    Ok(manifest) => {
+                        local_manifest.add_extension(&manifest, manifest_path);
+                        info!(
+                            "Loaded manifest for extension {} version {}",
+                            extension_id, version_str
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to load manifest for extension {} version {}: {}",
+                            extension_id, version_str, e
+                        );
+                    }
                 }
             }
         }
+
+        local_manifest.generate_index();
 
         Ok(local_manifest)
     }

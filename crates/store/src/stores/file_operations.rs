@@ -61,7 +61,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// Read and parse a JSON file
-    async fn read_json_file<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+    pub(crate) async fn read_json_file<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
         let content = self.file_ops.read_file(path).await?;
         serde_json::from_slice(&content).map_err(|e| {
             StoreError::ParseError(format!("Failed to parse JSON file {}: {}", path, e))
