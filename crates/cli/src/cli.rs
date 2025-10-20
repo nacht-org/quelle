@@ -325,15 +325,6 @@ pub enum PublishCommands {
         /// Skip validation checks
         #[arg(long)]
         skip_validation: bool,
-        /// Release notes
-        #[arg(long)]
-        notes: Option<String>,
-        /// Tags (comma-separated)
-        #[arg(long)]
-        tags: Option<String>,
-        /// Access token for authentication
-        #[arg(long)]
-        token: Option<String>,
         /// Timeout in seconds
         #[arg(long, default_value = "300")]
         timeout: u64,
@@ -350,18 +341,6 @@ pub enum PublishCommands {
         /// Target store name
         #[arg(long)]
         store: String,
-        /// Reason for unpublishing
-        #[arg(long)]
-        reason: Option<String>,
-        /// Keep tombstone record
-        #[arg(long)]
-        keep_record: bool,
-        /// Notify users who installed this version
-        #[arg(long)]
-        notify_users: bool,
-        /// Access token for authentication
-        #[arg(long)]
-        token: Option<String>,
     },
     /// Validate an extension package (dry-run)
     Validate {

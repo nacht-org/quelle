@@ -507,7 +507,6 @@ impl WritableStore for GitHubStore {
                 "*.so".to_string(),
                 "*.dylib".to_string(),
             ],
-            required_metadata: vec!["name".to_string(), "version".to_string()],
             supported_visibility: vec![crate::manager::publish::ExtensionVisibility::Public],
             enforces_versioning: true,
             validation_rules: Vec::new(),

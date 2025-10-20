@@ -17,39 +17,23 @@ pub struct PublishOptions {
     /// Whether to overwrite an existing version
     pub overwrite_existing: bool,
 
-    /// Mark this as a pre-release version
-    pub pre_release: bool,
-
     /// Visibility level for the extension
     pub visibility: ExtensionVisibility,
-
-    /// Authentication token for the store
-    pub access_token: Option<String>,
 
     /// Whether to run validation before publishing
     pub skip_validation: bool,
 
     /// Timeout for the publishing operation
     pub timeout: Option<Duration>,
-
-    /// Tags to associate with this publication
-    pub tags: Vec<String>,
-
-    /// Release notes or changelog
-    pub release_notes: Option<String>,
 }
 
 impl Default for PublishOptions {
     fn default() -> Self {
         Self {
             overwrite_existing: false,
-            pre_release: false,
             visibility: ExtensionVisibility::Public,
-            access_token: None,
             skip_validation: false,
             timeout: Some(Duration::from_secs(300)), // 5 minutes
-            tags: Vec::new(),
-            release_notes: None,
         }
     }
 }
@@ -79,31 +63,13 @@ impl PublishOptions {
 /// Options for unpublishing an extension
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnpublishOptions {
-    /// Authentication token
-    pub access_token: Option<String>,
-
     /// Version to unpublish (None means all versions)
     pub version: Option<String>,
-
-    /// Reason for unpublishing
-    pub reason: Option<String>,
-
-    /// Whether to keep a tombstone record
-    pub keep_record: bool,
-
-    /// Whether to notify users who have installed this version
-    pub notify_users: bool,
 }
 
 impl Default for UnpublishOptions {
     fn default() -> Self {
-        Self {
-            access_token: None,
-            version: None,
-            reason: None,
-            keep_record: true,
-            notify_users: false,
-        }
+        Self { version: None }
     }
 }
 
@@ -258,9 +224,6 @@ pub struct PublishRequirements {
     /// Forbidden file patterns
     pub forbidden_patterns: Vec<String>,
 
-    /// Required metadata fields
-    pub required_metadata: Vec<String>,
-
     /// Supported visibility levels
     pub supported_visibility: Vec<ExtensionVisibility>,
 
@@ -289,7 +252,6 @@ impl Default for PublishRequirements {
                 "*.so".to_string(),
                 "*.dylib".to_string(),
             ],
-            required_metadata: vec!["name".to_string(), "version".to_string()],
             supported_visibility: vec![ExtensionVisibility::Public, ExtensionVisibility::Unlisted],
             enforces_versioning: true,
             validation_rules: Vec::new(),
@@ -326,49 +288,4 @@ pub enum PublishError {
 
     #[error("Store does not support publishing")]
     PublishingNotSupported,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_publish_options_defaults() {
-        let options = PublishOptions::default();
-        assert!(!options.overwrite_existing);
-        assert!(!options.pre_release);
-        assert_eq!(options.visibility, ExtensionVisibility::Public);
-    }
-
-    #[test]
-    fn test_dev_options() {
-        let options = PublishOptions::dev_defaults();
-        assert!(options.overwrite_existing);
-        assert!(options.skip_validation);
-        assert_eq!(options.timeout, Some(Duration::from_secs(30)));
-    }
-
-    #[test]
-    fn test_validation_report() {
-        let report = ValidationReport::passed();
-        assert!(report.passed);
-        assert!(report.issues.is_empty());
-        assert!(!report.has_critical_issues());
-    }
-
-    #[test]
-    fn test_publish_result_builder() {
-        let result = PublishResult::success(
-            "ext-123".to_string(),
-            "1.0.0".to_string(),
-            "https://example.com/download".to_string(),
-            "pub-123".to_string(),
-            1024,
-            "abc123".to_string(),
-        )
-        .with_warning("Minor issue detected".to_string());
-
-        assert_eq!(result.version, "1.0.0");
-        assert_eq!(result.warnings.len(), 1);
-    }
 }

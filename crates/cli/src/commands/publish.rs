@@ -27,9 +27,6 @@ pub async fn handle_publish_command(
             visibility,
             overwrite,
             skip_validation,
-            notes,
-            tags,
-            token,
             timeout,
             dev,
         } => {
@@ -40,35 +37,14 @@ pub async fn handle_publish_command(
                 visibility,
                 overwrite,
                 skip_validation,
-                notes,
-                tags,
-                token,
                 timeout,
                 dev,
                 config,
             )
             .await
         }
-        PublishCommands::Unpublish {
-            id,
-            version,
-            store,
-            reason,
-            keep_record,
-            notify_users,
-            token,
-        } => {
-            handle_unpublish_extension(
-                id,
-                version,
-                store,
-                reason,
-                keep_record,
-                notify_users,
-                token,
-                config,
-            )
-            .await
+        PublishCommands::Unpublish { id, version, store } => {
+            handle_unpublish_extension(id, version, store, config).await
         }
         PublishCommands::Validate {
             package_path,
@@ -87,9 +63,6 @@ async fn handle_publish_extension(
     visibility: VisibilityOption,
     overwrite: bool,
     skip_validation: bool,
-    notes: Option<String>,
-    tags: Option<String>,
-    token: Option<String>,
     timeout: u64,
     dev: bool,
     config: &RegistryConfig,
@@ -117,7 +90,6 @@ async fn handle_publish_extension(
         PublishOptions::production_defaults()
     };
 
-    options.pre_release = pre_release;
     options.visibility = match visibility {
         VisibilityOption::Public => ExtensionVisibility::Public,
         VisibilityOption::Private => ExtensionVisibility::Private,
@@ -125,13 +97,7 @@ async fn handle_publish_extension(
     };
     options.overwrite_existing = overwrite;
     options.skip_validation = skip_validation;
-    options.access_token = token;
     options.timeout = Some(Duration::from_secs(timeout));
-    options.release_notes = notes;
-
-    if let Some(tags_str) = tags {
-        options.tags = tags_str.split(',').map(|s| s.trim().to_string()).collect();
-    }
 
     // Display publishing configuration
     println!("Publishing configuration:");
@@ -142,10 +108,6 @@ async fn handle_publish_extension(
     println!("  Visibility: {:?}", visibility);
     println!("  Overwrite: {}", overwrite);
     println!("  Skip validation: {}", skip_validation);
-
-    if !options.tags.is_empty() {
-        println!("  Tags: {}", options.tags.join(", "));
-    }
 
     // Store package name before moving package to publish
     let package_name = package.manifest.name.clone();
@@ -175,10 +137,6 @@ async fn handle_unpublish_extension(
     id: String,
     version: String,
     store_name: String,
-    reason: Option<String>,
-    keep_record: bool,
-    notify_users: bool,
-    token: Option<String>,
     config: &RegistryConfig,
 ) -> Result<()> {
     let Some(store) = config
@@ -199,22 +157,12 @@ async fn handle_unpublish_extension(
     println!("  Extension: {}", id);
     println!("  Version: {}", version);
     println!("  Store: {}", store_name);
-    println!("  Keep record: {}", keep_record);
-    println!("  Notify users: {}", notify_users);
-
-    if let Some(ref r) = reason {
-        println!("  Reason: {}", r);
-    }
 
     warn!("Are you sure you want to unpublish this extension version?");
     warn!("This action may break installations that depend on this version.");
 
     let unpublish_options = UnpublishOptions {
-        access_token: token,
         version: Some(version.clone()),
-        reason,
-        keep_record,
-        notify_users,
     };
 
     // Actually unpublish the extension
