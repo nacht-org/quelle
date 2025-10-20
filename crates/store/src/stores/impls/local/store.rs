@@ -45,7 +45,7 @@ impl From<StoreManifest> for LocalStoreManifest {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExtensionVersions {
-    pub latest: ExtensionVersion,
+    pub latest: String,
     pub all_versions: BTreeMap<String, ExtensionVersion>,
 }
 
@@ -53,8 +53,8 @@ impl ExtensionVersions {
     pub fn add_version(&mut self, extension_version: ExtensionVersion) {
         self.all_versions
             .insert(extension_version.version.clone(), extension_version.clone());
-        if extension_version.version > self.latest.version {
-            self.latest = extension_version;
+        if extension_version.version > self.latest {
+            self.latest = extension_version.version;
         }
     }
 }
@@ -80,7 +80,7 @@ impl LocalStoreManifest {
             .extensions
             .entry(manifest.id.clone())
             .or_insert_with(|| ExtensionVersions {
-                latest: version.clone(),
+                latest: version.version.clone(),
                 all_versions: BTreeMap::new(),
             });
 
@@ -88,7 +88,11 @@ impl LocalStoreManifest {
     }
 
     pub(crate) fn generate_index(&mut self) {
-        let latest_versions = self.extensions.values().map(|ev| &ev.latest);
+        let latest_versions = self
+            .extensions
+            .values()
+            .flat_map(|ev| ev.all_versions.get(&ev.latest));
+
         self.index.regenerate(latest_versions);
     }
 
@@ -103,7 +107,7 @@ impl LocalStoreManifest {
 
             for ext_id in &pattern.extensions {
                 if let Some(ext_versions) = self.extensions.get(ext_id) {
-                    matches.push((ext_id.clone(), ext_versions.latest.version.clone()));
+                    matches.push((ext_id.clone(), ext_versions.latest.clone()));
                 } else {
                     warn!("URL pattern references unknown extension ID: {}", ext_id);
                 }
@@ -116,7 +120,8 @@ impl LocalStoreManifest {
     pub fn get_latest_versions(&self) -> Vec<ExtensionVersion> {
         self.extensions
             .values()
-            .map(|ev| ev.latest.clone())
+            .flat_map(|ev| ev.all_versions.get(&ev.latest))
+            .cloned()
             .collect()
     }
 

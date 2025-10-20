@@ -629,7 +629,7 @@ mod tests {
         };
 
         let mut extension_versions = ExtensionVersions {
-            latest: extension_summary.clone(),
+            latest: extension_summary.version.clone(),
             all_versions: BTreeMap::new(),
         };
 
