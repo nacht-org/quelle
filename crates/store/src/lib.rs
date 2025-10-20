@@ -64,10 +64,8 @@
 pub mod error;
 pub mod manager;
 pub mod models;
-pub mod publish_compat;
 pub mod registry;
 pub mod stores;
-pub mod validation_compat;
 
 // Re-export commonly used types
 pub use error::{Result, StoreError};
@@ -98,10 +96,6 @@ pub use stores::{
 pub use manager::publish::ExtensionVisibility;
 pub use registry::core::{IssueSeverity, ValidationIssueType};
 pub use stores::impls::local::LocalStore;
-
-// Compatibility modules for external crates
-pub use publish_compat as publish;
-pub use validation_compat as validation;
 
 // Additional re-exports needed by CLI
 // LocalStoreBuilder is already exported via stores::LocalStoreBuilder above

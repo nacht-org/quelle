@@ -6,9 +6,9 @@ use std::time::Duration;
 use eyre::{Context, Result};
 use quelle_store::{
     ExtensionVisibility, RegistryConfig, StoreManager,
+    manager::{PublishOptions, UnpublishOptions},
     models::ExtensionPackage,
-    publish::{PublishOptions, UnpublishOptions},
-    validation::create_default_validator,
+    registry::create_default_validator,
 };
 use tracing::{error, info, warn};
 
