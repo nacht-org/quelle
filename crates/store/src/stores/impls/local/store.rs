@@ -21,30 +21,24 @@ use crate::models::{
 use crate::registry::manifest::{ExtensionManifest, LocalExtensionManifest};
 use crate::stores::file_operations::FileBasedProcessor;
 use crate::stores::impls::local;
+use crate::stores::impls::local::index::LocalStoreManifestIndex;
 use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
 
 /// Local store manifest that extends the base StoreManifest with URL routing
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LocalStoreManifest {
-    /// Base store manifest
     #[serde(flatten)]
     pub base: StoreManifest,
-
-    /// URL Routing & Domain Support
-    pub url_patterns: Vec<UrlPattern>,
-    pub supported_domains: Vec<String>,
-
-    /// Extension Index for Fast Lookups
     pub extensions: BTreeMap<String, ExtensionVersions>,
+    pub index: LocalStoreManifestIndex,
 }
 
 impl From<StoreManifest> for LocalStoreManifest {
     fn from(value: StoreManifest) -> Self {
         Self {
             base: value,
-            url_patterns: Vec::new(),
-            supported_domains: Vec::new(),
             extensions: BTreeMap::new(),
+            index: Default::default(),
         }
     }
 }
@@ -66,32 +60,6 @@ impl ExtensionVersions {
 }
 
 impl LocalStoreManifest {
-    /// Add a URL pattern for extension matching
-    fn add_url_pattern(&mut self, url_prefix: String, extension: String, priority: u8) {
-        // Check if pattern already exists
-        if let Some(pattern) = self
-            .url_patterns
-            .iter_mut()
-            .find(|p| p.url_prefix == url_prefix)
-        {
-            // Add extension if not already present
-            if !pattern.extensions.contains(&extension) {
-                pattern.extensions.insert(extension);
-            }
-        } else {
-            // Create new pattern
-            self.url_patterns.push(UrlPattern {
-                url_prefix,
-                extensions: [extension].into_iter().collect(),
-                priority,
-            });
-        }
-
-        // Sort patterns by priority (higher first)
-        self.url_patterns
-            .sort_by(|a, b| b.priority.cmp(&a.priority));
-    }
-
     /// Add extension info to the manifest
     pub(crate) fn add_extension(&mut self, manifest: &ExtensionManifest, manifest_path: String) {
         let version = ExtensionVersion {
@@ -120,38 +88,15 @@ impl LocalStoreManifest {
     }
 
     pub(crate) fn generate_index(&mut self) {
-        self.url_patterns.clear();
-        self.supported_domains.clear();
-
-        let items = self
-            .extensions
-            .iter()
-            .map(|(id, versions)| (id.clone(), versions.latest.base_urls.clone()))
-            .collect::<Vec<(String, Vec<String>)>>();
-
-        for (extension_id, base_urls) in items {
-            for base_url in &base_urls {
-                self.add_url_pattern(base_url.clone(), extension_id.clone(), 1);
-            }
-
-            // Add supported domains
-            for base_url in &base_urls {
-                if let Ok(url) = url::Url::parse(base_url) {
-                    if let Some(host) = url.host_str() {
-                        self.supported_domains.push(host.to_string());
-                    }
-                }
-            }
-        }
-
-        self.supported_domains.sort();
+        let latest_versions = self.extensions.values().map(|ev| &ev.latest);
+        self.index.regenerate(latest_versions);
     }
 
     /// Find extensions that can handle the given URL
     pub(crate) fn find_extensions_for_url(&self, url: &str) -> Vec<(String, String)> {
         let mut matches = Vec::new();
 
-        for pattern in &self.url_patterns {
+        for pattern in &self.index.url_patterns {
             if !url.starts_with(&pattern.url_prefix) {
                 continue;
             }
@@ -177,8 +122,7 @@ impl LocalStoreManifest {
 
     pub(crate) fn reset_extensions(&mut self) {
         self.extensions.clear();
-        self.url_patterns.clear();
-        self.supported_domains.clear();
+        self.index.reset();
     }
 }
 

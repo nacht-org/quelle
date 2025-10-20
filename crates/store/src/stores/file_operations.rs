@@ -440,7 +440,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::stores::impls::local::store::ExtensionVersions;
+    use crate::stores::impls::local::{index::LocalStoreManifestIndex, store::ExtensionVersions};
 
     use super::*;
     use std::collections::{BTreeMap, HashMap};
@@ -621,8 +621,10 @@ mod tests {
 
         let mut local_manifest = LocalStoreManifest {
             base: base_manifest,
-            url_patterns: vec![url_pattern, url_pattern2],
-            supported_domains: vec!["example.com".to_string(), "test.org".to_string()],
+            index: LocalStoreManifestIndex {
+                url_patterns: vec![url_pattern, url_pattern2],
+                supported_domains: vec!["example.com".to_string(), "test.org".to_string()],
+            },
             extensions: BTreeMap::new(),
         };
 
