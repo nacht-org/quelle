@@ -15,7 +15,7 @@ cd quelle
 cargo build --release -p quelle_cli
 
 # Build with specific features
-cargo build --release -p quelle_cli --no-default-features --features git     # EPUB export only
+cargo build --release -p quelle_cli --no-default-features --features git     # EPUB export only (default)
 cargo build --release -p quelle_cli --features git,pdf                       # PDF export (default)
 
 # Set up extension system manually
@@ -83,14 +83,13 @@ Quelle has reached MVP status with a fully functional CLI, working extension sys
 - Store management (local and Git-based stores)
 - Novel search and discovery
 - Library management (add, update, remove novels)
-- Chapter reading and export
+- Chapter reading and export (EPUB and basic PDF)
 - Working extensions for ScribbleHub and DragonTea
+- Official extension registry integration
 
 ### In Development
-- Additional output formats (PDF improvements)
 - More extension sources
 - Enhanced search capabilities
-- Cross-platform binary distribution
 
 ## CLI Reference
 
@@ -167,7 +166,7 @@ Quelle uses a modular WebAssembly-based architecture with a distributed extensio
 
 - **CLI (`crates/cli`)**: User interface and command handling
 - **Engine (`crates/engine`)**: Core runtime built with Wasmtime
-- **Extension Framework (`crates/extension`)**: Shared library for WASM extensions  
+- **Extension Framework (`crates/extension`)**: Shared library for WASM extensions
 - **Storage (`crates/storage`)**: Data persistence and library management
 - **Store System (`crates/store`)**: Extension package management
 - **Extensions (`extensions/`)**: Individual scrapers (dragontea, scribblehub)
@@ -175,7 +174,7 @@ Quelle uses a modular WebAssembly-based architecture with a distributed extensio
 
 ### Extension Distribution
 - **Official Registry**: [github.com/nacht-org/extensions](https://github.com/nacht-org/extensions) (configured by default)
-- **Local Development**: Build and publish extensions locally for testing  
+- **Local Development**: Build and publish extensions locally for testing
 - **Custom Stores**: Add additional Git repositories or local directories
 
 ```bash
@@ -188,7 +187,7 @@ quelle store add git custom-store https://github.com/user/my-extensions
 # Search across all stores
 quelle extensions search "light novel"
 
-# Install from any configured store  
+# Install from any configured store
 quelle extensions install custom.extension
 ```
 
@@ -213,9 +212,9 @@ For developers who prefer shorter commands, a `justfile` is provided with conven
 # Quick setup
 just setup                          # Set up local store and publish scribblehub
 
-# Extension development  
+# Extension development
 just build scribblehub               # Build extension
-just publish scribblehub             # Build and publish to local store
+just publish scribblehub             # Build and publish to official store
 just dev scribblehub                 # Start development server
 just test scribblehub --url <url>    # Test extension
 just validate scribblehub            # Validate extension
@@ -238,7 +237,7 @@ All `just` commands are optional shortcuts for the full CLI commands shown throu
 # Quick test novel info fetching
 ./target/release/quelle dev test scribblehub --url "https://www.scribblehub.com/series/123456/novel/"
 
-# Quick test search functionality  
+# Quick test search functionality
 ./target/release/quelle dev test scribblehub --query "fantasy adventure"
 
 # Start development server with hot reload
@@ -249,31 +248,26 @@ The development server provides:
 - **Hot reload**: Automatic rebuild on file changes
 - **Interactive testing**: Test novel fetching, search, and chapters
 - **Real-time feedback**: Detailed timing and error information
-- **Pure extensions**: No debugging code needed in extensions
 
 ### Creating New Extensions
 
 **Interactive Mode (Recommended)**
 ```bash
 # Interactive generation - prompts for all information
-./target/release/quelle dev generate
+./target/release/quelle_dev generate
 ```
 
 **Command Line Mode**
 ```bash
 # All parameters specified
-./target/release/quelle dev generate mysite --display-name "My Site" --base-url "https://mysite.com"
+./target/release/quelle_dev generate mysite --display-name "My Site" --base-url "https://mysite.com"
 ```
 
 Development workflow:
 1. **Generate extension**: Interactive mode guides you through setup
-2. **Customize selectors**: Update CSS selectors for your target site  
-3. **Test iteratively**: Use `./target/release/quelle dev server <name> --watch` for hot reload testing
-4. **Validate**: Use `./target/release/quelle dev validate <name> --extended` before publishing
+3. **Test iteratively**: Use `./target/release/quelle_dev server <name> --watch` for hot reload testing
+4. **Validate**: Use `./target/release/quelle_dev validate <name> --extended` before publishing
 5. **Publish**: Build and publish with CLI commands shown above
-
-📖 **[Extension Generation Guide](./docs/EXTENSION_GENERATION.md)**
-📖 **[Complete Extension Development Guide](./docs/EXTENSION_DEVELOPMENT.md)**
 
 ### Publishing Extensions
 
@@ -303,11 +297,6 @@ cargo component build -r -p extension_scribblehub --target wasm32-unknown-unknow
   ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
   --store local --overwrite
 
-# Publish with metadata
-./target/release/quelle publish extension \
-  ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
-  --store local --notes "Bug fixes" --tags "manga,novels" --overwrite
-
 # Dry run (show what would be done)
 ./target/release/quelle publish extension \
   ./target/wasm32-unknown-unknown/release/extension_scribblehub.wasm \
@@ -322,11 +311,6 @@ cargo component build -r -p extension_scribblehub --target wasm32-unknown-unknow
 ./target/release/quelle publish extension --help
 ```
 
-**Available Stores:**
-- `local` - Local development store
-- `remote` - Remote Git-based store  
-- `official` - Official nacht-org/extensions registry
-
 #### Manual Publishing Options
 
 **GitHub Actions Workflow:**
@@ -334,7 +318,7 @@ cargo component build -r -p extension_scribblehub --target wasm32-unknown-unknow
 
 **Local CLI:**
 - Build extensions with `cargo component build -r -p extension_<name> --target wasm32-unknown-unknown`
-- Use CLI publish commands for precise control over store, notes, tags, and options
+- Use CLI publish commands for precise control over store, and options
 
 #### Requirements for Official Publishing
 
@@ -367,11 +351,11 @@ The book contains detailed guides for:
 - **Development**: Architecture and extension development
 - **API Reference**: Technical documentation
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Priority areas:
 
-- **New Extensions**: Add support for more novel sources  
+- **New Extensions**: Add support for more novel sources
 - **Export Formats**: Improve PDF generation, add new formats
 - **Search Enhancement**: Better filtering and aggregation
 - **Extension Development**: Improved debugging and testing tools
@@ -410,7 +394,7 @@ limitations under the License.
 
 This application is not affiliated with any content providers. Users are responsible for ensuring their usage complies with the terms of service of the websites they access. The developers do not endorse or encourage any violation of copyright or terms of service.
 
-## 🔗 Links
+## Links
 
 - **Documentation**: [Quelle Book](./book/)
 - **Issues**: [GitHub Issues](https://github.com/nacht-org/quelle/issues)
