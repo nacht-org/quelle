@@ -188,30 +188,6 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         Ok(file_bytes)
     }
 
-    async fn get_extension_asset(
-        &self,
-        local_manifest: &LocalExtensionManifest,
-        asset: &AssetReference,
-    ) -> Result<Vec<u8>> {
-        let asset_path = local_manifest.path.join(&asset.path);
-        let asset_path_str = asset_path.to_str().ok_or_else(|| {
-            StoreError::ParseError(format!("invalid asset path for {}", asset.path))
-        })?;
-
-        // Read the asset file
-        let asset_bytes = self.file_ops.read_file(asset_path_str).await?;
-
-        // Verify checksum using manifest's file reference
-        if !asset.verify(&asset_bytes) {
-            return Err(StoreError::ChecksumMismatch(format!(
-                "file checksum mismatch for {}@{}",
-                local_manifest.manifest.id, local_manifest.manifest.version
-            )));
-        }
-
-        Ok(asset_bytes)
-    }
-
     /// Get extension metadata
     pub async fn get_extension_metadata(
         &self,
@@ -417,12 +393,15 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
         // Load all assets
         for asset_ref in &local_manifest.manifest.assets {
-            match self.get_extension_asset(&local_manifest, asset_ref).await {
+            match self
+                .get_extension_file(&local_manifest, &asset_ref.file)
+                .await
+            {
                 Ok(content) => {
-                    package.add_asset(asset_ref.path.clone(), content);
+                    package.add_asset(asset_ref.file.path.clone(), content);
                 }
                 Err(e) => {
-                    debug!("Failed to load asset {}: {}", asset_ref.path, e);
+                    debug!("Failed to load asset {}: {}", asset_ref.file.path, e);
                     // Continue loading other assets
                 }
             }
@@ -452,7 +431,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         Ok(manifest
             .assets
             .iter()
-            .map(|asset| asset.path.clone())
+            .map(|asset| asset.file.path.clone())
             .collect())
     }
 }

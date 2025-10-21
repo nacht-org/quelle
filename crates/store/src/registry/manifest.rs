@@ -19,12 +19,9 @@ pub struct FileReference {
 pub struct AssetReference {
     /// Asset name/identifier
     pub name: String,
-    /// Relative path to the asset
-    pub path: String,
-    /// Checksum for integrity verification
-    pub checksum: String,
-    /// File size in bytes
-    pub size: u64,
+    /// File reference details
+    #[serde(flatten)]
+    pub file: FileReference,
     /// Type of asset (icon, documentation, example, etc.)
     #[serde(rename = "type")]
     pub asset_type: String,
@@ -64,40 +61,11 @@ impl FileReference {
 impl AssetReference {
     /// Create a new asset reference with checksum calculated from data
     pub fn new(name: String, path: String, asset_type: String, data: &[u8]) -> Self {
-        let checksum = format!("blake3:{}", blake3::hash(data).to_hex());
+        let file = FileReference::new(path, data);
         Self {
             name,
-            path,
-            checksum,
-            size: data.len() as u64,
+            file,
             asset_type,
-        }
-    }
-
-    /// Create an asset reference from components
-    pub fn from_components(
-        name: String,
-        path: String,
-        checksum: String,
-        size: u64,
-        asset_type: String,
-    ) -> Self {
-        Self {
-            name,
-            path,
-            checksum,
-            size,
-            asset_type,
-        }
-    }
-
-    /// Verify the checksum against provided data
-    pub fn verify(&self, data: &[u8]) -> bool {
-        if let Some(hash) = self.checksum.strip_prefix("blake3:") {
-            let calculated = blake3::hash(data).to_hex().to_string();
-            calculated == hash
-        } else {
-            false
         }
     }
 }
