@@ -327,29 +327,22 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         &self,
         extension_id: &str,
     ) -> Result<Option<Version>> {
-        // TODO: use the index to get latest version directly
-        let versions = self.list_extension_versions(extension_id).await?;
-
-        if versions.is_empty() {
-            return Ok(None);
-        }
-
-        // For now, use simple string sorting. In the future, we could use semver parsing
-        let mut sorted_versions = versions;
-        sorted_versions.sort();
-
-        Ok(sorted_versions.last().cloned())
+        let manifest = self.get_local_store_manifest().await?;
+        let latest_version = manifest
+            .extensions
+            .get(extension_id)
+            .and_then(|versions| Some(versions.latest.clone()));
+        Ok(latest_version)
     }
 
     /// List all available versions for an extension
     pub async fn list_extension_versions(&self, extension_id: &str) -> Result<Vec<Version>> {
-        // Get versions from extension summaries
-        let summaries = self.list_extensions().await?;
-        let versions = summaries
-            .iter()
-            .filter(|s| s.id == extension_id)
-            .map(|s| s.version.clone())
-            .collect::<Vec<_>>();
+        let manifest = self.get_local_store_manifest().await?;
+        let Some(versions) = manifest.extensions.get(extension_id) else {
+            return Err(StoreError::ExtensionNotFound(extension_id.to_string()));
+        };
+
+        let versions: Vec<Version> = versions.all_versions.keys().cloned().collect();
 
         Ok(versions)
     }
@@ -360,17 +353,14 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         extension_id: &str,
         version: &Version,
     ) -> Result<bool> {
-        // Get the manifest path from the extension summary
-        let summaries = self.list_extensions().await?;
-        let manifest_path = summaries
-            .iter()
-            .find(|s| s.id == extension_id && &s.version == version)
-            .map(|s| s.manifest_path.clone());
+        let manifest = self.get_local_store_manifest().await?;
+        let Some(versions) = manifest.extensions.get(extension_id) else {
+            return Err(StoreError::ExtensionNotFound(extension_id.to_string()));
+        };
 
-        match manifest_path {
-            Some(path) => self.file_ops.file_exists(&path).await,
-            None => Ok(false), // Extension version doesn't exist
-        }
+        let version_exists = versions.all_versions.contains_key(version);
+
+        Ok(version_exists)
     }
 
     /// Get the complete extension package including all files
