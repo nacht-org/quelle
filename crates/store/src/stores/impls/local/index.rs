@@ -1,11 +1,20 @@
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 
-use crate::{ExtensionVersion, UrlPattern};
+use crate::ExtensionVersion;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct LocalStoreManifestIndex {
     pub url_patterns: Vec<UrlPattern>,
-    pub supported_domains: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UrlPattern {
+    /// URL prefix that this pattern matches (e.g., "https://example.com")
+    pub url_prefix: String,
+    /// Extensions that can handle URLs matching this prefix
+    pub extensions: BTreeSet<String>,
 }
 
 impl LocalStoreManifestIndex {
@@ -26,13 +35,8 @@ impl LocalStoreManifestIndex {
             self.url_patterns.push(UrlPattern {
                 url_prefix,
                 extensions: [extension].into_iter().collect(),
-                priority,
             });
         }
-
-        // Sort patterns by priority (higher first)
-        self.url_patterns
-            .sort_by(|a, b| b.priority.cmp(&a.priority));
     }
 
     pub(crate) fn regenerate<'a>(
@@ -40,28 +44,15 @@ impl LocalStoreManifestIndex {
         extension_versions: impl Iterator<Item = &'a ExtensionVersion>,
     ) {
         self.url_patterns.clear();
-        self.supported_domains.clear();
 
         for extension in extension_versions {
             for base_url in &extension.base_urls {
                 self.add_url_pattern(base_url.clone(), extension.id.clone(), 1);
             }
-
-            // Add supported domains
-            for base_url in &extension.base_urls {
-                if let Ok(url) = url::Url::parse(base_url) {
-                    if let Some(host) = url.host_str() {
-                        self.supported_domains.push(host.to_string());
-                    }
-                }
-            }
         }
-
-        self.supported_domains.sort();
     }
 
     pub(crate) fn reset(&mut self) {
         self.url_patterns.clear();
-        self.supported_domains.clear();
     }
 }

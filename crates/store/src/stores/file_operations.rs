@@ -428,7 +428,10 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 mod tests {
     use semver::Version;
 
-    use crate::stores::impls::local::{index::LocalStoreManifestIndex, store::ExtensionVersions};
+    use crate::stores::impls::local::{
+        index::{LocalStoreManifestIndex, UrlPattern},
+        store::ExtensionVersions,
+    };
 
     use super::*;
     use std::collections::{BTreeMap, HashMap};
@@ -566,7 +569,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_extensions_for_url() {
-        use crate::manager::store_manifest::{ExtensionVersion, StoreManifest, UrlPattern};
+        use crate::manager::store_manifest::{ExtensionVersion, StoreManifest};
         use crate::stores::impls::local::store::LocalStoreManifest;
         use std::collections::BTreeSet;
 
@@ -582,14 +585,12 @@ mod tests {
         let mut url_pattern = UrlPattern {
             url_prefix: "https://example.com".to_string(),
             extensions: BTreeSet::new(),
-            priority: 100,
         };
         url_pattern.extensions.insert("test-extension".to_string());
 
         let mut url_pattern2 = UrlPattern {
             url_prefix: "https://test.org".to_string(),
             extensions: BTreeSet::new(),
-            priority: 100,
         };
         url_pattern2.extensions.insert("test-extension".to_string());
 
@@ -611,7 +612,6 @@ mod tests {
             base: base_manifest,
             index: LocalStoreManifestIndex {
                 url_patterns: vec![url_pattern, url_pattern2],
-                supported_domains: vec!["example.com".to_string(), "test.org".to_string()],
             },
             extensions: BTreeMap::new(),
         };

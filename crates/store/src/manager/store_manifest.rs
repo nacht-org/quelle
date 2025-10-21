@@ -25,16 +25,6 @@ pub struct StoreManifest {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct UrlPattern {
-    /// URL prefix that this pattern matches (e.g., "https://example.com")
-    pub url_prefix: String,
-    /// Extensions that can handle URLs matching this prefix
-    pub extensions: BTreeSet<String>,
-    /// Priority for this pattern (higher = more preferred)
-    pub priority: u8,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExtensionVersion {
     pub id: String,
     pub name: String,
