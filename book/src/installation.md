@@ -69,7 +69,7 @@ cargo build --release --no-default-features --features git
 cargo build --release --features git,pdf
 ```
 
-This creates the binary at `target/release/quelle_cli`.
+This creates the binary at `target/release/quelle`.
 
 ### 3. Set Up Extension System
 
