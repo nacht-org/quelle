@@ -17,6 +17,7 @@ use crate::models::{ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQu
 use crate::registry::manifest::{
     AssetReference, ExtensionManifest, FileReference, LocalExtensionManifest,
 };
+use crate::stores::impls::local::LocalStoreManifest;
 
 /// Internal trait for abstracting file operations across different store backends
 pub(crate) trait FileOperations: Send + Sync {
@@ -68,9 +69,6 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
     /// Get the basic store manifest for BaseStore trait implementation
     pub async fn get_store_manifest(&self) -> Result<StoreManifest> {
-        use crate::manager::store_manifest::StoreManifest;
-        use crate::stores::impls::local::store::LocalStoreManifest;
-
         // Try to load as LocalStoreManifest first, then extract base
         match self
             .read_json_file::<LocalStoreManifest>("store.json")
