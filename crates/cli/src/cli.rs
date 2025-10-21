@@ -313,9 +313,6 @@ pub enum PublishCommands {
         /// Target store name
         #[arg(long)]
         store: String,
-        /// Mark as pre-release
-        #[arg(long)]
-        pre_release: bool,
         /// Extension visibility
         #[arg(long, default_value = "public")]
         visibility: VisibilityOption,

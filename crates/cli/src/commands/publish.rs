@@ -23,7 +23,6 @@ pub async fn handle_publish_command(
         PublishCommands::Extension {
             package_path,
             store,
-            pre_release,
             visibility,
             overwrite,
             skip_validation,
@@ -33,7 +32,6 @@ pub async fn handle_publish_command(
             handle_publish_extension(
                 package_path,
                 store,
-                pre_release,
                 visibility,
                 overwrite,
                 skip_validation,
@@ -59,7 +57,6 @@ pub async fn handle_publish_command(
 async fn handle_publish_extension(
     package_path: PathBuf,
     store_name: String,
-    pre_release: bool,
     visibility: VisibilityOption,
     overwrite: bool,
     skip_validation: bool,
@@ -104,7 +101,6 @@ async fn handle_publish_extension(
     println!("  Package: {}", package.manifest.name);
     println!("  Version: {}", package.manifest.version);
     println!("  Store: {}", store_name);
-    println!("  Pre-release: {}", pre_release);
     println!("  Visibility: {:?}", visibility);
     println!("  Overwrite: {}", overwrite);
     println!("  Skip validation: {}", skip_validation);
