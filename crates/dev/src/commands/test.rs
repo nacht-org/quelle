@@ -24,7 +24,7 @@ pub async fn start_interactive(
     // If URL is provided, test novel info immediately
     if let Some(url) = url {
         println!("Testing novel info for: {}", url);
-        test_novel_info_with_url(&mut dev_server, &url.to_string()).await?;
+        test_novel_info_with_url(&mut dev_server, url.as_ref()).await?;
     }
 
     // If query is provided, test search immediately

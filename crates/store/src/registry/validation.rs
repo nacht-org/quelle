@@ -92,6 +92,12 @@ impl Default for ValidationEngine {
 /// Basic security validation rule
 pub struct SecurityValidationRule;
 
+impl Default for SecurityValidationRule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SecurityValidationRule {
     pub fn new() -> Self {
         Self
@@ -163,6 +169,12 @@ impl ValidationRule for SecurityValidationRule {
 
 /// Basic manifest validation rule
 pub struct ManifestValidationRule;
+
+impl Default for ManifestValidationRule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ManifestValidationRule {
     pub fn new() -> Self {

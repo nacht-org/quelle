@@ -57,15 +57,14 @@ impl DevServer {
         println!("Building extension '{}'...", self.extension_name);
 
         // Check if we've built recently to avoid unnecessary rebuilds
-        if let Some(last_build) = self.build_cache.get(&self.extension_name) {
-            if start_time.duration_since(*last_build) < Duration::from_secs(1) {
+        if let Some(last_build) = self.build_cache.get(&self.extension_name)
+            && start_time.duration_since(*last_build) < Duration::from_secs(1) {
                 println!("Skipping build (recent build detected)");
                 return Ok(());
             }
-        }
 
         let output = tokio::process::Command::new("cargo")
-            .args(&[
+            .args([
                 "component",
                 "build",
                 "--release",

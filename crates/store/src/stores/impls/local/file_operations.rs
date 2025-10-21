@@ -1,6 +1,5 @@
 //! Local filesystem file operations implementation
 
-use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tracing::debug;

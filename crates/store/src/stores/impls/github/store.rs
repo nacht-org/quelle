@@ -24,7 +24,7 @@ use crate::stores::file_operations::FileBasedProcessor;
 use crate::stores::providers::git::GitReference;
 use crate::stores::providers::git::{GitAuth, GitWriteConfig};
 use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
-use crate::{GitStore, GitStoreBuilder};
+use crate::GitStore;
 
 /// GitHub store that uses FileBasedProcessor with GitHub-specific file operations
 pub struct GitHubStore {

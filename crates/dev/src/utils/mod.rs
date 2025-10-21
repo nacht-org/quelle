@@ -24,13 +24,11 @@ pub fn find_project_root(start_dir: &std::path::Path) -> Result<std::path::PathB
     let mut current = start_dir;
     loop {
         let cargo_toml = current.join("Cargo.toml");
-        if cargo_toml.exists() {
-            if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
-                if content.contains("[workspace]") && content.contains("extensions") {
+        if cargo_toml.exists()
+            && let Ok(content) = std::fs::read_to_string(&cargo_toml)
+                && content.contains("[workspace]") && content.contains("extensions") {
                     return Ok(current.to_path_buf());
                 }
-            }
-        }
 
         match current.parent() {
             Some(parent) => current = parent,

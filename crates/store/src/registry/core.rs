@@ -483,7 +483,7 @@ impl RegistryStore for LocalRegistryStore {
         let mut extensions_to_remove = Vec::new();
 
         // Find extensions in registry that don't have corresponding files
-        for (id, _installation) in &self.registry.extensions {
+        for id in self.registry.extensions.keys() {
             let install_path = self.extension_install_path(id);
             let wasm_path = install_path.join("extension.wasm");
 

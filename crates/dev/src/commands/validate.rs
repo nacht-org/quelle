@@ -136,7 +136,7 @@ async fn validate_build(_extension_name: &str, extension_path: &Path) -> Result<
 
     // Try to build the extension
     let output = tokio::process::Command::new("cargo")
-        .args(&[
+        .args([
             "check",
             "--manifest-path",
             &format!("{}/Cargo.toml", extension_path.display()),
@@ -151,7 +151,7 @@ async fn validate_build(_extension_name: &str, extension_path: &Path) -> Result<
 
     // Try WASM build
     let output = tokio::process::Command::new("cargo")
-        .args(&[
+        .args([
             "component",
             "build",
             "--target",
@@ -249,7 +249,7 @@ async fn run_clippy_validation(extension_path: &Path) -> Result<()> {
     println!("📎 Running Clippy linter...");
 
     let output = tokio::process::Command::new("cargo")
-        .args(&[
+        .args([
             "clippy",
             "--manifest-path",
             &format!("{}/Cargo.toml", extension_path.display()),

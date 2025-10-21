@@ -14,14 +14,13 @@ use crate::manager::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
     ValidationReport,
 };
-use crate::manager::store_manifest::{ExtensionVersion, StoreManifest, UrlPattern};
+use crate::manager::store_manifest::{ExtensionVersion, StoreManifest};
 use crate::models::{
     ExtensionInfo, ExtensionListing, ExtensionMetadata, ExtensionPackage, InstalledExtension,
     SearchQuery, StoreHealth, UpdateInfo,
 };
 use crate::registry::manifest::{ExtensionManifest, LocalExtensionManifest};
 use crate::stores::file_operations::FileBasedProcessor;
-use crate::stores::impls::local;
 use crate::stores::impls::local::index::LocalStoreManifestIndex;
 use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
 

@@ -71,14 +71,13 @@ impl FilterValidator {
         match (filter_type, value) {
             // Text filter validation
             (FilterType::Text(text_filter), FilterValue::Text(text)) => {
-                if let Some(max_length) = text_filter.max_length {
-                    if text.len() > max_length as usize {
+                if let Some(max_length) = text_filter.max_length
+                    && text.len() > max_length as usize {
                         return Err(ValidationError::TextTooLong {
                             length: text.len(),
                             max: max_length as usize,
                         });
                     }
-                }
                 Ok(())
             }
 
@@ -90,14 +89,13 @@ impl FilterValidator {
             // Multi-select filter validation
             (FilterType::MultiSelect(multi_filter), FilterValue::MultiSelect(selected)) => {
                 // Check max selections limit
-                if let Some(max_selections) = multi_filter.max_selections {
-                    if selected.len() > max_selections as usize {
+                if let Some(max_selections) = multi_filter.max_selections
+                    && selected.len() > max_selections as usize {
                         return Err(ValidationError::TooManySelections {
                             count: selected.len(),
                             max: max_selections as usize,
                         });
                     }
-                }
 
                 // Check all selected values are valid options
                 for selection in selected {
@@ -116,29 +114,27 @@ impl FilterValidator {
 
             // Number range filter validation
             (FilterType::NumberRange(range_filter), FilterValue::NumberRange(range)) => {
-                if let Some(min_val) = range.min {
-                    if min_val < range_filter.min || min_val > range_filter.max {
+                if let Some(min_val) = range.min
+                    && (min_val < range_filter.min || min_val > range_filter.max) {
                         return Err(ValidationError::OutOfRange {
                             value: min_val,
                             min: range_filter.min,
                             max: range_filter.max,
                         });
                     }
-                }
 
-                if let Some(max_val) = range.max {
-                    if max_val < range_filter.min || max_val > range_filter.max {
+                if let Some(max_val) = range.max
+                    && (max_val < range_filter.min || max_val > range_filter.max) {
                         return Err(ValidationError::OutOfRange {
                             value: max_val,
                             min: range_filter.min,
                             max: range_filter.max,
                         });
                     }
-                }
 
                 // Ensure min <= max if both are provided
-                if let (Some(min_val), Some(max_val)) = (range.min, range.max) {
-                    if min_val > max_val {
+                if let (Some(min_val), Some(max_val)) = (range.min, range.max)
+                    && min_val > max_val {
                         return Err(ValidationError::Custom {
                             message: format!(
                                 "Min value {} cannot be greater than max value {}",
@@ -146,7 +142,6 @@ impl FilterValidator {
                             ),
                         });
                     }
-                }
                 Ok(())
             }
 
@@ -195,27 +190,25 @@ impl FilterValidator {
             }
         };
 
-        if let Some(start) = &date_range.start {
-            if !validate_date_format(start) {
+        if let Some(start) = &date_range.start
+            && !validate_date_format(start) {
                 return Err(ValidationError::InvalidDateFormat {
                     value: start.clone(),
                     format: date_filter.format.clone(),
                 });
             }
-        }
 
-        if let Some(end) = &date_range.end {
-            if !validate_date_format(end) {
+        if let Some(end) = &date_range.end
+            && !validate_date_format(end) {
                 return Err(ValidationError::InvalidDateFormat {
                     value: end.clone(),
                     format: date_filter.format.clone(),
                 });
             }
-        }
 
         // Validate date boundaries if specified in filter definition
-        if let (Some(min_date), Some(start)) = (&date_filter.min_date, &date_range.start) {
-            if start < min_date {
+        if let (Some(min_date), Some(start)) = (&date_filter.min_date, &date_range.start)
+            && start < min_date {
                 return Err(ValidationError::Custom {
                     message: format!(
                         "Start date {} is before minimum allowed date {}",
@@ -223,10 +216,9 @@ impl FilterValidator {
                     ),
                 });
             }
-        }
 
-        if let (Some(max_date), Some(end)) = (&date_filter.max_date, &date_range.end) {
-            if end > max_date {
+        if let (Some(max_date), Some(end)) = (&date_filter.max_date, &date_range.end)
+            && end > max_date {
                 return Err(ValidationError::Custom {
                     message: format!(
                         "End date {} is after maximum allowed date {}",
@@ -234,16 +226,14 @@ impl FilterValidator {
                     ),
                 });
             }
-        }
 
         // Validate start <= end if both provided
-        if let (Some(start), Some(end)) = (&date_range.start, &date_range.end) {
-            if start > end {
+        if let (Some(start), Some(end)) = (&date_range.start, &date_range.end)
+            && start > end {
                 return Err(ValidationError::Custom {
                     message: format!("Start date {} cannot be after end date {}", start, end),
                 });
             }
-        }
 
         Ok(())
     }
@@ -269,7 +259,7 @@ impl FilterValidator {
             return false;
         }
         if let Ok(month) = parts[1].parse::<u32>() {
-            if month < 1 || month > 12 {
+            if !(1..=12).contains(&month) {
                 return false;
             }
         } else {
@@ -281,7 +271,7 @@ impl FilterValidator {
             return false;
         }
         if let Ok(day) = parts[2].parse::<u32>() {
-            if day < 1 || day > 31 {
+            if !(1..=31).contains(&day) {
                 return false;
             }
         } else {

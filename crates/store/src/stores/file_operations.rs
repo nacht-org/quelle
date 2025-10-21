@@ -4,12 +4,9 @@
 //! (filesystem, HTTP, etc.) and a shared processor that implements common store
 //! operations using these file operations.
 
-use async_trait::async_trait;
 use semver::Version;
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 
 use tracing::{debug, warn};
 
@@ -20,7 +17,6 @@ use crate::models::{ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQu
 use crate::registry::manifest::{
     AssetReference, ExtensionManifest, FileReference, LocalExtensionManifest,
 };
-use crate::stores::impls::local::LocalStoreManifest;
 
 /// Internal trait for abstracting file operations across different store backends
 pub(crate) trait FileOperations: Send + Sync {
@@ -179,7 +175,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
             StoreError::ParseError(format!("invalid file path for {}", file.path))
         })?;
 
-        let file_bytes = self.file_ops.read_file(&file_path_str).await?;
+        let file_bytes = self.file_ops.read_file(file_path_str).await?;
 
         // Verify checksum using manifest's file reference
         if !file.verify(&file_bytes) {
@@ -203,7 +199,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         })?;
 
         // Read the asset file
-        let asset_bytes = self.file_ops.read_file(&asset_path_str).await?;
+        let asset_bytes = self.file_ops.read_file(asset_path_str).await?;
 
         // Verify checksum using manifest's file reference
         if !asset.verify(&asset_bytes) {
@@ -421,7 +417,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
         // Load all assets
         for asset_ref in &local_manifest.manifest.assets {
-            match self.get_extension_asset(&local_manifest, &asset_ref).await {
+            match self.get_extension_asset(&local_manifest, asset_ref).await {
                 Ok(content) => {
                     package.add_asset(asset_ref.path.clone(), content);
                 }

@@ -1,6 +1,5 @@
 //! GitHub file operations using raw.githubusercontent.com URLs
 
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -151,7 +150,7 @@ impl GitHubFileOperationsBuilder {
 
     /// Build naively (assumes "main" for default branch)
     pub fn build_naive(self) -> GitHubFileOperations {
-        let client = self.client.unwrap_or_else(|| api::create_default_client());
+        let client = self.client.unwrap_or_else(api::create_default_client);
         let resolved_reference = self.reference.to_string();
 
         GitHubFileOperations::new_with_resolved_reference(
@@ -165,7 +164,7 @@ impl GitHubFileOperationsBuilder {
 
     /// Build with accurate default branch resolution via GitHub API
     pub async fn build(self) -> Result<GitHubFileOperations> {
-        let client = self.client.unwrap_or_else(|| api::create_default_client());
+        let client = self.client.unwrap_or_else(api::create_default_client);
         let resolved_reference =
             Self::resolve_reference_static(&self.reference, &self.owner, &self.repo, &client)
                 .await?;

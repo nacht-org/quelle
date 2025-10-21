@@ -63,16 +63,12 @@ impl PublishOptions {
 
 /// Options for unpublishing an extension
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct UnpublishOptions {
     /// Version to unpublish (None means all versions)
     pub version: Option<String>,
 }
 
-impl Default for UnpublishOptions {
-    fn default() -> Self {
-        Self { version: None }
-    }
-}
 
 /// Visibility levels for published extensions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

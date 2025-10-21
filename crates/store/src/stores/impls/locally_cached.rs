@@ -217,7 +217,7 @@ impl LocallyCachedStore<GitProvider> {
         description: Option<String>,
     ) -> Result<()> {
         use crate::manager::store_manifest::StoreManifest;
-        use crate::stores::impls::local::LocalStoreManifest;
+        
 
         // Get git-specific information
         let git_url = self.provider.url().to_string();

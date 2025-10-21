@@ -114,12 +114,10 @@ async fn handle_update_extension(
             } else {
                 println!("Would update all extensions");
             }
+        } else if check_only {
+            println!("Would check for updates for extension: {}", id);
         } else {
-            if check_only {
-                println!("Would check for updates for extension: {}", id);
-            } else {
-                println!("Would update extension: {}", id);
-            }
+            println!("Would update extension: {}", id);
         }
         return Ok(());
     }

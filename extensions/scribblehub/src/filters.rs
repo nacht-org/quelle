@@ -74,15 +74,15 @@ impl FilterId {
     }
 }
 
-impl Into<String> for FilterId {
-    fn into(self) -> String {
-        self.as_str().to_string()
+impl From<FilterId> for String {
+    fn from(val: FilterId) -> Self {
+        val.as_str().to_string()
     }
 }
 
-impl Into<String> for &FilterId {
-    fn into(self) -> String {
-        self.as_str().to_string()
+impl From<&FilterId> for String {
+    fn from(val: &FilterId) -> Self {
+        val.as_str().to_string()
     }
 }
 

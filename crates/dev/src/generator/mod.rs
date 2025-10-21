@@ -92,12 +92,11 @@ async fn generate_extension(config: ExtensionConfig, force: bool) -> Result<()> 
     let output_dir = extensions_dir.join(&config.name);
 
     // Check if extension already exists
-    if fs::exists(&output_dir) && !force {
-        if !prompts::confirm_overwrite(&config.name)? {
+    if fs::exists(&output_dir) && !force
+        && !prompts::confirm_overwrite(&config.name)? {
             println!("Error: Extension generation cancelled");
             return Ok(());
         }
-    }
 
     println!("Generating extension '{}'...", config.name);
 
