@@ -203,15 +203,6 @@ impl ValidationRule for ManifestValidationRule {
             });
         }
 
-        if manifest.version.trim().is_empty() {
-            issues.push(ValidationIssue {
-                extension_name: manifest.name.clone(),
-                issue_type: ValidationIssueType::InvalidManifest,
-                description: "Extension version cannot be empty".to_string(),
-                severity: IssueSeverity::Critical,
-            });
-        }
-
         if manifest.author.trim().is_empty() {
             issues.push(ValidationIssue {
                 extension_name: manifest.name.clone(),
@@ -234,6 +225,8 @@ pub fn create_default_validator() -> ValidationEngine {
 
 #[cfg(test)]
 mod tests {
+    use semver::Version;
+
     use super::*;
     use crate::models::ExtensionPackage;
     use crate::registry::manifest::{
@@ -244,7 +237,7 @@ mod tests {
         let manifest = ExtensionManifest {
             id: format!("test-{}", name),
             name: name.to_string(),
-            version: "1.0.0".to_string(),
+            version: Version::parse("1.0.0").unwrap(),
             author: "Test Author".to_string(),
             langs: vec!["en".to_string()],
             base_urls: vec!["https://example.com".to_string()],

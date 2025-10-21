@@ -5,6 +5,7 @@
 //! store system that can support different backends (local, git, http, etc.).
 
 use async_trait::async_trait;
+use semver::Version;
 
 use crate::error::Result;
 use crate::manager::publish::{
@@ -49,38 +50,38 @@ pub trait ReadableStore: BaseStore {
     async fn get_extension_version_info(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionInfo>;
 
     /// Get the manifest for a specific extension version
     async fn get_extension_manifest(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionManifest>;
 
     /// Get the metadata for a specific extension version
     async fn get_extension_metadata(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<Option<ExtensionMetadata>>;
 
     /// Get the complete extension package including all files
     async fn get_extension_package(
         &self,
         id: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionPackage>;
 
     /// Get the latest version available for an extension
-    async fn get_extension_latest_version(&self, id: &str) -> Result<Option<String>>;
+    async fn get_extension_latest_version(&self, id: &str) -> Result<Option<Version>>;
 
     /// List all available versions for an extension
-    async fn list_extension_versions(&self, id: &str) -> Result<Vec<String>>;
+    async fn list_extension_versions(&self, id: &str) -> Result<Vec<Version>>;
 
     /// Check if a specific version exists for an extension
-    async fn check_extension_version_exists(&self, id: &str, version: &str) -> Result<bool>;
+    async fn check_extension_version_exists(&self, id: &str, version: &Version) -> Result<bool>;
 
     /// Check for updates for the given installed extensions
     async fn check_extension_updates(

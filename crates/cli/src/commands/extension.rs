@@ -2,6 +2,7 @@
 
 use eyre::Result;
 use quelle_store::{StoreManager, UpdateOptions};
+use semver::Version;
 use std::io::{self, Write};
 
 use crate::cli::ExtensionCommands;
@@ -40,7 +41,7 @@ pub async fn handle_extension_command(
 
 async fn handle_install_extension(
     id: String,
-    version: Option<String>,
+    version: Option<Version>,
     force: bool,
     store_manager: &mut StoreManager,
     dry_run: bool,
@@ -60,7 +61,7 @@ async fn handle_install_extension(
     }
 
     // Install the extension
-    match store_manager.install(&id, version.as_deref(), None).await {
+    match store_manager.install(&id, version.as_ref(), None).await {
         Ok(installed) => {
             println!("Installed {} v{}", installed.name, installed.version);
         }

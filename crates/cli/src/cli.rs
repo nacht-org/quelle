@@ -1,3 +1,4 @@
+use semver::Version;
 use std::path::PathBuf;
 use url::Url;
 
@@ -229,7 +230,7 @@ pub enum ExtensionCommands {
         id: String,
         /// Specific version to install
         #[arg(long)]
-        version: Option<String>,
+        version: Option<Version>,
         /// Force reinstallation
         #[arg(long)]
         force: bool,

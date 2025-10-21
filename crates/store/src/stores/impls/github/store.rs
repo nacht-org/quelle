@@ -1,6 +1,7 @@
 //! GitHub store implementation using FileBasedProcessor
 
 use async_trait::async_trait;
+use semver::Version;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use tempfile::TempDir;
@@ -401,7 +402,7 @@ impl ReadableStore for GitHubStore {
     async fn get_extension_version_info(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionInfo> {
         self.processor
             .get_extension_version_info(name, version)
@@ -411,7 +412,7 @@ impl ReadableStore for GitHubStore {
     async fn get_extension_manifest(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionManifest> {
         self.processor.get_extension_manifest(name, version).await
     }
@@ -419,7 +420,7 @@ impl ReadableStore for GitHubStore {
     async fn get_extension_metadata(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<Option<ExtensionMetadata>> {
         self.processor.get_extension_metadata(name, version).await
     }
@@ -427,22 +428,22 @@ impl ReadableStore for GitHubStore {
     async fn get_extension_package(
         &self,
         id: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionPackage> {
         self.processor
             .get_extension_package(id, version, self.name.clone())
             .await
     }
 
-    async fn get_extension_latest_version(&self, id: &str) -> Result<Option<String>> {
+    async fn get_extension_latest_version(&self, id: &str) -> Result<Option<Version>> {
         self.processor.get_extension_latest_version(id).await
     }
 
-    async fn list_extension_versions(&self, id: &str) -> Result<Vec<String>> {
+    async fn list_extension_versions(&self, id: &str) -> Result<Vec<Version>> {
         self.processor.list_extension_versions(id).await
     }
 
-    async fn check_extension_version_exists(&self, id: &str, version: &str) -> Result<bool> {
+    async fn check_extension_version_exists(&self, id: &str, version: &Version) -> Result<bool> {
         self.processor
             .check_extension_version_exists(id, version)
             .await

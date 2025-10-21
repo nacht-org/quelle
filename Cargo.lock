@@ -3353,6 +3353,7 @@ dependencies = [
  "quelle_storage",
  "quelle_store",
  "reqwest 0.12.20",
+ "semver",
  "serde",
  "serde_json",
  "tempfile",

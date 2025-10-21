@@ -3,9 +3,11 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
+use crate::error::StoreError::InvalidPackage;
 use crate::registry::manifest::ExtensionManifest;
 
 /// Information about an available extension in a store
@@ -13,7 +15,7 @@ use crate::registry::manifest::ExtensionManifest;
 pub struct ExtensionInfo {
     pub id: String,
     pub name: String,
-    pub version: String,
+    pub version: Version,
     pub description: Option<String>,
     pub author: String,
     pub tags: Vec<String>,
@@ -32,7 +34,7 @@ pub struct ExtensionInfo {
 pub struct ExtensionListing {
     pub id: String,
     pub name: String,
-    pub version: String,
+    pub version: Version,
     pub description: Option<String>,
     pub author: String,
     pub tags: Vec<String>,
@@ -162,33 +164,35 @@ impl ExtensionPackage {
         })?;
 
         let executor = Arc::new(quelle_engine::http::HeadlessChromeExecutor::new());
-        let engine = ExtensionEngine::new(executor).map_err(|e| {
-            crate::error::StoreError::InvalidPackage {
-                reason: format!("Failed to create engine: {}", e),
-            }
+        let engine = ExtensionEngine::new(executor).map_err(|e| InvalidPackage {
+            reason: format!("Failed to create engine: {}", e),
         })?;
 
         let runner = engine
             .new_runner_from_bytes(&wasm_content)
             .await
-            .map_err(|e| crate::error::StoreError::InvalidPackage {
+            .map_err(|e| InvalidPackage {
                 reason: format!("Failed to create runner from wasm: {}", e),
             })?;
 
         // Extract metadata
-        let (_runner, extension_meta) =
-            runner
-                .meta()
-                .await
-                .map_err(|e| crate::error::StoreError::InvalidPackage {
-                    reason: format!("Failed to extract metadata from wasm: {}", e),
-                })?;
+        let (_runner, extension_meta) = runner.meta().await.map_err(|e| InvalidPackage {
+            reason: format!("Failed to extract metadata from wasm: {}", e),
+        })?;
+
+        // Parse the extension version as semver
+        let version = Version::parse(&extension_meta.version).map_err(|e| InvalidPackage {
+            reason: format!(
+                "Invalid extension version '{}': {}",
+                extension_meta.version, e
+            ),
+        })?;
 
         // Convert the engine metadata to our manifest format
         let manifest = ExtensionManifest {
             id: extension_meta.id.clone(),
             name: extension_meta.name.clone(),
-            version: extension_meta.version.clone(),
+            version,
             author: extension_meta.id.clone(), // Use ID as author for now
             langs: extension_meta.langs,
             base_urls: extension_meta.base_urls,
@@ -238,7 +242,7 @@ impl ExtensionPackage {
         // Look for manifest.json
         let manifest_path = dir_path.join("manifest.json");
         if !manifest_path.exists() {
-            return Err(crate::error::StoreError::InvalidPackage {
+            return Err(InvalidPackage {
                 reason: "No manifest.json found in directory".to_string(),
             });
         }
@@ -281,13 +285,12 @@ impl ExtensionPackage {
             }
         }
 
-        let wasm_component =
-            wasm_content.ok_or_else(|| crate::error::StoreError::InvalidPackage {
-                reason: format!(
-                    "No wasm file found. Looked for: {}",
-                    wasm_candidates.join(", ")
-                ),
-            })?;
+        let wasm_component = wasm_content.ok_or_else(|| InvalidPackage {
+            reason: format!(
+                "No wasm file found. Looked for: {}",
+                wasm_candidates.join(", ")
+            ),
+        })?;
 
         // Create the package
         let package = ExtensionPackage::new(manifest, wasm_component, source_store);
@@ -325,7 +328,7 @@ pub struct CompatibilityInfo {
 pub struct InstalledExtension {
     pub id: String,
     pub name: String,
-    pub version: String,
+    pub version: Version,
     pub manifest: ExtensionManifest,
     pub metadata: Option<ExtensionMetadata>,
     pub size: u64, // Total size of the installation in bytes
@@ -340,7 +343,7 @@ impl InstalledExtension {
     pub fn new(
         id: String,
         name: String,
-        version: String,
+        version: Version,
         manifest: ExtensionManifest,
         source_store: String,
     ) -> Self {
@@ -453,8 +456,8 @@ impl InstalledExtension {
 #[derive(Debug, Clone)]
 pub struct UpdateInfo {
     pub extension_name: String,
-    pub current_version: String,
-    pub latest_version: String,
+    pub current_version: Version,
+    pub latest_version: Version,
     pub update_available: bool,
     pub changelog_url: Option<String>,
     pub breaking_changes: bool,
@@ -466,8 +469,8 @@ pub struct UpdateInfo {
 impl UpdateInfo {
     pub fn new(
         extension_name: String,
-        current_version: String,
-        latest_version: String,
+        current_version: Version,
+        latest_version: Version,
         store_source: String,
     ) -> Self {
         let update_available = current_version != latest_version;
@@ -707,7 +710,7 @@ mod tests {
         let manifest = crate::registry::manifest::ExtensionManifest {
             id: "test-ext".to_string(),
             name: "Test Extension".to_string(),
-            version: "1.0.0".to_string(),
+            version: Version::parse("1.0.0").unwrap(),
             author: "Test Author".to_string(),
             langs: vec!["en".to_string()],
             base_urls: vec!["https://example.com".to_string()],
@@ -745,7 +748,7 @@ mod tests {
         let manifest = crate::registry::manifest::ExtensionManifest {
             id: "integrity-test".to_string(),
             name: "Integrity Test".to_string(),
-            version: "1.0.0".to_string(),
+            version: Version::parse("1.0.0").unwrap(),
             author: "Test".to_string(),
             langs: vec!["en".to_string()],
             base_urls: vec!["https://test.com".to_string()],
@@ -788,11 +791,11 @@ mod tests {
         let installed = InstalledExtension::new(
             "size-test".to_string(),
             "Size Test".to_string(),
-            "1.0.0".to_string(),
+            Version::parse("1.0.0").unwrap(),
             crate::registry::manifest::ExtensionManifest {
                 id: "size-test".to_string(),
                 name: "Size Test".to_string(),
-                version: "1.0.0".to_string(),
+                version: Version::parse("1.0.0").unwrap(),
                 author: "Test".to_string(),
                 langs: vec!["en".to_string()],
                 base_urls: vec!["https://test.com".to_string()],

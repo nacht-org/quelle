@@ -1,6 +1,7 @@
 //! Local filesystem store implementation using FileBasedProcessor
 
 use async_trait::async_trait;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -45,8 +46,8 @@ impl From<StoreManifest> for LocalStoreManifest {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExtensionVersions {
-    pub latest: String,
-    pub all_versions: BTreeMap<String, ExtensionVersion>,
+    pub latest: Version,
+    pub all_versions: BTreeMap<Version, ExtensionVersion>,
 }
 
 impl ExtensionVersions {
@@ -106,11 +107,17 @@ impl LocalStoreManifest {
             }
 
             for ext_id in &pattern.extensions {
-                if let Some(ext_versions) = self.extensions.get(ext_id) {
-                    matches.push((ext_id.clone(), ext_versions.latest.clone()));
-                } else {
+                let Some(ext_versions) = self.extensions.get(ext_id) else {
                     warn!("URL pattern references unknown extension ID: {}", ext_id);
-                }
+                    continue;
+                };
+
+                let Some(extension) = ext_versions.all_versions.get(&ext_versions.latest) else {
+                    warn!("No latest version found for extension ID: {}", ext_id);
+                    continue;
+                };
+
+                matches.push((ext_id.clone(), extension.name.clone()));
             }
         }
 
@@ -434,7 +441,7 @@ impl ReadableStore for LocalStore {
     async fn get_extension_version_info(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionInfo> {
         self.processor
             .get_extension_version_info(name, version)
@@ -444,7 +451,7 @@ impl ReadableStore for LocalStore {
     async fn get_extension_manifest(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionManifest> {
         self.processor.get_extension_manifest(name, version).await
     }
@@ -452,7 +459,7 @@ impl ReadableStore for LocalStore {
     async fn get_extension_metadata(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<Option<ExtensionMetadata>> {
         self.processor.get_extension_metadata(name, version).await
     }
@@ -460,22 +467,22 @@ impl ReadableStore for LocalStore {
     async fn get_extension_package(
         &self,
         id: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionPackage> {
         self.processor
             .get_extension_package(id, version, self.name.clone())
             .await
     }
 
-    async fn get_extension_latest_version(&self, id: &str) -> Result<Option<String>> {
+    async fn get_extension_latest_version(&self, id: &str) -> Result<Option<Version>> {
         self.processor.get_extension_latest_version(id).await
     }
 
-    async fn list_extension_versions(&self, id: &str) -> Result<Vec<String>> {
+    async fn list_extension_versions(&self, id: &str) -> Result<Vec<Version>> {
         self.processor.list_extension_versions(id).await
     }
 
-    async fn check_extension_version_exists(&self, id: &str, version: &str) -> Result<bool> {
+    async fn check_extension_version_exists(&self, id: &str, version: &Version) -> Result<bool> {
         self.processor
             .check_extension_version_exists(id, version)
             .await
@@ -563,7 +570,7 @@ impl WritableStore for LocalStore {
 
         // Create extension directory structure
         let extension_dir = self.root_path.join("extensions").join(extension_id);
-        let version_dir = extension_dir.join(version);
+        let version_dir = extension_dir.join(version.to_string());
 
         // Check if version already exists
         if version_dir.exists() {
@@ -709,10 +716,6 @@ impl WritableStore for LocalStore {
 
         if package.manifest.name.is_empty() {
             issues.push("Extension name cannot be empty".to_string());
-        }
-
-        if package.manifest.version.is_empty() {
-            issues.push("Extension version cannot be empty".to_string());
         }
 
         // WASM validation

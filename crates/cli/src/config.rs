@@ -1,6 +1,6 @@
 use directories::ProjectDirs;
 use eyre::Result;
-use quelle_store::{ExtensionSource, RegistryConfig, StoreManager};
+use quelle_store::{RegistryConfig, StoreManager};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs::{self};

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use semver::Version;
 use serde::{Deserialize, Serialize};
 
 /// Store Manifest - Internal metadata about the store's contents and capabilities
@@ -37,7 +38,7 @@ pub struct UrlPattern {
 pub struct ExtensionVersion {
     pub id: String,
     pub name: String,
-    pub version: String,
+    pub version: Version,
     pub base_urls: Vec<String>,
     pub langs: Vec<String>,
     pub last_updated: chrono::DateTime<chrono::Utc>,

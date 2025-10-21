@@ -5,7 +5,9 @@
 //! operations using these file operations.
 
 use async_trait::async_trait;
+use semver::Version;
 use serde::de::DeserializeOwned;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -104,14 +106,23 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// Resolve version (get latest if None provided)
-    async fn resolve_version(&self, extension_id: &str, version: Option<&str>) -> Result<String> {
+    async fn resolve_version<'v>(
+        &self,
+        extension_id: &str,
+        version: Option<&'v Version>,
+    ) -> Result<Cow<'v, Version>> {
         match version {
-            Some(v) => Ok(v.to_string()),
+            Some(v) => Ok(Cow::Borrowed(v)),
             None => {
                 let latest = self.get_extension_latest_version(extension_id).await?;
-                latest.ok_or_else(|| {
-                    StoreError::ExtensionNotFound(format!("No versions found for {}", extension_id))
-                })
+                latest
+                    .ok_or_else(|| {
+                        StoreError::ExtensionNotFound(format!(
+                            "No versions found for {}",
+                            extension_id
+                        ))
+                    })
+                    .map(Cow::Owned)
             }
         }
     }
@@ -119,7 +130,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     pub async fn get_extension_manifest(
         &self,
         extension_id: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionManifest> {
         let manifest = self
             .get_local_extension_manifest(extension_id, version)
@@ -132,7 +143,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     pub async fn get_local_extension_manifest(
         &self,
         extension_id: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<LocalExtensionManifest> {
         let version = self.resolve_version(extension_id, version).await?;
 
@@ -140,7 +151,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         let summaries = self.list_extensions().await?;
         let manifest_path = summaries
             .iter()
-            .find(|s| s.id == extension_id && s.version == version)
+            .find(|s| s.id == extension_id && &s.version == version.as_ref())
             .map(|s| s.manifest_path.clone())
             .ok_or_else(|| {
                 StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
@@ -209,7 +220,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     pub async fn get_extension_metadata(
         &self,
         extension_id: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<Option<ExtensionMetadata>> {
         let version = self.resolve_version(extension_id, version).await?;
 
@@ -217,7 +228,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         let summaries = self.list_extensions().await?;
         let manifest_path = summaries
             .iter()
-            .find(|s| s.id == extension_id && s.version == version)
+            .find(|s| s.id == extension_id && &s.version == version.as_ref())
             .map(|s| s.manifest_path.clone())
             .ok_or_else(|| {
                 StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
@@ -251,6 +262,17 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         let mut extension_infos = Vec::new();
 
         for version in versions {
+            let version = match Version::parse(&version) {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!(
+                        "Invalid version format for {}@{}: {}",
+                        extension_id, version, e
+                    );
+                    continue;
+                }
+            };
+
             match self
                 .get_extension_version_info(extension_id, Some(&version))
                 .await
@@ -273,12 +295,9 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     pub async fn get_extension_version_info(
         &self,
         extension_id: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionInfo> {
         let manifest = self.get_extension_manifest(extension_id, version).await?;
-        let _metadata = self
-            .get_extension_metadata(extension_id, Some(&manifest.version))
-            .await?;
 
         Ok(ExtensionInfo {
             id: manifest.id.clone(),
@@ -332,7 +351,11 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// Get the latest version for an extension
-    pub async fn get_extension_latest_version(&self, extension_id: &str) -> Result<Option<String>> {
+    pub async fn get_extension_latest_version(
+        &self,
+        extension_id: &str,
+    ) -> Result<Option<Version>> {
+        // TODO: use the index to get latest version directly
         let versions = self.list_extension_versions(extension_id).await?;
 
         if versions.is_empty() {
@@ -347,14 +370,14 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// List all available versions for an extension
-    pub async fn list_extension_versions(&self, extension_id: &str) -> Result<Vec<String>> {
+    pub async fn list_extension_versions(&self, extension_id: &str) -> Result<Vec<Version>> {
         // Get versions from extension summaries
         let summaries = self.list_extensions().await?;
-        let versions: Vec<String> = summaries
+        let versions = summaries
             .iter()
             .filter(|s| s.id == extension_id)
             .map(|s| s.version.clone())
-            .collect();
+            .collect::<Vec<_>>();
 
         Ok(versions)
     }
@@ -363,13 +386,13 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     pub async fn check_extension_version_exists(
         &self,
         extension_id: &str,
-        version: &str,
+        version: &Version,
     ) -> Result<bool> {
         // Get the manifest path from the extension summary
         let summaries = self.list_extensions().await?;
         let manifest_path = summaries
             .iter()
-            .find(|s| s.id == extension_id && s.version == version)
+            .find(|s| s.id == extension_id && &s.version == version)
             .map(|s| s.manifest_path.clone());
 
         match manifest_path {
@@ -382,7 +405,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     pub async fn get_extension_package(
         &self,
         id: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
         store_name: String,
     ) -> Result<ExtensionPackage> {
         let local_manifest = self.get_local_extension_manifest(id, version).await?;
@@ -427,7 +450,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     pub async fn list_extension_assets(
         &self,
         extension_id: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<Vec<String>> {
         let manifest = self.get_extension_manifest(extension_id, version).await?;
         Ok(manifest
@@ -440,6 +463,8 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
 #[cfg(test)]
 mod tests {
+    use semver::Version;
+
     use crate::stores::impls::local::{index::LocalStoreManifestIndex, store::ExtensionVersions};
 
     use super::*;
@@ -608,7 +633,7 @@ mod tests {
         let extension_summary = ExtensionVersion {
             id: "test-extension".to_string(),
             name: "Test Extension".to_string(),
-            version: "1.0.0".to_string(),
+            version: Version::parse("1.0.0").unwrap(),
             base_urls: vec![
                 "https://example.com".to_string(),
                 "https://test.org".to_string(),
@@ -635,7 +660,7 @@ mod tests {
 
         extension_versions
             .all_versions
-            .insert("1.0.0".to_string(), extension_summary);
+            .insert(Version::parse("1.0.0").unwrap(), extension_summary);
 
         local_manifest
             .extensions

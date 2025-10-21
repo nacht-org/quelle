@@ -5,6 +5,7 @@
 //! and cache it locally for fast access.
 
 use async_trait::async_trait;
+use semver::Version;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -417,7 +418,7 @@ impl<T: StoreProvider> ReadableStore for LocallyCachedStore<T> {
     async fn get_extension_version_info(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionInfo> {
         self.ensure_synced().await?;
         self.local_store
@@ -428,7 +429,7 @@ impl<T: StoreProvider> ReadableStore for LocallyCachedStore<T> {
     async fn get_extension_manifest(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionManifest> {
         self.ensure_synced().await?;
         self.local_store.get_extension_manifest(name, version).await
@@ -437,7 +438,7 @@ impl<T: StoreProvider> ReadableStore for LocallyCachedStore<T> {
     async fn get_extension_metadata(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<Option<ExtensionMetadata>> {
         self.ensure_synced().await?;
         self.local_store.get_extension_metadata(name, version).await
@@ -446,23 +447,23 @@ impl<T: StoreProvider> ReadableStore for LocallyCachedStore<T> {
     async fn get_extension_package(
         &self,
         name: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionPackage> {
         self.ensure_synced().await?;
         self.local_store.get_extension_package(name, version).await
     }
 
-    async fn get_extension_latest_version(&self, id: &str) -> Result<Option<String>> {
+    async fn get_extension_latest_version(&self, id: &str) -> Result<Option<Version>> {
         self.ensure_synced().await?;
         self.local_store.get_extension_latest_version(id).await
     }
 
-    async fn list_extension_versions(&self, id: &str) -> Result<Vec<String>> {
+    async fn list_extension_versions(&self, id: &str) -> Result<Vec<Version>> {
         self.ensure_synced().await?;
         self.local_store.list_extension_versions(id).await
     }
 
-    async fn check_extension_version_exists(&self, id: &str, version: &str) -> Result<bool> {
+    async fn check_extension_version_exists(&self, id: &str, version: &Version) -> Result<bool> {
         self.ensure_synced().await?;
         self.local_store
             .check_extension_version_exists(id, version)

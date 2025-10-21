@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use semver::Version;
 use serde::{Deserialize, Serialize};
 
 /// Reference to a file with integrity information
@@ -106,7 +107,7 @@ pub struct ExtensionManifest {
     // Common Fields
     pub id: String,
     pub name: String,
-    pub version: String,
+    pub version: Version,
     pub author: String,
     pub langs: Vec<String>,
     pub base_urls: Vec<String>,

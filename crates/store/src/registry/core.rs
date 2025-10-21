@@ -528,13 +528,14 @@ impl RegistryStore for LocalRegistryStore {
 mod tests {
     use super::*;
     use crate::registry::manifest::ExtensionManifest;
+    use semver::Version;
     use tempfile::TempDir;
 
     fn create_test_extension_package(name: &str, version: &str) -> ExtensionPackage {
         let manifest = ExtensionManifest {
             id: format!("test-{}", name),
             name: name.to_string(),
-            version: version.to_string(),
+            version: Version::parse(version).unwrap(),
             author: "Test Author".to_string(),
             langs: vec!["en".to_string()],
             base_urls: vec!["https://example.com".to_string()],
@@ -578,7 +579,7 @@ mod tests {
         // Install extension
         let installed = registry.install_extension(package, &options).await.unwrap();
         assert_eq!(installed.name, "test-ext");
-        assert_eq!(installed.version, "1.0.0");
+        assert_eq!(installed.version, Version::new(1, 0, 1));
 
         // Verify it's registered
         assert!(registry.is_installed("test-test-ext").await.unwrap());

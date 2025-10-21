@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use crate::registry::ValidationIssue;
@@ -90,7 +91,7 @@ pub struct PublishResult {
     /// The ID of the extension that was published
     pub extension_id: String,
     /// The version that was published
-    pub version: String,
+    pub version: Version,
 
     /// URL where the extension can be downloaded
     pub download_url: String,
@@ -115,7 +116,7 @@ impl PublishResult {
     /// Create a successful result
     pub fn success(
         extension_id: String,
-        version: String,
+        version: Version,
         download_url: String,
         publication_id: String,
         package_size: u64,

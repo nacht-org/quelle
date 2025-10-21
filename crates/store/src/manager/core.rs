@@ -512,7 +512,7 @@ impl StoreManager {
     pub async fn get_extension_manifest(
         &self,
         id: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
     ) -> Result<ExtensionManifest> {
         for managed_store in &self.extension_stores {
             if !managed_store.config.enabled {
@@ -568,7 +568,7 @@ impl StoreManager {
     pub async fn install(
         &mut self,
         id: &str,
-        version: Option<&str>,
+        version: Option<&Version>,
         options: Option<InstallOptions>,
     ) -> Result<InstalledExtension> {
         let options = options.unwrap_or_default();
@@ -576,7 +576,7 @@ impl StoreManager {
         // Check if already installed and handle accordingly
         if let Some(installed) = self.registry_store.get_installed(id).await? {
             if let Some(requested_version) = version {
-                if installed.version == requested_version && !options.force_reinstall {
+                if &installed.version == requested_version && !options.force_reinstall {
                     info!("Extension {}@{} already installed", id, requested_version);
                     return Ok(installed);
                 }
@@ -651,7 +651,7 @@ impl StoreManager {
     /// Install multiple extensions in parallel
     pub async fn batch_install(
         &mut self,
-        requests: &[(String, Option<String>)],
+        requests: &[(String, Option<Version>)],
         options: Option<InstallOptions>,
     ) -> Result<Vec<Result<InstalledExtension>>> {
         let options = options.unwrap_or_default();
@@ -667,7 +667,7 @@ impl StoreManager {
             info!("Installing extension: {} (version: {:?})", id, version);
 
             let install_result = self
-                .install(id, version.as_deref(), Some(options.clone()))
+                .install(id, version.as_ref(), Some(options.clone()))
                 .await;
 
             match &install_result {
@@ -945,12 +945,7 @@ impl StoreManager {
 
         match sort_by {
             SearchSortBy::Name => deduplicated.sort_by(|a, b| a.name.cmp(&b.name)),
-            SearchSortBy::Version => deduplicated.sort_by(|a, b| {
-                match (Version::parse(&a.version), Version::parse(&b.version)) {
-                    (Ok(v_a), Ok(v_b)) => v_b.cmp(&v_a),
-                    _ => b.version.cmp(&a.version),
-                }
-            }),
+            SearchSortBy::Version => deduplicated.sort_by(|a, b| b.version.cmp(&a.version)),
             SearchSortBy::LastUpdated => {
                 deduplicated.sort_by(|a, b| match (a.last_updated, b.last_updated) {
                     (Some(a_time), Some(b_time)) => b_time.cmp(&a_time),
@@ -1079,7 +1074,7 @@ mod tests {
         // Test batch install with non-existent extensions
         let requests = vec![
             ("nonexistent1".to_string(), None),
-            ("nonexistent2".to_string(), Some("1.0.0".to_string())),
+            ("nonexistent2".to_string(), Some(Version::new(1, 0, 0))),
         ];
 
         let results = manager.batch_install(&requests, None).await.unwrap();
