@@ -3,16 +3,11 @@
 //! This module provides a type alias and builder pattern for creating
 //! git-based stores using LocallyCachedStore with GitProvider.
 
-#[cfg(feature = "git")]
 use std::path::PathBuf;
-#[cfg(feature = "git")]
 use std::time::Duration;
 
-#[cfg(feature = "git")]
 use crate::error::Result;
-#[cfg(feature = "git")]
 use crate::stores::impls::locally_cached::LocallyCachedStore;
-#[cfg(feature = "git")]
 use crate::stores::providers::git::{
     CommitStyle, GitAuth, GitAuthor, GitProvider, GitReference, GitWriteConfig,
 };
@@ -21,11 +16,9 @@ use crate::stores::providers::git::{
 ///
 /// This is a LocallyCachedStore that uses a GitProvider to sync data
 /// from a git repository to local storage.
-#[cfg(feature = "git")]
 pub type GitStore = LocallyCachedStore<GitProvider>;
 
 /// Builder for creating git stores with a fluent API
-#[cfg(feature = "git")]
 pub struct GitStoreBuilder {
     url: String,
     cache_dir: Option<PathBuf>,
@@ -37,7 +30,6 @@ pub struct GitStoreBuilder {
     write_config: Option<GitWriteConfig>,
 }
 
-#[cfg(feature = "git")]
 impl GitStoreBuilder {
     /// Create a new builder for the given git repository URL
     pub fn new(url: impl Into<String>) -> Self {
@@ -177,7 +169,6 @@ impl GitStoreBuilder {
 }
 
 /// Convenience methods for creating git stores
-#[cfg(feature = "git")]
 impl GitStore {
     /// Create a new git store builder
     ///
@@ -224,7 +215,6 @@ impl GitStore {
 }
 
 #[cfg(test)]
-#[cfg(feature = "git")]
 mod tests {
     use super::*;
     use tempfile::TempDir;
