@@ -1,6 +1,7 @@
 //! Search command handlers for finding novels across installed extension sources.
 
 use eyre::Result;
+use quelle_engine::bindings::quelle::extension::novel::BasicNovel;
 use quelle_store::{SearchQuery, StoreManager};
 use tracing::warn;
 
@@ -36,6 +37,7 @@ pub async fn handle_search_command(
     } else {
         println!("Using simple search");
     }
+
     let mut search_query = SearchQuery::new();
 
     if !query.is_empty() {
@@ -78,10 +80,7 @@ pub async fn handle_search_command(
     Ok(())
 }
 
-fn display_search_results(
-    results: &[quelle_engine::bindings::quelle::extension::novel::BasicNovel],
-    query: &str,
-) {
+fn display_search_results(results: &[BasicNovel], query: &str) {
     if results.is_empty() {
         println!("No results found for: \"{}\"", query);
         return;

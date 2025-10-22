@@ -19,7 +19,7 @@ pub struct UrlPattern {
 
 impl LocalStoreManifestIndex {
     /// Add a URL pattern for extension matching
-    pub(crate) fn add_url_pattern(&mut self, url_prefix: String, extension: String, priority: u8) {
+    pub(crate) fn add_url_pattern(&mut self, url_prefix: String, extension: String) {
         // Check if pattern already exists
         if let Some(pattern) = self
             .url_patterns
@@ -47,7 +47,7 @@ impl LocalStoreManifestIndex {
 
         for extension in extension_versions {
             for base_url in &extension.base_urls {
-                self.add_url_pattern(base_url.clone(), extension.id.clone(), 1);
+                self.add_url_pattern(base_url.clone(), extension.id.clone());
             }
         }
     }

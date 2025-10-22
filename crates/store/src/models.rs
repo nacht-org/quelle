@@ -452,41 +452,27 @@ impl InstalledExtension {
     }
 }
 
-/// Information about available updates
+/// Result of checking a single extension for updates
 #[derive(Debug, Clone)]
-pub struct UpdateInfo {
-    pub extension_name: String,
-    pub current_version: Version,
-    pub latest_version: Version,
-    pub update_available: bool,
-    pub changelog_url: Option<String>,
-    pub breaking_changes: bool,
-    pub security_update: bool,
-    pub update_size: Option<u64>,
-    pub store_source: String,
-}
-
-impl UpdateInfo {
-    pub fn new(
+pub enum UpdateInfo {
+    UpdateAvailable {
         extension_name: String,
         current_version: Version,
         latest_version: Version,
+        update_size: Option<u64>,
         store_source: String,
-    ) -> Self {
-        let update_available = current_version != latest_version;
-
-        Self {
-            extension_name,
-            current_version,
-            latest_version,
-            update_available,
-            changelog_url: None,
-            breaking_changes: false,
-            security_update: false,
-            update_size: None,
-            store_source,
-        }
-    }
+    },
+    NoUpdateNeeded {
+        extension_name: String,
+        current_version: Version,
+        store_source: String,
+    },
+    CheckFailed {
+        extension_name: String,
+        current_version: Version,
+        store_source: String,
+        error: String,
+    },
 }
 
 /// Search query parameters

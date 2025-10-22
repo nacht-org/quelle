@@ -92,16 +92,6 @@ impl LifecycleEvent {
             Self::Unpublished { version, .. } => version,
         }
     }
-
-    /// Check if this is a publish event
-    pub fn is_publish(&self) -> bool {
-        matches!(self, Self::Published { .. })
-    }
-
-    /// Check if this is an unpublish event
-    pub fn is_unpublish(&self) -> bool {
-        matches!(self, Self::Unpublished { .. })
-    }
 }
 
 /// Provider capabilities that can be queried

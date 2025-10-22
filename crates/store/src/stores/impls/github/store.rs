@@ -453,35 +453,10 @@ impl ReadableStore for GitHubStore {
         &self,
         installed: &[InstalledExtension],
     ) -> Result<Vec<UpdateInfo>> {
-        let mut updates = Vec::new();
-
-        for installed_ext in installed {
-            if let Ok(Some(latest_version)) =
-                self.get_extension_latest_version(&installed_ext.id).await
-            {
-                if latest_version != installed_ext.version {
-                    // Simple version comparison - in practice you'd want semver
-                    if latest_version > installed_ext.version {
-                        updates.push(UpdateInfo {
-                            extension_name: installed_ext.id.clone(),
-                            current_version: installed_ext.version.clone(),
-                            latest_version,
-                            update_available: true,
-                            changelog_url: Some(format!(
-                                "https://github.com/{}/{}/releases",
-                                self.owner, self.repo
-                            )),
-                            breaking_changes: false, // Would need to analyze changes
-                            security_update: false,
-                            update_size: None,
-                            store_source: self.name.clone(),
-                        });
-                    }
-                }
-            }
-        }
-
-        Ok(updates)
+        let store_source = format!("github:{}", self.owner);
+        self.processor
+            .check_extension_updates(installed, &store_source)
+            .await
     }
 }
 

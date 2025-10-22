@@ -14,10 +14,9 @@ use crate::error::{Result, StoreError};
 use crate::manager::store_manifest::ExtensionVersion;
 use crate::manager::store_manifest::StoreManifest;
 use crate::models::{ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQuery};
-use crate::registry::manifest::{
-    AssetReference, ExtensionManifest, FileReference, LocalExtensionManifest,
-};
+use crate::registry::manifest::{ExtensionManifest, FileReference, LocalExtensionManifest};
 use crate::stores::impls::local::LocalStoreManifest;
+use crate::{InstalledExtension, UpdateInfo};
 
 /// Internal trait for abstracting file operations across different store backends
 pub(crate) trait FileOperations: Send + Sync {
@@ -396,6 +395,52 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         }
 
         Ok(package)
+    }
+
+    pub async fn check_extension_updates(
+        &self,
+        installed: &[InstalledExtension],
+        store_source: &str,
+    ) -> Result<Vec<UpdateInfo>> {
+        let mut results = Vec::new();
+
+        for installed_ext in installed {
+            let result = match self.get_extension_latest_version(&installed_ext.id).await {
+                Ok(Some(latest_version)) => {
+                    if latest_version > installed_ext.version {
+                        UpdateInfo::UpdateAvailable {
+                            extension_name: installed_ext.id.clone(),
+                            current_version: installed_ext.version.clone(),
+                            latest_version,
+                            update_size: None,
+                            store_source: store_source.to_string(),
+                        }
+                    } else {
+                        UpdateInfo::NoUpdateNeeded {
+                            extension_name: installed_ext.id.clone(),
+                            current_version: installed_ext.version.clone(),
+                            store_source: store_source.to_string(),
+                        }
+                    }
+                }
+                Ok(None) => UpdateInfo::CheckFailed {
+                    extension_name: installed_ext.id.clone(),
+                    current_version: installed_ext.version.clone(),
+                    store_source: store_source.to_string(),
+                    error: "Extension not found in store".to_string(),
+                },
+                Err(e) => UpdateInfo::CheckFailed {
+                    extension_name: installed_ext.id.clone(),
+                    current_version: installed_ext.version.clone(),
+                    store_source: store_source.to_string(),
+                    error: e.to_string(),
+                },
+            };
+
+            results.push(result);
+        }
+
+        Ok(results)
     }
 
     /// Find extensions that can handle the given URL
