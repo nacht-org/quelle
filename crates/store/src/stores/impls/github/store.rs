@@ -453,9 +453,8 @@ impl ReadableStore for GitHubStore {
         &self,
         installed: &[InstalledExtension],
     ) -> Result<Vec<UpdateInfo>> {
-        let store_source = format!("github:{}", self.owner);
         self.processor
-            .check_extension_updates(installed, &store_source)
+            .check_extension_updates(installed, &self.name)
             .await
     }
 }

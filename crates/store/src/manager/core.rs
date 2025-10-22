@@ -862,8 +862,9 @@ impl StoreManager {
 
         for update_info in updates {
             let result = self
-                .update(&update_info.extension_name, options.clone())
+                .update(update_info.extension_id(), options.clone())
                 .await;
+
             update_results.push(result);
         }
 
@@ -975,25 +976,31 @@ impl StoreManager {
         // Remove duplicate updates, keeping the one from the most trusted store
         let mut seen: HashMap<String, String> = HashMap::new();
         updates.retain(|update| {
-            if let Some(existing_store) = seen.get(&update.extension_name) {
+            if let Some(existing_store) = seen.get(update.extension_id()) {
                 // Check if existing update is from a trusted store
                 let existing_trusted = self
                     .get_extension_store(existing_store)
                     .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
                 let current_trusted = self
-                    .get_extension_store(&update.store_source)
+                    .get_extension_store(update.store_source())
                     .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
 
                 if current_trusted && !existing_trusted {
-                    seen.insert(update.extension_name.clone(), update.store_source.clone());
+                    seen.insert(
+                        update.extension_id().to_string(),
+                        update.store_source().to_string(),
+                    );
                     true
                 } else {
                     false
                 }
             } else {
-                seen.insert(update.extension_name.clone(), update.store_source.clone());
+                seen.insert(
+                    update.extension_id().to_string(),
+                    update.store_source().to_string(),
+                );
                 true
             }
         });

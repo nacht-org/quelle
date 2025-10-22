@@ -455,24 +455,65 @@ impl InstalledExtension {
 /// Result of checking a single extension for updates
 #[derive(Debug, Clone)]
 pub enum UpdateInfo {
-    UpdateAvailable {
-        extension_name: String,
-        current_version: Version,
-        latest_version: Version,
-        update_size: Option<u64>,
-        store_source: String,
-    },
-    NoUpdateNeeded {
-        extension_name: String,
-        current_version: Version,
-        store_source: String,
-    },
-    CheckFailed {
-        extension_name: String,
-        current_version: Version,
-        store_source: String,
-        error: String,
-    },
+    UpdateAvailable(UpdateAvailableInfo),
+    NoUpdateNeeded(UpdateNotNeededInfo),
+    CheckFailed(UpdateCheckFailedInfo),
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateAvailableInfo {
+    pub extension_id: String,
+    pub current_version: Version,
+    pub latest_version: Version,
+    pub update_size: Option<u64>,
+    pub store_source: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateNotNeededInfo {
+    pub extension_id: String,
+    pub current_version: Version,
+    pub store_source: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateCheckFailedInfo {
+    pub extension_id: String,
+    pub current_version: Version,
+    pub store_source: String,
+    pub error: String,
+}
+
+impl UpdateInfo {
+    pub fn extension_id(&self) -> &str {
+        match self {
+            UpdateInfo::UpdateAvailable(UpdateAvailableInfo { extension_id, .. }) => extension_id,
+            UpdateInfo::NoUpdateNeeded(UpdateNotNeededInfo { extension_id, .. }) => extension_id,
+            UpdateInfo::CheckFailed(UpdateCheckFailedInfo { extension_id, .. }) => extension_id,
+        }
+    }
+
+    pub fn current_version(&self) -> &Version {
+        match self {
+            UpdateInfo::UpdateAvailable(UpdateAvailableInfo {
+                current_version, ..
+            }) => current_version,
+            UpdateInfo::NoUpdateNeeded(UpdateNotNeededInfo {
+                current_version, ..
+            }) => current_version,
+            UpdateInfo::CheckFailed(UpdateCheckFailedInfo {
+                current_version, ..
+            }) => current_version,
+        }
+    }
+
+    pub fn store_source(&self) -> &str {
+        match self {
+            UpdateInfo::UpdateAvailable(UpdateAvailableInfo { store_source, .. }) => store_source,
+            UpdateInfo::NoUpdateNeeded(UpdateNotNeededInfo { store_source, .. }) => store_source,
+            UpdateInfo::CheckFailed(UpdateCheckFailedInfo { store_source, .. }) => store_source,
+        }
+    }
 }
 
 /// Search query parameters

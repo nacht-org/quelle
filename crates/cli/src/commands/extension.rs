@@ -1,7 +1,7 @@
 //! Extension management command handlers.
 
 use eyre::Result;
-use quelle_store::{StoreManager, UpdateOptions};
+use quelle_store::{StoreManager, UpdateInfo, UpdateOptions};
 use semver::Version;
 use std::io::{self, Write};
 
@@ -134,7 +134,19 @@ async fn handle_update_extension(
             installed.len()
         );
 
-        match store_manager.check_all_updates().await {
+        let result = store_manager.check_all_updates().await.map(|updates| {
+            updates
+                .into_iter()
+                .flat_map(|v| match v {
+                    UpdateInfo::UpdateAvailable(update_available_info) => {
+                        Some(update_available_info)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        });
+
+        match result {
             Ok(updates) => {
                 if updates.is_empty() {
                     println!("All extensions are up to date");
@@ -143,7 +155,7 @@ async fn handle_update_extension(
                     for update in &updates {
                         println!(
                             "  {} {} → {} (from {})",
-                            update.extension_name,
+                            update.extension_id,
                             update.current_version,
                             update.latest_version,
                             update.store_source
@@ -158,7 +170,7 @@ async fn handle_update_extension(
                         let mut failed_count = 0;
 
                         for update in &updates {
-                            print!("Updating {}...", update.extension_name);
+                            print!("Updating {}...", update.extension_id);
                             std::io::stdout().flush().unwrap();
 
                             let update_options = UpdateOptions {
@@ -168,7 +180,7 @@ async fn handle_update_extension(
                                 backup_current: false,
                             };
                             match store_manager
-                                .update(&update.extension_name, Some(update_options))
+                                .update(&update.extension_id, Some(update_options))
                                 .await
                             {
                                 Ok(_) => {
@@ -195,6 +207,7 @@ async fn handle_update_extension(
             }
         }
     } else {
+        // TODO: Need a method to get a single extension update status
         match store_manager.get_installed(&id).await? {
             Some(installed) => {
                 println!(
@@ -202,9 +215,21 @@ async fn handle_update_extension(
                     installed.name, installed.version
                 );
 
-                match store_manager.check_all_updates().await {
+                let result = store_manager.check_all_updates().await.map(|updates| {
+                    updates
+                        .into_iter()
+                        .flat_map(|v| match v {
+                            UpdateInfo::UpdateAvailable(update_available_info) => {
+                                Some(update_available_info)
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                });
+
+                match result {
                     Ok(updates) => {
-                        if let Some(update) = updates.iter().find(|u| u.extension_name == id) {
+                        if let Some(update) = updates.iter().find(|u| u.extension_id == id) {
                             println!(
                                 "Update available: {} → {} (from {})",
                                 update.current_version, update.latest_version, update.store_source
@@ -213,7 +238,7 @@ async fn handle_update_extension(
                             if check_only {
                                 println!("To update: quelle extension update {}", id);
                             } else {
-                                print!("Updating {}...", update.extension_name);
+                                print!("Updating {}...", update.extension_id);
                                 std::io::stdout().flush().unwrap();
 
                                 let update_options = UpdateOptions {

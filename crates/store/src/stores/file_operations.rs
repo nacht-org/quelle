@@ -13,7 +13,10 @@ use tracing::{debug, warn};
 use crate::error::{Result, StoreError};
 use crate::manager::store_manifest::ExtensionVersion;
 use crate::manager::store_manifest::StoreManifest;
-use crate::models::{ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQuery};
+use crate::models::{
+    ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQuery, UpdateAvailableInfo,
+    UpdateCheckFailedInfo, UpdateNotNeededInfo,
+};
 use crate::registry::manifest::{ExtensionManifest, FileReference, LocalExtensionManifest};
 use crate::stores::impls::local::LocalStoreManifest;
 use crate::{InstalledExtension, UpdateInfo};
@@ -408,33 +411,33 @@ impl<F: FileOperations> FileBasedProcessor<F> {
             let result = match self.get_extension_latest_version(&installed_ext.id).await {
                 Ok(Some(latest_version)) => {
                     if latest_version > installed_ext.version {
-                        UpdateInfo::UpdateAvailable {
-                            extension_name: installed_ext.id.clone(),
+                        UpdateInfo::UpdateAvailable(UpdateAvailableInfo {
+                            extension_id: installed_ext.id.clone(),
                             current_version: installed_ext.version.clone(),
                             latest_version,
                             update_size: None,
                             store_source: store_source.to_string(),
-                        }
+                        })
                     } else {
-                        UpdateInfo::NoUpdateNeeded {
-                            extension_name: installed_ext.id.clone(),
+                        UpdateInfo::NoUpdateNeeded(UpdateNotNeededInfo {
+                            extension_id: installed_ext.id.clone(),
                             current_version: installed_ext.version.clone(),
                             store_source: store_source.to_string(),
-                        }
+                        })
                     }
                 }
-                Ok(None) => UpdateInfo::CheckFailed {
-                    extension_name: installed_ext.id.clone(),
+                Ok(None) => UpdateInfo::CheckFailed(UpdateCheckFailedInfo {
+                    extension_id: installed_ext.id.clone(),
                     current_version: installed_ext.version.clone(),
                     store_source: store_source.to_string(),
                     error: "Extension not found in store".to_string(),
-                },
-                Err(e) => UpdateInfo::CheckFailed {
-                    extension_name: installed_ext.id.clone(),
+                }),
+                Err(e) => UpdateInfo::CheckFailed(UpdateCheckFailedInfo {
+                    extension_id: installed_ext.id.clone(),
                     current_version: installed_ext.version.clone(),
                     store_source: store_source.to_string(),
                     error: e.to_string(),
-                },
+                }),
             };
 
             results.push(result);
