@@ -34,7 +34,6 @@ pub struct Cli {
 #[derive(clap::Subcommand, Debug)]
 pub enum Commands {
     /// Add a novel to your library (fetches novel + all chapters)
-    /// Example: quelle add https://example.com/novel
     Add {
         /// Novel URL to add
         url: Url,
@@ -46,7 +45,6 @@ pub enum Commands {
         max_chapters: Option<usize>,
     },
     /// Update novels with new chapters (default: update all novels)
-    /// Examples: quelle update, quelle update "Novel Title", quelle update novel-id
     Update {
         /// Novel ID, URL, title, or 'all' for all novels
         #[arg(default_value = "all")]
@@ -56,7 +54,6 @@ pub enum Commands {
         check_only: bool,
     },
     /// Read a chapter from your library
-    /// Examples: quelle read "Novel Title" 1, quelle read novel-id --list
     Read {
         /// Novel ID, URL, or title
         novel: String,
@@ -93,7 +90,6 @@ pub enum Commands {
         simple: bool,
     },
     /// Remove a novel and all its data from your library
-    /// Example: quelle remove "Novel Title" --force
     Remove {
         /// Novel ID, URL, or title
         novel: String,

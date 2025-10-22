@@ -119,8 +119,6 @@ pub struct ChapterInfo {
     pub chapter_url: String,
     pub chapter_title: String,
     pub chapter_index: i32,
-
-    // Storage status
     pub content_status: ChapterContentStatus,
 }
 
