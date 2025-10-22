@@ -241,9 +241,6 @@ pub enum ExtensionCommands {
     Update {
         /// Extension ID (or 'all' for all extensions)
         id: String,
-        /// Include pre-release versions
-        #[arg(long)]
-        prerelease: bool,
         /// Force update even if no new version
         #[arg(long)]
         force: bool,

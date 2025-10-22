@@ -706,7 +706,6 @@ pub struct InstallOptions {
 /// Update options
 #[derive(Debug, Clone)]
 pub struct UpdateOptions {
-    pub include_prereleases: bool,
     pub update_dependencies: bool,
     pub force_update: bool,
     pub backup_current: bool,
@@ -715,7 +714,6 @@ pub struct UpdateOptions {
 impl Default for UpdateOptions {
     fn default() -> Self {
         Self {
-            include_prereleases: false,
             update_dependencies: true,
             force_update: false,
             backup_current: true,
