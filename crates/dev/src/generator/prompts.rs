@@ -57,19 +57,7 @@ pub fn prompt_for_extension_name() -> Result<String> {
 
 /// Prompt user for display name with smart default
 pub fn prompt_for_display_name(extension_name: &str) -> Result<String> {
-    let suggested = extension_name
-        .split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => {
-                    first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
-                }
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
+    let suggested = extension_name_into_display_name(extension_name);
 
     loop {
         let input = fs::prompt_input_with_default("Display name for the extension", &suggested)?;
@@ -82,6 +70,22 @@ pub fn prompt_for_display_name(extension_name: &str) -> Result<String> {
             }
         }
     }
+}
+
+fn extension_name_into_display_name(extension_name: &str) -> String {
+    extension_name
+        .split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => {
+                    first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Prompt user for base URL
@@ -169,46 +173,19 @@ pub fn show_completion_message(extension_name: &str, output_path: &std::path::Pa
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::extension_name_into_display_name;
 
     #[test]
     fn test_generate_display_name_suggestion() {
-        // Simulate the display name generation logic
         let extension_name = "novel_updates";
-        let suggested = extension_name
-            .split('_')
-            .map(|word| {
-                let mut chars = word.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(first) => {
-                        first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
-                    }
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-
+        let suggested = extension_name_into_display_name(extension_name);
         assert_eq!(suggested, "Novel Updates");
     }
 
     #[test]
     fn test_generate_display_name_single_word() {
         let extension_name = "scribblehub";
-        let suggested = extension_name
-            .split('_')
-            .map(|word| {
-                let mut chars = word.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(first) => {
-                        first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
-                    }
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-
+        let suggested = extension_name_into_display_name(extension_name);
         assert_eq!(suggested, "Scribblehub");
     }
 }

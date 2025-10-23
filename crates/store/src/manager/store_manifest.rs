@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 
 use semver::Version;
 use serde::{Deserialize, Serialize};

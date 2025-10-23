@@ -112,21 +112,22 @@ impl QuelleExtension for Extension {
 
         let mut doc = Html::new(&text);
 
+        // Outside the loop regex compilation to avoid recompiling on each iteration
+        let hidden_class_re = regex::Regex::new(
+            r"(\.[a-zA-Z][a-zA-Z0-9_-]*)\{[^}]*display:none[^}]*speak:never[^}]*\}",
+        )
+        .map_err(|e| eyre!("Regex error: {}", e))?;
+
         // Find hidden class patterns from CSS (anti-scraping protection)
         let mut hidden_classes = Vec::new();
         for style_element in doc.select("head > style")? {
             let css_text = style_element.text_or_empty();
+
             // Remove whitespace and newlines for easier parsing
             let clean_css = css_text.replace(&[' ', '\n', '\r', '\t'][..], "");
 
             // Look for patterns like .abc123{display:none;speak:never;}
-            // More robust regex to handle various CSS patterns
-            let re = regex::Regex::new(
-                r"(\.[a-zA-Z][a-zA-Z0-9_-]*)\{[^}]*display:none[^}]*speak:never[^}]*\}",
-            )
-            .map_err(|e| eyre!("Regex error: {}", e))?;
-
-            for cap in re.captures_iter(&clean_css) {
+            for cap in hidden_class_re.captures_iter(&clean_css) {
                 if let Some(class) = cap.get(1) {
                     hidden_classes.push(class.as_str().to_string());
                 }
