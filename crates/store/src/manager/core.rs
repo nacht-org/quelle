@@ -7,7 +7,6 @@ use semver::Version;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
-use super::store_manifest::ExtensionVersion;
 use crate::error::{Result, StoreError};
 use crate::models::{
     ExtensionInfo, ExtensionListing, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy,
@@ -898,25 +897,6 @@ impl StoreManager {
     }
 
     // Private helper methods
-
-    fn deduplicate_extensions(
-        &self,
-        mut extensions: Vec<ExtensionVersion>,
-    ) -> Vec<ExtensionVersion> {
-        // Remove duplicates based on id + version
-        let mut seen: HashSet<String> = HashSet::new();
-        extensions.retain(|ext| {
-            let key = format!("{}@{}", ext.id, ext.version);
-            if seen.contains(&key) {
-                false
-            } else {
-                seen.insert(key);
-                true
-            }
-        });
-
-        extensions
-    }
 
     fn deduplicate_extension_listings(
         &self,

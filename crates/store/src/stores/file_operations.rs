@@ -330,7 +330,8 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         let manifest = self.get_local_store_manifest().await?;
         let latest_version = manifest
             .extensions
-            .get(extension_id).map(|versions| versions.latest.clone());
+            .get(extension_id)
+            .map(|versions| versions.latest.clone());
         Ok(latest_version)
     }
 
