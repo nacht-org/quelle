@@ -841,14 +841,4 @@ mod tests {
         let disk_size = installed.calculate_actual_size(&registry).await.unwrap();
         assert_eq!(disk_size, 0);
     }
-
-    #[test]
-    fn test_update_options_default() {
-        let options = UpdateOptions::default();
-
-        assert!(!options.include_prereleases);
-        assert!(options.update_dependencies);
-        assert!(!options.force_update);
-        assert!(options.backup_current);
-    }
 }

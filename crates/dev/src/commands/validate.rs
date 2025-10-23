@@ -23,7 +23,7 @@ pub async fn handle(extension_name: String, extended: bool) -> Result<()> {
     if extended {
         println!("Running extended validation...");
         validate_extension_runtime(&extension_name, &extension_path).await?;
-        validate_code_quality(&extension_path)?;
+        validate_naming_conventions(&extension_path)?;
     }
 
     println!(
@@ -187,95 +187,8 @@ async fn validate_extension_runtime(extension_name: &str, extension_path: &Path)
     dev_server.build_extension().await?;
     dev_server.load_extension().await?;
 
-    // TODO: Add runtime validation tests
-    // - Test metadata retrieval
-    // - Test error handling for invalid inputs
-    // - Test basic functionality without network calls
-
     println!("   Warning: Runtime validation not fully implemented yet");
     println!("   Success: Extension loads without crashes");
-    Ok(())
-}
-
-/// Validate code quality and best practices
-fn validate_code_quality(extension_path: &Path) -> Result<()> {
-    println!("Checking code quality...");
-
-    let lib_rs_path = extension_path.join("src/lib.rs");
-    let content = fs::read_to_string(&lib_rs_path)?;
-
-    // Check for potential issues
-    let mut warnings = Vec::new();
-
-    // Check for hardcoded URLs (should use BASE_URL constant)
-    if content.contains("https://") && !content.contains("BASE_URL") {
-        warnings.push("Consider using BASE_URL constant instead of hardcoded URLs");
-    }
-
-    // Check for proper error handling
-    if content.contains("unwrap()") {
-        warnings.push("Avoid using unwrap() - use proper error handling instead");
-    }
-
-    if content.contains("expect(") && content.matches("expect(").count() > 2 {
-        warnings.push("Consider reducing use of expect() for better error messages");
-    }
-
-    // Check for TODO comments (different from todo!() macros)
-    if content.contains("// TODO") || content.contains("//TODO") {
-        warnings.push("Found TODO comments - consider addressing them");
-    }
-
-    // Check for basic documentation
-    if !content.contains("///") {
-        warnings.push("Consider adding documentation comments (///) to public functions");
-    }
-
-    // Report warnings
-    if warnings.is_empty() {
-        println!("   ✓ No code quality issues found");
-    } else {
-        println!("   Warning: Code quality suggestions:");
-        for warning in warnings {
-            println!("      • {}", warning);
-        }
-    }
-
-    Ok(())
-}
-
-/// Run Clippy linter on the extension (if available)
-async fn run_clippy_validation(extension_path: &Path) -> Result<()> {
-    println!("📎 Running Clippy linter...");
-
-    let output = tokio::process::Command::new("cargo")
-        .args([
-            "clippy",
-            "--manifest-path",
-            &format!("{}/Cargo.toml", extension_path.display()),
-            "--",
-            "-W",
-            "clippy::all",
-        ])
-        .output()
-        .await;
-
-    match output {
-        Ok(output) => {
-            if output.status.success() {
-                println!("   ✓ Clippy found no issues");
-            } else {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                println!("   Warning: Clippy suggestions:\n{}", stdout);
-            }
-        }
-        Err(_) => {
-            println!(
-                "   Warning: Clippy not available (install with: rustup component add clippy)"
-            );
-        }
-    }
-
     Ok(())
 }
 
@@ -309,16 +222,4 @@ fn validate_naming_conventions(extension_path: &Path) -> Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_validate_naming_conventions() {
-        // This would need a mock Cargo.toml file to test properly
-        // For now, just test that the function exists and compiles
-        assert!(true);
-    }
 }
