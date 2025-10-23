@@ -121,73 +121,7 @@ async fn handle_update_extension(
     if id == "all" {
         handle_update_extension_all(force, check_only, store_manager).await?;
     } else {
-        // TODO: Need a method to get a single extension update status
-        match store_manager.get_installed(&id).await? {
-            Some(installed) => {
-                println!(
-                    "Checking updates for {} v{}",
-                    installed.name, installed.version
-                );
-
-                let result = store_manager.check_all_updates().await.map(|updates| {
-                    updates
-                        .into_iter()
-                        .flat_map(|v| match v {
-                            UpdateInfo::UpdateAvailable(update_available_info) => {
-                                Some(update_available_info)
-                            }
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                });
-
-                match result {
-                    Ok(updates) => {
-                        if let Some(update) = updates.iter().find(|u| u.extension_id == id) {
-                            println!(
-                                "Update available: {} → {} (from {})",
-                                update.current_version, update.latest_version, update.store_source
-                            );
-
-                            if check_only {
-                                println!("To update: quelle extension update {}", id);
-                            } else {
-                                print!("Updating {}...", update.extension_id);
-                                std::io::stdout().flush().unwrap();
-
-                                let update_options = UpdateOptions {
-                                    update_dependencies: false,
-                                    force_update: force,
-                                    backup_current: false,
-                                };
-
-                                match store_manager.update(&id, Some(update_options)).await {
-                                    Ok(_) => {
-                                        println!(
-                                            " Successfully updated to v{}",
-                                            update.latest_version
-                                        );
-                                    }
-                                    Err(e) => {
-                                        println!(" Update failed: {}", e);
-                                        return Err(e.into());
-                                    }
-                                }
-                            }
-                        } else {
-                            println!("{} is up to date", installed.name);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to check for updates: {}", e);
-                        return Err(e.into());
-                    }
-                }
-            }
-            None => {
-                println!("Extension not installed: {}", id);
-            }
-        }
+        handle_update_extension_specific(id, force, check_only, store_manager).await?;
     }
 
     Ok(())
@@ -219,65 +153,132 @@ async fn handle_update_extension_all(
             .collect::<Vec<_>>()
     });
 
-    match result {
-        Ok(updates) => {
-            if updates.is_empty() {
-                println!("All extensions are up to date");
-                return Ok(());
-            }
-
-            println!("Found {} update(s) available:", updates.len());
-            for update in &updates {
-                println!(
-                    "  {} {} → {} (from {})",
-                    update.extension_id,
-                    update.current_version,
-                    update.latest_version,
-                    update.store_source
-                );
-            }
-
-            if check_only {
-                println!("\nTo update all: quelle extension update all");
-            } else {
-                println!("\nUpdating {} extension(s)...", updates.len());
-                let mut success_count = 0;
-                let mut failed_count = 0;
-
-                for update in &updates {
-                    print!("Updating {}...", update.extension_id);
-                    std::io::stdout().flush().unwrap();
-
-                    let update_options = UpdateOptions {
-                        update_dependencies: false,
-                        force_update: force,
-                        backup_current: false,
-                    };
-
-                    match store_manager
-                        .update(&update.extension_id, Some(update_options))
-                        .await
-                    {
-                        Ok(_) => {
-                            println!(" Success");
-                            success_count += 1;
-                        }
-                        Err(e) => {
-                            println!(" Failed: {}", e);
-                            failed_count += 1;
-                        }
-                    }
-                }
-
-                println!(
-                    "\nUpdate complete: {} succeeded, {} failed",
-                    success_count, failed_count
-                );
-            }
-        }
+    let updates = match result {
+        Ok(updates) => updates,
         Err(e) => {
             eprintln!("Failed to check for updates: {}", e);
             return Err(e.into());
+        }
+    };
+
+    if updates.is_empty() {
+        println!("All extensions are up to date");
+        return Ok(());
+    }
+
+    println!("Found {} update(s) available:", updates.len());
+    for update in &updates {
+        println!(
+            "  {} {} → {} (from {})",
+            update.extension_id, update.current_version, update.latest_version, update.store_source
+        );
+    }
+
+    if check_only {
+        println!("\nTo update all: quelle extension update all");
+    } else {
+        println!("\nUpdating {} extension(s)...", updates.len());
+        let mut success_count = 0;
+        let mut failed_count = 0;
+
+        for update in &updates {
+            print!("Updating {}...", update.extension_id);
+            std::io::stdout().flush().unwrap();
+
+            let update_options = UpdateOptions {
+                update_dependencies: false,
+                force_update: force,
+                backup_current: false,
+            };
+
+            match store_manager
+                .update(&update.extension_id, Some(update_options))
+                .await
+            {
+                Ok(_) => {
+                    println!(" Success");
+                    success_count += 1;
+                }
+                Err(e) => {
+                    println!(" Failed: {}", e);
+                    failed_count += 1;
+                }
+            }
+        }
+
+        println!(
+            "\nUpdate complete: {} succeeded, {} failed",
+            success_count, failed_count
+        );
+    }
+
+    Ok(())
+}
+
+async fn handle_update_extension_specific(
+    id: String,
+    force: bool,
+    check_only: bool,
+    store_manager: &mut StoreManager,
+) -> Result<(), eyre::Error> {
+    let Some(installed) = store_manager.get_installed(&id).await? else {
+        println!("Extension not installed: {}", id);
+        return Ok(());
+    };
+
+    println!(
+        "Checking updates for {} v{}",
+        installed.name, installed.version
+    );
+
+    let result = store_manager.check_all_updates().await.map(|updates| {
+        updates
+            .into_iter()
+            .flat_map(|v| match v {
+                UpdateInfo::UpdateAvailable(update_available_info) => Some(update_available_info),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    });
+
+    let updates = match result {
+        Ok(updates) => updates,
+        Err(e) => {
+            eprintln!("Failed to check for updates: {}", e);
+            return Err(e.into());
+        }
+    };
+
+    let Some(update) = updates.iter().find(|u| u.extension_id == id) else {
+        println!("{} is up to date", installed.name);
+        return Ok(());
+    };
+
+    println!(
+        "Update available: {} → {} (from {})",
+        update.current_version, update.latest_version, update.store_source
+    );
+
+    if check_only {
+        println!("To update: quelle extension update {}", id);
+    } else {
+        print!("Updating {}...", update.extension_id);
+        std::io::stdout().flush().unwrap();
+
+        let update_options = UpdateOptions {
+            update_dependencies: false,
+            force_update: force,
+            backup_current: false,
+        };
+
+        match store_manager.update(&id, Some(update_options)).await {
+            Ok(_) => {
+                println!(" Successfully updated to v{}", update.latest_version);
+            }
+            Err(e) => {
+                println!(" Update failed: {}", e);
+                return Err(e.into());
+            }
         }
     }
 
