@@ -14,6 +14,7 @@ quelle_extension = { path = "../../crates/extension" }
 chrono = { workspace = true }
 once_cell = { workspace = true }
 tracing = { workspace = true }
+eyre = { workspace = true }
 
 [lib]
 crate-type = ["cdylib"]

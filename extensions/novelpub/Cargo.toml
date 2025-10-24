@@ -1,0 +1,20 @@
+[package]
+name = "extension_novelpub"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+quelle_extension = { path = "../../crates/extension" }
+chrono = { workspace = true }
+once_cell = { workspace = true }
+tracing = { workspace = true }
+eyre = { workspace = true }
+
+[lib]
+crate-type = ["cdylib"]
+
+[package.metadata.component]
+package = "quelle:extension"
+
+[package.metadata.component.target]
+path = "../wit"
