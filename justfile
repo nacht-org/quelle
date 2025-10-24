@@ -25,19 +25,19 @@ cli *ARGS:
 
 # Generate new extension interactively
 generate:
-    cargo run -p quelle_cli -- dev generate
+    cargo run -p quelle_dev -- generate
 
 # Start development server
 dev NAME:
-    cargo run -p quelle_cli -- dev server {{NAME}} --watch
+    cargo run -p quelle_dev -- server {{NAME}} --watch
 
 # Test extension
 test NAME *ARGS:
-    cargo run -p quelle_cli -- dev test {{NAME}} {{ARGS}}
+    cargo run -p quelle_dev -- test {{NAME}} {{ARGS}}
 
 # Validate extension
 validate NAME:
-    cargo run -p quelle_cli -- dev validate {{NAME}} --extended
+    cargo run -p quelle_dev -- validate {{NAME}} --extended
 
 # === Utility Commands ===
 

@@ -16,9 +16,6 @@ pub enum DevCommands {
     Server {
         /// Extension name to develop
         extension: String,
-        /// Enable verbose logging
-        #[arg(long, short)]
-        verbose: bool,
         /// Auto-rebuild on file changes
         #[arg(long, default_value = "true")]
         watch: bool,
@@ -75,7 +72,6 @@ pub async fn handle_command(cmd: DevCommands) -> Result<()> {
     match cmd {
         DevCommands::Server {
             extension,
-            verbose: _verbose,
             watch,
             chrome,
         } => server::handle(extension, watch, chrome).await,
