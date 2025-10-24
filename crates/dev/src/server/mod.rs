@@ -1,5 +1,6 @@
 //! Development server for hot-reloading extensions during development
 
+use clap::Parser;
 use eyre::{Result, eyre};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
@@ -10,12 +11,13 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 use crate::http_caching::CachingHttpExecutor;
+use crate::server::commands::handle;
 use crate::utils::{find_extension_path, find_project_root};
 use quelle_engine::ExtensionEngine;
 
 mod commands;
 
-pub use commands::DevServerCommand;
+pub use commands::{DevServerCli, DevServerCommand};
 
 /// Development server for testing extensions with hot reload
 pub struct DevServer {
@@ -24,6 +26,7 @@ pub struct DevServer {
     engine: ExtensionEngine,
     build_cache: HashMap<String, Instant>,
     caching_executor: Option<Arc<CachingHttpExecutor>>,
+    should_quit: bool,
 }
 
 impl DevServer {
@@ -47,6 +50,7 @@ impl DevServer {
             engine,
             build_cache: HashMap::new(),
             caching_executor,
+            should_quit: false,
         })
     }
 
@@ -58,10 +62,11 @@ impl DevServer {
 
         // Check if we've built recently to avoid unnecessary rebuilds
         if let Some(last_build) = self.build_cache.get(&self.extension_name)
-            && start_time.duration_since(*last_build) < Duration::from_secs(1) {
-                println!("Skipping build (recent build detected)");
-                return Ok(());
-            }
+            && start_time.duration_since(*last_build) < Duration::from_secs(1)
+        {
+            println!("Skipping build (recent build detected)");
+            return Ok(());
+        }
 
         let output = tokio::process::Command::new("cargo")
             .args([
@@ -157,6 +162,10 @@ impl DevServer {
     /// Get the extension engine
     pub fn engine(&self) -> &ExtensionEngine {
         &self.engine
+    }
+
+    pub fn stop(&mut self) {
+        self.should_quit = true;
     }
 }
 
@@ -258,71 +267,22 @@ async fn start_interactive_shell_with_server(dev_server: Arc<Mutex<DevServer>>) 
 
                 rl.add_history_entry(line)?;
 
-                match line {
-                    "quit" | "exit" | "q" => {
-                        println!("👋 Goodbye!");
-                        break;
+                let args = line.split_whitespace();
+                let cli = DevServerCli::try_parse_from(std::iter::once("dev").chain(args));
+                let cli = match cli {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        continue;
                     }
-                    "help" | "h" => {
-                        print_help();
-                    }
-                    "clear" | "cls" => {
-                        print!("\x1B[2J\x1B[1;1H"); // Clear screen
-                    }
-                    "rebuild" | "build" => {
-                        let mut server = dev_server.lock().await;
-                        if let Err(e) = server.build_extension().await {
-                            println!("Error: Build failed: {}", e);
-                        } else if let Err(e) = server.load_extension().await {
-                            println!("Error: Load failed: {}", e);
-                        } else {
-                            println!("Success: Rebuild successful");
-                        }
-                    }
-                    cmd if cmd.starts_with("test ") => {
-                        let url = cmd.strip_prefix("test ").unwrap();
-                        let mut server = dev_server.lock().await;
-                        if let Err(e) = server
-                            .handle_command(DevServerCommand::Test {
-                                url: url.to_string(),
-                            })
-                            .await
-                        {
-                            println!("Error: Test failed: {}", e);
-                        }
-                    }
-                    cmd if cmd.starts_with("search ") => {
-                        let query_str = cmd.strip_prefix("search ").unwrap();
-                        let query: Vec<String> = query_str
-                            .split_whitespace()
-                            .map(|s| s.to_string())
-                            .collect();
-                        let mut server = dev_server.lock().await;
-                        if let Err(e) = server
-                            .handle_command(DevServerCommand::Search { query })
-                            .await
-                        {
-                            println!("Error: Search failed: {}", e);
-                        }
-                    }
-                    "cache clear" => {
-                        let server = dev_server.lock().await;
-                        if let Err(e) = server.clear_cache().await {
-                            println!("Error: Failed to clear cache: {}", e);
-                        }
-                    }
-                    "cache stats" => {
-                        let server = dev_server.lock().await;
-                        if let Err(e) = server.show_cache_stats().await {
-                            println!("Error: Failed to show cache stats: {}", e);
-                        }
-                    }
-                    _ => {
-                        println!(
-                            "❓ Unknown command: '{}'. Type 'help' for available commands.",
-                            line
-                        );
-                    }
+                };
+
+                let mut server = dev_server.lock().await;
+                handle(&mut server, cli.command).await?;
+
+                if server.should_quit {
+                    println!("👋 Goodbye!");
+                    break;
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -341,23 +301,6 @@ async fn start_interactive_shell_with_server(dev_server: Arc<Mutex<DevServer>>) 
     }
 
     Ok(())
-}
-
-/// Print help text for interactive commands
-fn print_help() {
-    println!("Available commands:");
-    println!("  help, h              - Show this help");
-    println!("  test <url>           - Test novel info fetching from URL");
-    println!("  search <query>       - Test search functionality");
-    println!("  rebuild, build       - Rebuild the extension");
-    println!("  cache clear          - Clear HTTP cache");
-    println!("  cache stats          - Show cache statistics");
-    println!("  clear, cls           - Clear screen");
-    println!("  quit, exit, q        - Exit the development server");
-    println!();
-    println!("Examples:");
-    println!("  test https://example.com/novel/123");
-    println!("  search mystery adventure");
 }
 
 /// Create extension engine with caching HTTP executor

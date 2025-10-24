@@ -186,6 +186,10 @@ async fn test_novel_info_with_url(dev_server: &DevServer, url: &str) -> Result<(
                     total_chapters
                 );
             }
+            if let Some(chapter) = novel.volumes.first().and_then(|v| v.chapters.first()) {
+                println!("   First Chapter: {}", chapter.title);
+                println!("      URL: {}", chapter.url);
+            }
         }
         Err(e) => {
             println!("Error: Failed to fetch novel info: {}", e.message);

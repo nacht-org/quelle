@@ -1,12 +1,20 @@
 //! Command handling for the development server
 
-use clap::Parser;
-use eyre::{Result, eyre};
+use clap::{CommandFactory, Parser};
+use eyre::{Context, Result, eyre};
 use quelle_engine::bindings::quelle::extension::novel::SimpleSearchQuery;
 
 use url::Url;
 
 use super::DevServer;
+
+/// CLI arguments for the development server
+#[derive(Parser, Debug)]
+pub struct DevServerCli {
+    /// Development server command to execute
+    #[clap(subcommand)]
+    pub command: DevServerCommand,
+}
 
 /// Commands available in the development server
 #[derive(Parser, Debug)]
@@ -33,6 +41,8 @@ pub enum DevServerCommand {
     CacheClear,
     /// Show cache statistics
     CacheStats,
+    /// Quit the development server
+    Quit,
 }
 
 /// Handle a development server command
@@ -44,6 +54,11 @@ pub async fn handle(server: &mut DevServer, cmd: DevServerCommand) -> Result<()>
         DevServerCommand::Meta => show_extension_meta(server).await,
         DevServerCommand::CacheClear => server.clear_cache().await,
         DevServerCommand::CacheStats => server.show_cache_stats().await,
+        DevServerCommand::Quit => {
+            println!("Quitting development server...");
+            server.stop();
+            Ok(())
+        }
     }
 }
 
@@ -115,6 +130,10 @@ async fn test_novel_info(server: &DevServer, url: &str) -> Result<()> {
                     novel.volumes.len(),
                     total_chapters
                 );
+            }
+            if let Some(chapter) = novel.volumes.first().and_then(|v| v.chapters.first()) {
+                println!("   First Chapter: {}", chapter.title);
+                println!("      URL: {}", chapter.url);
             }
         }
         Err(e) => {
@@ -250,14 +269,7 @@ async fn test_chapter_content(server: &DevServer, url: &str) -> Result<()> {
                 for line in preview_lines {
                     let trimmed = line.trim();
                     if !trimmed.is_empty() {
-                        println!(
-                            "      {}",
-                            if trimmed.len() > 80 {
-                                format!("{}...", &trimmed[..80])
-                            } else {
-                                trimmed.to_string()
-                            }
-                        );
+                        println!("      {trimmed}",);
                     }
                 }
             }
