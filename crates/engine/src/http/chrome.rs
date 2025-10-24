@@ -98,7 +98,7 @@ impl HttpExecutor for HeadlessChromeExecutor {
                 .map_err(|e| HeadlessChromeError::Navigate(e.to_string()))?;
 
             // Handle element waiting if specified
-            let response = if let Some(selector) = &request.wait_for_element {
+            if let Some(selector) = &request.wait_for_element {
                 tracing::info!("waiting for element: {}", selector);
                 response
                     .wait_for_element(selector)
@@ -107,11 +107,11 @@ impl HttpExecutor for HeadlessChromeExecutor {
                         status: None,
                         response: None,
                         message: format!("Element '{}' not found: {}", selector, e),
-                    })?
+                    })?;
             } else {
                 response
                     .wait_for_element("body")
-                    .map_err(|e| HeadlessChromeError::GetContent(e.to_string()))?
+                    .map_err(|e| HeadlessChromeError::GetContent(e.to_string()))?;
             };
 
             let headers = vec![];

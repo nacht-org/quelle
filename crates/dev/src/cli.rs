@@ -16,14 +16,6 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub config: Option<String>,
 
-    /// Verbose output
-    #[arg(short, long, global = true)]
-    pub verbose: bool,
-
-    /// Quiet output
-    #[arg(short, long, global = true)]
-    pub quiet: bool,
-
     /// Show what would be done without executing
     #[arg(long, global = true)]
     pub dry_run: bool,

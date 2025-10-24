@@ -1,4 +1,5 @@
 use clap::Parser;
+use tracing_subscriber::EnvFilter;
 
 use crate::{cli::Cli, commands::handle_command};
 
@@ -13,15 +14,8 @@ pub mod utils;
 async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
 
-    // Initialize tracing
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .with_max_level(if cli.verbose {
-            tracing::Level::DEBUG
-        } else if cli.quiet {
-            tracing::Level::ERROR
-        } else {
-            tracing::Level::WARN
-        })
+        .with_env_filter(EnvFilter::from_default_env())
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)?;

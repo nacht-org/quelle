@@ -23,6 +23,20 @@ pub struct ElementList<'a> {
     pub elements: Vec<ElementRef<'a>>,
 }
 
+impl<'a> ElementList<'a> {
+    /// Creates an iterator over the elements in the list.
+    pub fn iter(&self) -> impl Iterator<Item = Element<'a>> + '_ {
+        self.elements
+            .iter()
+            .map(|element| Element { element: *element }) // FIXME: avoid the deref
+    }
+
+    /// Returns if the list is empty.
+    pub fn is_empty(&self) -> bool {
+        self.elements.is_empty()
+    }
+}
+
 /// An iterator that allows you to loop through each `Element` within an `ElementList`.
 pub struct ElementListIntoIter<'a> {
     pub elements: std::vec::IntoIter<ElementRef<'a>>,
