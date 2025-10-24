@@ -18,12 +18,6 @@ eyre = { workspace = true }
 
 [lib]
 crate-type = ["cdylib"]
-
-[package.metadata.component]
-package = "quelle:extension"
-
-[package.metadata.component.target]
-path = "../wit"
 "#;
 
     apply_replacements(template, replacements)
