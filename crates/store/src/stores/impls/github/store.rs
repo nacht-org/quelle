@@ -319,12 +319,19 @@ impl GitHubStore {
             }
         };
 
-        let cache_dir = TempDir::new()?;
+        let cache_dir = match &self.cache_dir {
+            Some(dir) => dir.join("git_cache"),
+            None => {
+                // Create a temporary directory for git operations
+                let temp_dir = TempDir::new()?;
+                temp_dir.path().to_path_buf()
+            }
+        };
 
         let git_store = GitStore::builder(self.git_url())
             .name(self.name.clone())
             .reference(self.reference.clone())
-            .cache_dir(cache_dir.path())
+            .cache_dir(cache_dir)
             .write_config(write_config)
             .build()?;
 
