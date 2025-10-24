@@ -2,12 +2,13 @@
 
 use async_trait::async_trait;
 use semver::Version;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use tempfile::TempDir;
 use tracing::info;
 
 use super::file_operations::GitHubFileOperations;
+use crate::cache::CacheDir;
 use crate::error::{Result, StoreError};
 use crate::manager::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
@@ -33,7 +34,7 @@ pub struct GitHubStore {
     repo: String,
     reference: GitReference,
     name: String,
-    cache_dir: Option<PathBuf>,
+    cache_dir: CacheDir,
     write_config: Option<GitWriteConfig>,
 }
 
@@ -42,7 +43,7 @@ pub struct GitHubStoreBuilder {
     name: Option<String>,
     owner: String,
     repo: String,
-    cache_dir: Option<PathBuf>,
+    cache_dir: Option<CacheDir>,
     reference: GitReference,
     auth: Option<GitAuth>,
     cache_ttl: Duration,
@@ -95,8 +96,8 @@ impl GitHubStoreBuilder {
     }
 
     /// Set the cache directory for git operations
-    pub fn cache_dir(mut self, path: impl Into<PathBuf>) -> Self {
-        self.cache_dir = Some(path.into());
+    pub fn cache_dir(mut self, cache_dir: impl Into<CacheDir>) -> Self {
+        self.cache_dir = Some(cache_dir.into());
         self
     }
 
@@ -186,6 +187,11 @@ impl GitHubStoreBuilder {
             .name
             .unwrap_or_else(|| format!("{}/{}", self.owner, self.repo));
 
+        let cache_dir = match self.cache_dir {
+            Some(dir) => dir,
+            None => CacheDir::new_temp()?,
+        };
+
         // Create GitHub file operations with cache TTL
         let file_ops = GitHubFileOperations::builder(
             self.owner.clone(),
@@ -203,7 +209,7 @@ impl GitHubStoreBuilder {
             repo: self.repo,
             reference: self.reference,
             name,
-            cache_dir: self.cache_dir,
+            cache_dir,
             write_config: self.write_config,
         })
     }
@@ -232,6 +238,11 @@ impl GitHubStoreBuilder {
             .name
             .unwrap_or_else(|| format!("{}/{}", self.owner, self.repo));
 
+        let cache_dir = match self.cache_dir {
+            Some(dir) => dir,
+            None => CacheDir::new_temp()?,
+        };
+
         // Create GitHub file operations with accurate branch resolution
         let file_ops = GitHubFileOperations::builder(
             self.owner.clone(),
@@ -250,7 +261,7 @@ impl GitHubStoreBuilder {
             repo: self.repo,
             reference: self.reference,
             name,
-            cache_dir: self.cache_dir,
+            cache_dir,
             write_config: self.write_config,
         })
     }
@@ -278,8 +289,8 @@ impl GitHubStore {
     }
 
     /// Get the cache directory
-    pub fn cache_dir(&self) -> Option<&PathBuf> {
-        self.cache_dir.as_ref()
+    pub fn cache_dir(&self) -> &Path {
+        self.cache_dir.path()
     }
 
     /// Check if this GitHub store supports writing operations
@@ -319,14 +330,7 @@ impl GitHubStore {
             }
         };
 
-        let cache_dir = match &self.cache_dir {
-            Some(dir) => dir.join("git_cache"),
-            None => {
-                // Create a temporary directory for git operations
-                let temp_dir = TempDir::new()?;
-                temp_dir.path().to_path_buf()
-            }
-        };
+        let cache_dir = self.cache_dir().join("git_cache");
 
         let git_store = GitStore::builder(self.git_url())
             .name(self.name.clone())
@@ -551,30 +555,6 @@ impl CacheableStore for GitHubStore {
             hit_rate: 0.0,      // Would need to track hits/misses to calculate this
             last_refresh: None, // Would need to track refresh times
         })
-    }
-}
-
-impl Clone for GitHubStore {
-    fn clone(&self) -> Self {
-        // Note: This creates a new GitHubFileOperations instance with its own cache
-        let file_ops = GitHubFileOperations::builder(
-            self.owner.clone(),
-            self.repo.clone(),
-            self.reference.clone(),
-        )
-        .build_naive();
-
-        let processor = FileBasedProcessor::new(file_ops, self.name.clone());
-
-        Self {
-            processor,
-            owner: self.owner.clone(),
-            repo: self.repo.clone(),
-            reference: self.reference.clone(),
-            name: self.name.clone(),
-            cache_dir: self.cache_dir.clone(),
-            write_config: self.write_config.clone(),
-        }
     }
 }
 

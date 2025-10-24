@@ -17,6 +17,7 @@
 //!
 //! ## Basic Usage
 //!
+pub mod cache;
 /// ```rust
 /// use quelle_store::{StoreManager, LocalRegistryStore};
 /// use quelle_store::stores::local::LocalStore;
