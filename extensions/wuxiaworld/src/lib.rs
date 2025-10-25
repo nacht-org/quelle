@@ -125,7 +125,8 @@ impl QuelleExtension for Extension {
         let novel_slug = url_parts
             .get(1)
             .ok_or_else(|| eyre::eyre!("Invalid chapter URL"))?;
-        let chapter_slug = url_parts.first()
+        let chapter_slug = url_parts
+            .first()
             .ok_or_else(|| eyre::eyre!("Invalid chapter URL"))?;
 
         let response = Request::post(format!("{API_URL}Chapters/GetChapter"))

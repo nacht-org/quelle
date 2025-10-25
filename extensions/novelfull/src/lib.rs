@@ -161,13 +161,9 @@ impl QuelleExtension for Extension {
 
     fn simple_search(&self, query: SimpleSearchQuery) -> Result<SearchResult, eyre::Report> {
         let current_page = query.page();
-        let search_url = format!(
-            "{}/search?keyword={}",
-            BASE_URL,
-            urlencoding::encode(&query.query)
-        );
 
-        let doc = Request::get(&search_url)
+        let doc = Request::get(&format!("{BASE_URL}/search"))
+            .param("keyword", &query.query)
             .html(&self.client)
             .map_err(|e| eyre!(e))
             .wrap_err("Failed to fetch search results")?;
