@@ -1,4 +1,4 @@
-use eyre::{OptionExt, eyre};
+use eyre::{OptionExt, WrapErr, eyre};
 use once_cell::sync::Lazy;
 use quelle_extension::novel::ComplexSearchQuery;
 use quelle_extension::{common::time::parse_date_or_relative_time, prelude::*};
@@ -45,16 +45,10 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_novel_info(&self, url: String) -> Result<Novel, eyre::Report> {
-        let response = Request::get(&url)
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get data"))?;
-
-        let doc = Html::new(&text);
+        let doc = Request::get(&url)
+            .html(&self.client)
+            .map_err(|e| eyre!(e))
+            .wrap_err("Failed to fetch novel info")?;
 
         let id = url
             .split("/")
@@ -86,16 +80,10 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_chapter(&self, url: String) -> Result<ChapterContent, eyre::Report> {
-        let response = Request::get(&url)
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get data"))?;
-
-        let doc = Html::new(&text);
+        let doc = Request::get(&url)
+            .html(&self.client)
+            .map_err(|e| eyre!(e))
+            .wrap_err("Failed to fetch chapter")?;
 
         Ok(ChapterContent {
             data: doc.select_first("#chp_raw").html()?,
@@ -105,20 +93,14 @@ impl QuelleExtension for Extension {
     fn simple_search(&self, query: SimpleSearchQuery) -> Result<SearchResult, eyre::Report> {
         let current_page = query.page();
 
-        let response = Request::get("https://www.scribblehub.com/series-finder")
+        let doc = Request::get("https://www.scribblehub.com/series-finder")
             .param("sf", "1")
             .param("sh", query.query)
             .param("order", "desc")
             .param("pg", current_page.to_string())
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get search data"))?;
-
-        let doc = Html::new(&text);
+            .html(&self.client)
+            .map_err(|e| eyre!(e))
+            .wrap_err("Failed to perform simple search")?;
 
         let mut novels = Vec::new();
 
@@ -205,16 +187,10 @@ impl QuelleExtension for Extension {
 
         request = request.body(form_builder.build().build());
 
-        let response = request
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get search data"))?;
-
-        let doc = Html::new(&text);
+        let doc = request
+            .html(&self.client)
+            .map_err(|e| eyre!(e))
+            .wrap_err("Failed to perform complex search")?;
 
         let mut novels = Vec::new();
 

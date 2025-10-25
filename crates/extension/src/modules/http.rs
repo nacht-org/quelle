@@ -128,7 +128,7 @@ impl Request {
     }
 
     pub fn html(self, client: &Client) -> eyre::Result<Html> {
-        let response = self.expect_html(true).send(client)?;
+        let response = self.expect_html(true).send(client)?.error_for_status()?;
         let response_data = response.text()?;
 
         let Some(html) = response_data else {
