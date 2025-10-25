@@ -18,7 +18,7 @@ use crate::models::{
     UpdateCheckFailedInfo, UpdateNotNeededInfo,
 };
 use crate::registry::manifest::{ExtensionManifest, FileReference, LocalExtensionManifest};
-use crate::stores::impls::local::LocalStoreManifest;
+use crate::stores::impls::local::store::LocalStoreManifest;
 use crate::{InstalledExtension, UpdateInfo};
 
 /// Internal trait for abstracting file operations across different store backends
@@ -89,11 +89,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// Get the local store manifest for URL routing and extension listing
-    pub async fn get_local_store_manifest(
-        &self,
-    ) -> Result<crate::stores::impls::local::store::LocalStoreManifest> {
-        use crate::stores::impls::local::store::LocalStoreManifest;
-
+    pub async fn get_local_store_manifest(&self) -> Result<LocalStoreManifest> {
         self.read_json_file::<LocalStoreManifest>("store.json")
             .await
             .map_err(|e| {

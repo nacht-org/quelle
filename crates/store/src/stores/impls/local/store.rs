@@ -541,6 +541,9 @@ impl WritableStore for LocalStore {
             ));
         }
 
+        // Validate package before publishing
+        self.processor.get_local_store_manifest().await?;
+
         let extension_id = &package.manifest.id;
         let version = &package.manifest.version;
 
