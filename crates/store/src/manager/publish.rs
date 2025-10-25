@@ -62,13 +62,11 @@ impl PublishOptions {
 }
 
 /// Options for unpublishing an extension
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UnpublishOptions {
     /// Version to unpublish (None means all versions)
     pub version: Option<String>,
 }
-
 
 /// Visibility levels for published extensions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,22 +86,14 @@ pub struct PublishResult {
     pub extension_id: String,
     /// The version that was published
     pub version: Version,
-
-    /// URL where the extension can be downloaded
-    pub download_url: String,
-
     /// When the extension was published
     pub published_at: DateTime<Utc>,
-
     /// Unique identifier for this publication
     pub publication_id: String,
-
     /// Size of the published package in bytes
     pub package_size: u64,
-
     /// Content hash of the published package
     pub content_hash: String,
-
     /// Any warnings generated during publishing
     pub warnings: Vec<String>,
 }
@@ -113,7 +103,6 @@ impl PublishResult {
     pub fn success(
         extension_id: String,
         version: Version,
-        download_url: String,
         publication_id: String,
         package_size: u64,
         content_hash: String,
@@ -121,7 +110,6 @@ impl PublishResult {
         Self {
             extension_id,
             version,
-            download_url,
             published_at: Utc::now(),
             publication_id,
             package_size,

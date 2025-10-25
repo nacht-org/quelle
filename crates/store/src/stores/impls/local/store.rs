@@ -613,12 +613,6 @@ impl WritableStore for LocalStore {
         Ok(PublishResult {
             extension_id: extension_id.clone(),
             version: version.clone(),
-            download_url: format!(
-                "file://{}/extensions/{}/{}",
-                self.root_path.display(),
-                extension_id,
-                version
-            ),
             published_at: chrono::Utc::now(),
             publication_id: format!("{}@{}", extension_id, version),
             package_size: package.calculate_total_size(),
@@ -637,6 +631,9 @@ impl WritableStore for LocalStore {
                 "Cannot unpublish from readonly store".to_string(),
             ));
         }
+
+        // Validate package before unpublishing
+        self.processor.get_local_store_manifest().await?;
 
         let extension_dir = self.root_path.join("extensions").join(extension_id);
 
