@@ -14,3 +14,8 @@ chrono.workspace = true
 thiserror.workspace = true
 # Until new version of `parse_datetime` crate is published, we use a this version.
 parse_datetime = { git = "https://github.com/uutils/parse_datetime", rev = "30cb26d75c237c43fb9a53dc2b66cb6745ab16c2" }
+prost = { version = "0.14.1", default-features = false, features = ["std"], optional = true }
+
+[features]
+default = []
+protobuf = ["dep:prost"]

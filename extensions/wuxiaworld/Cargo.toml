@@ -1,0 +1,19 @@
+[package]
+name = "extension_wuxiaworld"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+quelle_extension = { path = "../../crates/extension" }
+chrono = { workspace = true }
+once_cell = { workspace = true }
+tracing = { workspace = true }
+eyre = { workspace = true }
+prost = "0.14.1"
+prost-types = "0.14.1"
+
+[lib]
+crate-type = ["cdylib"]
+
+[build-dependencies]
+prost-build = "0.14.1"

@@ -40,6 +40,9 @@ impl HttpExecutor for ReqwestExecutor {
 
         if let Some(body) = request.data {
             match body {
+                http::RequestBody::Raw(data) => {
+                    builder = builder.body(data);
+                }
                 http::RequestBody::Form(data) => {
                     let multipart = create_multipart(data)?;
                     builder = builder.multipart(multipart);

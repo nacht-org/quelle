@@ -1,4 +1,4 @@
-use eyre::eyre;
+use eyre::{Context, eyre};
 
 use crate::http::{Client, FormPart, Method, Request, RequestBody, Response, ResponseError};
 
@@ -72,6 +72,19 @@ impl Request {
         self
     }
 
+    /// Set the request body to a protobuf-encoded message
+    #[cfg(feature = "protobuf")]
+    pub fn protobuf<M: prost::Message>(mut self, message: &M) -> Result<Self, eyre::Report> {
+        let mut buf = Vec::new();
+        message
+            .encode(&mut buf)
+            .map_err(|e| eyre!(e))
+            .wrap_err("Failed to encode protobuf message")?;
+
+        self.data = Some(RequestBody::Raw(buf));
+        Ok(self)
+    }
+
     pub fn send(&self, client: &Client) -> Result<Response, ResponseError> {
         client.request(self)
     }
@@ -86,6 +99,19 @@ impl Response {
                 Ok(Some(text))
             }
             None => Ok(None),
+        }
+    }
+
+    /// Return the protobuf-decoded message from the response data.
+    #[cfg(feature = "protobuf")]
+    pub fn protobuf<M: prost::Message + Default>(self) -> Result<M, eyre::Report> {
+        match self.data {
+            Some(data) => {
+                let message = M::decode(&data[..])
+                    .map_err(|e| eyre::eyre!("Failed to decode protobuf: {}", e))?;
+                Ok(message)
+            }
+            None => Err(eyre::eyre!("No data in response")),
         }
     }
 

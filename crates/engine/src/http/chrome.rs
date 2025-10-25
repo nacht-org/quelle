@@ -176,6 +176,12 @@ impl HttpExecutor for HeadlessChromeExecutor {
 
         let (body, script) = if let Some(body) = request.data {
             match body {
+                http::RequestBody::Raw(data) => {
+                    let base64_data = general_purpose::STANDARD.encode(&data);
+                    let script =
+                        format!("const uint8Array = Uint8Array.fromBase64('{base64_data}');");
+                    (Some("uint8Array"), script)
+                }
                 http::RequestBody::Form(data) => {
                     let mut script = "const formData = new FormData();".to_string();
                     for (name, part) in data {
