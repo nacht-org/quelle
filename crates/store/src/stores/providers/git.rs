@@ -4,7 +4,7 @@
 //! to local storage for use by LocalStore.
 
 use async_trait::async_trait;
-use git2::{CredentialType, FetchOptions, RemoteCallbacks, Repository};
+use git2::{CredentialType, FetchOptions, RemoteCallbacks, Repository, RepositoryInitOptions};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
@@ -977,10 +977,11 @@ impl GitProvider {
 
     pub fn git_init(&self) -> Result<()> {
         use crate::error::GitStoreError;
-        use git2::Repository;
+        use git2::{Repository, RepositoryInitOptions};
 
-        // Initialize a new git repository in the cache directory
-        Repository::init(&self.cache_dir).map_err(GitStoreError::Git)?;
+        let mut opts = RepositoryInitOptions::new();
+        opts.initial_head("main");
+        Repository::init_opts(&self.cache_dir, &opts).map_err(GitStoreError::Git)?;
 
         Ok(())
     }
