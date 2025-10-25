@@ -71,21 +71,9 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
     /// Get the basic store manifest for BaseStore trait implementation
     pub async fn get_store_manifest(&self) -> Result<StoreManifest> {
-        // Try to load as LocalStoreManifest first, then extract base
-        match self
-            .read_json_file::<LocalStoreManifest>("store.json")
+        self.get_local_store_manifest()
             .await
-        {
-            Ok(local_manifest) => Ok(local_manifest.base),
-            Err(_) => {
-                // Fallback to basic StoreManifest
-                self.read_json_file::<StoreManifest>("store.json")
-                    .await
-                    .map_err(|e| {
-                        StoreError::ParseError(format!("Failed to load store manifest: {}", e))
-                    })
-            }
-        }
+            .map(|local_manifest| local_manifest.base)
     }
 
     /// Get the local store manifest for URL routing and extension listing

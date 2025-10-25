@@ -971,6 +971,31 @@ impl GitProvider {
         Ok(())
     }
 
+    pub fn is_git_repo(&self) -> bool {
+        self.cache_dir.join(".git").exists()
+    }
+
+    pub fn git_init(&self) -> Result<()> {
+        use crate::error::GitStoreError;
+        use git2::Repository;
+
+        // Initialize a new git repository in the cache directory
+        Repository::init(&self.cache_dir).map_err(GitStoreError::Git)?;
+
+        Ok(())
+    }
+
+    pub fn set_git_remote(&self) -> Result<()> {
+        use crate::error::GitStoreError;
+        use git2::Repository;
+
+        let repo = Repository::open(&self.cache_dir).map_err(GitStoreError::Git)?;
+        repo.remote_set_url("origin", self.url())
+            .map_err(GitStoreError::Git)?;
+
+        Ok(())
+    }
+
     /// Add all changes (including deletions) to git staging area
     pub async fn git_add_all(&self) -> Result<()> {
         use crate::error::GitStoreError;

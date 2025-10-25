@@ -4,6 +4,9 @@ use crate::manager::publish::PublishError;
 
 #[derive(Error, Debug)]
 pub enum StoreError {
+    #[error("File not found: {0}")]
+    FileNotFound(String),
+
     #[error("Extension '{0}' not found")]
     ExtensionNotFound(String),
 

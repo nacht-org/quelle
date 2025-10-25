@@ -3,8 +3,8 @@
 use eyre::{Context, Result};
 #[cfg(feature = "github")]
 use quelle_store::GitHubStore;
-use quelle_store::LocalStore;
 use quelle_store::{BaseStore, ExtensionSource, GitStore, RegistryConfig, StoreManager, StoreType};
+use quelle_store::{LocalStore, StoreError};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -84,10 +84,21 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
                 .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
 
             // If store.json already exists, warn and exit
-            let store_json = path.join("store.json");
-            if store_json.exists() {
-                println!("Store already initialized at '{}'", store_json.display());
-                return Ok(());
+            let manifest_result = local_store.get_store_manifest().await;
+            match manifest_result {
+                Ok(_) => {
+                    println!("Store already initialized");
+                    return Ok(());
+                }
+                Err(StoreError::ParseError(_)) => {
+                    // Proceed to initialize
+                }
+                Err(e) => {
+                    return Err(eyre::eyre!(
+                        "Failed to check existing store manifest: {}",
+                        e
+                    ));
+                }
             }
 
             local_store
@@ -129,10 +140,21 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
                 .build()?;
 
             // If store.json already exists, warn and exit
-            let store_json = cache_dir.join("store.json");
-            if store_json.exists() {
-                println!("Store already initialized at '{}'", store_json.display());
-                return Ok(());
+            let manifest_result = git_store.get_store_manifest().await;
+            match manifest_result {
+                Ok(_) => {
+                    println!("Store already initialized",);
+                    return Ok(());
+                }
+                Err(StoreError::ParseError(_)) => {
+                    // Proceed to initialize
+                }
+                Err(e) => {
+                    return Err(eyre::eyre!(
+                        "Failed to check existing store manifest: {}",
+                        e
+                    ));
+                }
             }
 
             git_store
@@ -155,6 +177,8 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
             auth,
         } => {
             // Create the cache directory if it doesn't exist
+
+            use quelle_store::StoreError;
             if !cache_dir.exists() {
                 println!(
                     "Creating GitHub store cache directory: {}",
@@ -174,13 +198,26 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
                 .reference(reference.clone())
                 .name(name.clone())
                 .cache_dir(cache_dir.clone())
+                .writable()
                 .build()?;
 
             // If store.json already exists, warn and exit
-            let store_json = cache_dir.join("store.json");
-            if store_json.exists() {
-                println!("Store already initialized at '{}'", store_json.display());
-                return Ok(());
+            let manifest_result = github_store.get_store_manifest().await;
+            match manifest_result {
+                Ok(_) => {
+                    println!("Store already initialized");
+                    return Ok(());
+                }
+                Err(StoreError::ParseError(_)) => {
+                    // Proceed to initialize
+                }
+                Err(e) => {
+                    tracing::error!("Failed to check existing store manifest: {:?}", e);
+                    return Err(eyre::eyre!(
+                        "Failed to check existing store manifest: {}",
+                        e
+                    ));
+                }
             }
 
             github_store

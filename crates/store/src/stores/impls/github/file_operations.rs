@@ -214,7 +214,7 @@ impl FileOperations for GitHubFileOperations {
         })?;
 
         if response.status() == 404 {
-            return Err(StoreError::ExtensionNotFound(format!(
+            return Err(StoreError::FileNotFound(format!(
                 "File not found in GitHub repository {}/{}: {}",
                 self.owner, self.repo, path
             )));

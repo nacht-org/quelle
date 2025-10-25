@@ -217,7 +217,6 @@ impl LocallyCachedStore<GitProvider> {
         description: Option<String>,
     ) -> Result<()> {
         use crate::manager::store_manifest::StoreManifest;
-        
 
         // Get git-specific information
         let git_url = self.provider.url().to_string();
@@ -268,6 +267,15 @@ impl LocallyCachedStore<GitProvider> {
                 reason: "Git write configuration not available".to_string(),
             }
         })?;
+
+        if !self.provider.is_git_repo() {
+            tracing::debug!("Git repository not found, initializing new repository");
+            self.provider.git_init()?;
+            self.provider.set_git_remote()?;
+            tracing::info!("Initialized new git repository");
+        } else {
+            tracing::debug!("Git repository already initialized");
+        }
 
         tracing::debug!("Adding all changes to git staging area");
         // Add all changes (store.json and any other files)

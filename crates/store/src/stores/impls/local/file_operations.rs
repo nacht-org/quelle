@@ -141,7 +141,7 @@ impl FileOperations for LocalFileOperations {
         );
 
         if !full_path.exists() {
-            return Err(StoreError::ExtensionNotFound(format!(
+            return Err(StoreError::FileNotFound(format!(
                 "File not found: {}",
                 path
             )));
