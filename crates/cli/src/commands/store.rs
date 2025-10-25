@@ -90,7 +90,7 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
                     println!("Store already initialized");
                     return Ok(());
                 }
-                Err(StoreError::ParseError(_)) => {
+                Err(StoreError::FileNotFound(_)) => {
                     // Proceed to initialize
                 }
                 Err(e) => {
@@ -146,7 +146,7 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
                     println!("Store already initialized",);
                     return Ok(());
                 }
-                Err(StoreError::ParseError(_)) => {
+                Err(StoreError::FileNotFound(_)) => {
                     // Proceed to initialize
                 }
                 Err(e) => {
@@ -208,7 +208,7 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
                     println!("Store already initialized");
                     return Ok(());
                 }
-                Err(StoreError::ParseError(_)) => {
+                Err(StoreError::FileNotFound(_)) => {
                     // Proceed to initialize
                 }
                 Err(e) => {

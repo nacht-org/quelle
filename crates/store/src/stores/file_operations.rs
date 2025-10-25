@@ -80,9 +80,6 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     pub async fn get_local_store_manifest(&self) -> Result<LocalStoreManifest> {
         self.read_json_file::<LocalStoreManifest>("store.json")
             .await
-            .map_err(|e| {
-                StoreError::ParseError(format!("Failed to load local store manifest: {}", e))
-            })
     }
 
     /// Resolve version (get latest if None provided)
