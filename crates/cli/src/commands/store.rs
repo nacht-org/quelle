@@ -358,12 +358,11 @@ async fn handle_add_git_store(
     let is_empty = cache_path
         .read_dir()?
         .filter_map(|r| r.ok())
-        .filter(|e| {
+        .find(|e| {
             let file_name = e.file_name();
             let file_name_str = file_name.to_string_lossy();
             file_name_str != ".git" // Ignore .git directory
         })
-        .next()
         .is_none();
 
     if is_empty {

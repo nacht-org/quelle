@@ -1,7 +1,7 @@
 //! Command handling for the development server
 
 use clap::{CommandFactory, Parser};
-use eyre::{Context, Result, eyre};
+use eyre::{Result, eyre};
 use quelle_engine::bindings::quelle::extension::novel::SimpleSearchQuery;
 
 use url::Url;

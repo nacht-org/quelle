@@ -1,4 +1,4 @@
-use eyre::eyre;
+use eyre::{eyre, Context};
 use once_cell::sync::Lazy;
 use quelle_extension::prelude::*;
 
@@ -31,17 +31,11 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_novel_info(&self, url: String) -> Result<Novel, eyre::Report> {
-        let response = Request::get(&url)
+        let doc = Request::get(&url)
             .wait_for_element(".post-title")
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get data"))?;
-
-        let doc = Html::new(&text);
+            .html(&self.client)
+            .map_err(|e| eyre!(e))
+            .wrap_err("Failed to fetch novel page")?;
 
         // Extract basic novel info
         let title = doc.select_first(".post-title").text()?;
@@ -136,6 +130,7 @@ impl QuelleExtension for Extension {
             .select(".wp-manga-chapter > a")?
             .into_iter()
             .collect();
+
         for (index, chapter_link) in chapter_links.into_iter().rev().enumerate() {
             let chapter_title = chapter_link.text_or_empty();
             let chapter_url = chapter_link.attr_opt("href").unwrap_or_default();
@@ -174,17 +169,11 @@ impl QuelleExtension for Extension {
         // Convert HTTPS to HTTP as in original Python code
         let http_url = url.replace("https:", "http:");
 
-        let response = Request::get(&http_url)
+        let mut html = Request::get(&http_url)
             .wait_for_element(".reading-content")
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get data"))?;
-
-        let mut html = Html::new(&text);
+            .html(&self.client)
+            .map_err(|e| eyre!(e))
+            .wrap_err("Failed to fetch chapter page")?;
 
         // TODO: Clean and reorder text content
         let content = html

@@ -130,6 +130,10 @@ impl CachingHttpExecutor {
         // Include body data
         if let Some(ref body) = request.data {
             match body {
+                http::RequestBody::Raw(data) => {
+                    hasher.update(b"raw:");
+                    hasher.update(data);
+                }
                 http::RequestBody::Form(form_data) => {
                     let mut sorted_form: Vec<_> = form_data.iter().collect();
                     sorted_form.sort_by_key(|(k, _)| k);
@@ -424,6 +428,7 @@ mod tests {
             data: None,
             wait_for_element: None,
             wait_timeout_ms: None,
+            expect_html: true,
         }
     }
 

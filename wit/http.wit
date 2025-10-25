@@ -19,9 +19,12 @@ interface http {
         wait-for-element: option<string>,
         /// Timeout in milliseconds for element waiting (default: 30000)
         wait-timeout-ms: option<u32>,
+        /// Expected response type (only for hinting to the http executor)
+        expect-html: bool,
     }
 
     variant request-body {
+        raw(list<u8>),
         form(list<tuple<string, form-part>>),
     }
 
