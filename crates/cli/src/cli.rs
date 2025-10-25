@@ -196,6 +196,11 @@ pub enum StoreCommands {
         #[command(subcommand)]
         store_type: AddStoreCommands,
     },
+    /// Initialize a local extension store directory (creates store.json) for an already added store
+    Init {
+        /// Store name (must already be added and be a local store)
+        name: String,
+    },
     /// Remove an extension store
     Remove {
         /// Store name

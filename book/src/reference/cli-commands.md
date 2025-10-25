@@ -302,6 +302,7 @@ quelle extensions info <ID>
 
 ## Store Management
 
+
 ### `quelle store`
 
 Manage extension stores.
@@ -310,7 +311,27 @@ Manage extension stores.
 quelle store <SUBCOMMAND>
 ```
 
+#### `quelle store init`
+
+Initialize a local extension store directory (creates store.json) for an already added local store.
+
+```bash
+quelle store init <NAME>
+```
+
+**Arguments:**
+- `<NAME>` - Store name (must already be added and be a local store)
+
+**Examples:**
+```bash
+quelle store add local dev ./my-extensions
+quelle store init dev
+```
+
+---
+
 #### `quelle store add`
+
 
 Add a new extension store.
 

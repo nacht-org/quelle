@@ -24,6 +24,7 @@ pub async fn handle_store_command(
         StoreCommands::Add { store_type } => {
             handle_add_store(store_type, config, store_manager).await
         }
+        StoreCommands::Init { name } => handle_init_store(name, config).await,
         StoreCommands::Remove { name, force } => {
             handle_remove_store(name, force, config, store_manager).await
         }
@@ -33,6 +34,174 @@ pub async fn handle_store_command(
             handle_store_info(name, &config.registry, store_manager).await
         }
     }
+}
+
+/// Initialize an extension store directory (creates store.json) for an already added store of any type
+pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
+    #[cfg(feature = "github")]
+    use quelle_store::GitHubStore;
+    use quelle_store::{GitAuth, GitReference, GitStore};
+
+    // Look up the store in the registry
+    let source = config
+        .registry
+        .extension_sources
+        .iter()
+        .find(|s| s.name == name);
+
+    let source = match source {
+        Some(source) => source,
+        None => {
+            return Err(eyre::eyre!(
+                "Store '{}' not found in registry. Please add it first.",
+                name
+            ));
+        }
+    };
+
+    match &source.store_type {
+        StoreType::Local { path } => {
+            // Create the directory if it doesn't exist
+            if !path.exists() {
+                println!("Creating store directory: {}", path.display());
+                std::fs::create_dir_all(&path).map_err(|e| {
+                    eyre::eyre!(
+                        "Failed to create store directory '{}': {}",
+                        path.display(),
+                        e
+                    )
+                })?;
+            }
+
+            if path.is_file() {
+                return Err(eyre::eyre!(
+                    "Path '{}' is a file, expected a directory",
+                    path.display()
+                ));
+            }
+
+            let local_store = LocalStore::new(path)
+                .map_err(|e| eyre::eyre!("Failed to create local store: {}", e))?;
+
+            // If store.json already exists, warn and exit
+            let store_json = path.join("store.json");
+            if store_json.exists() {
+                println!("Store already initialized at '{}'", store_json.display());
+                return Ok(());
+            }
+
+            local_store
+                .initialize_store(name.clone(), None)
+                .await
+                .map_err(|e| eyre::eyre!("Failed to initialize store: {}", e))?;
+
+            println!("Initialized local store '{}' at '{}'", name, path.display());
+        }
+        StoreType::Git {
+            url,
+            cache_dir,
+            reference,
+            auth,
+        } => {
+            // Create the cache directory if it doesn't exist
+            if !cache_dir.exists() {
+                println!(
+                    "Creating git store cache directory: {}",
+                    cache_dir.display()
+                );
+                std::fs::create_dir_all(&cache_dir).map_err(|e| {
+                    eyre::eyre!(
+                        "Failed to create cache directory '{}': {}",
+                        cache_dir.display(),
+                        e
+                    )
+                })?;
+            }
+
+            let git_store = GitStore::builder(url.clone())
+                .auth(auth.clone())
+                .reference(reference.clone())
+                .fetch_interval(std::time::Duration::from_secs(300))
+                .shallow(true)
+                .writable()
+                .cache_dir(cache_dir.clone())
+                .name(name.clone())
+                .build()?;
+
+            // If store.json already exists, warn and exit
+            let store_json = cache_dir.join("store.json");
+            if store_json.exists() {
+                println!("Store already initialized at '{}'", store_json.display());
+                return Ok(());
+            }
+
+            git_store
+                .initialize_store(name.clone(), None)
+                .await
+                .map_err(|e| eyre::eyre!("Failed to initialize git store: {}", e))?;
+
+            println!(
+                "Initialized git store '{}' at '{}'",
+                name,
+                cache_dir.display()
+            );
+        }
+        #[cfg(feature = "github")]
+        StoreType::GitHub {
+            owner,
+            repo,
+            cache_dir,
+            reference,
+            auth,
+        } => {
+            // Create the cache directory if it doesn't exist
+            if !cache_dir.exists() {
+                println!(
+                    "Creating GitHub store cache directory: {}",
+                    cache_dir.display()
+                );
+                std::fs::create_dir_all(&cache_dir).map_err(|e| {
+                    eyre::eyre!(
+                        "Failed to create cache directory '{}': {}",
+                        cache_dir.display(),
+                        e
+                    )
+                })?;
+            }
+
+            let github_store = GitHubStore::builder(owner.clone(), repo.clone())
+                .auth(auth.clone())
+                .reference(reference.clone())
+                .name(name.clone())
+                .cache_dir(cache_dir.clone())
+                .build()?;
+
+            // If store.json already exists, warn and exit
+            let store_json = cache_dir.join("store.json");
+            if store_json.exists() {
+                println!("Store already initialized at '{}'", store_json.display());
+                return Ok(());
+            }
+
+            github_store
+                .initialize_store(name.clone(), None)
+                .await
+                .map_err(|e| eyre::eyre!("Failed to initialize GitHub store: {}", e))?;
+
+            println!(
+                "Initialized GitHub store '{}' at '{}'",
+                name,
+                cache_dir.display()
+            );
+        }
+        #[cfg(not(feature = "github"))]
+        StoreType::GitHub { .. } => {
+            return Err(eyre::eyre!(
+                "GitHub store support is not enabled in this build."
+            ));
+        }
+    }
+    Ok(())
 }
 
 async fn handle_add_store(
@@ -167,7 +336,7 @@ async fn handle_add_local_store(
 
         // Create the default directory if it doesn't exist
         if !default_path.exists() {
-            println!("📂 Creating store directory: {}", default_path.display());
+            println!("Creating store directory: {}", default_path.display());
             std::fs::create_dir_all(&default_path).map_err(|e| {
                 eyre::eyre!(
                     "Failed to create store directory '{}': {}",
@@ -190,7 +359,7 @@ async fn handle_add_local_store(
     let is_empty = store_path.read_dir()?.next().is_none();
     if is_empty {
         println!(
-            "📂 Initializing empty directory as a local store: {}",
+            "Initializing empty directory as a local store: {}",
             store_path.display()
         );
 
@@ -203,7 +372,7 @@ async fn handle_add_local_store(
             .map_err(|e| eyre::eyre!("Failed to initialize store: {}", e))?;
     } else {
         println!(
-            "📂 Using existing directory as local store: {}",
+            "Using existing directory as local store: {}",
             store_path.display()
         );
 
@@ -367,7 +536,7 @@ async fn handle_add_git_store(
 
     if is_empty {
         println!(
-            "📂 Initializing empty directory as a git store: {}",
+            "Initializing empty directory as a git store: {}",
             cache_path.display()
         );
 
@@ -378,7 +547,7 @@ async fn handle_add_git_store(
             .wrap_err("Failed to initialize git store")?;
     } else {
         println!(
-            "📂 Using existing directory as git store cache: {}",
+            "Using existing directory as git store cache: {}",
             cache_path.display()
         );
 
@@ -610,7 +779,7 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
         registry_config.extension_sources.len()
     );
     for source in &registry_config.extension_sources {
-        println!("  📍 {} (priority: {})", source.name, source.priority);
+        println!("  {} (priority: {})", source.name, source.priority);
         println!("     Type: {:?}", source.store_type);
         match &source.store_type {
             StoreType::Local { path } => {
@@ -711,7 +880,7 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
                 continue;
             }
 
-            print!("🔄 Refreshing {}...", source.name);
+            print!("Refreshing {}...", source.name);
             io::stdout().flush()?;
 
             match source.as_cacheable() {

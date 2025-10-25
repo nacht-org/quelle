@@ -340,6 +340,16 @@ impl GitHubStore {
 
         Ok(git_store)
     }
+
+    pub async fn initialize_store(
+        &self,
+        store_name: String,
+        description: Option<String>,
+    ) -> Result<()> {
+        self.as_git_store()?
+            .initialize_store(store_name, description)
+            .await
+    }
 }
 
 #[async_trait]
