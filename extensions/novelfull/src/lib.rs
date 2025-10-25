@@ -1,4 +1,4 @@
-use eyre::{eyre, OptionExt};
+use eyre::{eyre, Context, OptionExt};
 use once_cell::sync::Lazy;
 use quelle_extension::prelude::*;
 
@@ -43,16 +43,10 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_novel_info(&self, url: String) -> Result<Novel, eyre::Report> {
-        let response = Request::get(&url)
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get data"))?;
-
-        let doc = Html::new(&text);
+        let doc = Request::get(&url)
+            .html(&self.client)
+            .map_err(|e| eyre!(e))
+            .wrap_err("Failed to fetch novel page")?;
 
         // Extract novel title
         let title = doc.select_first("h3.title")?.text_or_empty();
@@ -115,16 +109,10 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_chapter(&self, url: String) -> Result<ChapterContent, eyre::Report> {
-        let response = Request::get(&url)
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get data"))?;
-
-        let mut doc = Html::new(&text);
+        let mut doc = Request::get(&url)
+            .html(&self.client)
+            .map_err(|e| eyre!(e))
+            .wrap_err("Failed to fetch chapter page")?;
 
         // Bad CSS selectors to remove
         let bad_selectors = vec![
@@ -179,16 +167,10 @@ impl QuelleExtension for Extension {
             urlencoding::encode(&query.query)
         );
 
-        let response = Request::get(&search_url)
-            .send(&self.client)
-            .map_err(|e| eyre!(e))?
-            .error_for_status()?;
-
-        let text = response
-            .text()?
-            .ok_or_else(|| eyre!("Failed to get search results"))?;
-
-        let doc = Html::new(&text);
+        let doc = Request::get(&search_url)
+            .html(&self.client)
+            .map_err(|e| eyre!(e))
+            .wrap_err("Failed to fetch search results")?;
 
         let mut novels = Vec::new();
 
@@ -291,16 +273,10 @@ fn extract_chapters(client: &Client, doc: &Html) -> Result<Vec<Volume>, eyre::Re
     tracing::info!("Fetching chapters from: {}", ajax_url);
 
     // Fetch chapter list
-    let response = Request::get(&ajax_url)
-        .send(client)
-        .map_err(|e| eyre!(e))?
-        .error_for_status()?;
-
-    let text = response
-        .text()?
-        .ok_or_else(|| eyre!("Failed to get chapter list"))?;
-
-    let chapter_doc = Html::new(&text);
+    let chapter_doc = Request::get(&ajax_url)
+        .html(client)
+        .map_err(|e| eyre!(e))
+        .wrap_err("Failed to fetch chapter list")?;
 
     let mut volume = Volume::default();
 
