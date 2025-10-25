@@ -347,7 +347,7 @@ impl GitHubStore {
         description: Option<String>,
     ) -> Result<()> {
         self.as_git_store()?
-            .initialize_store(store_name, description)
+            .intiialize_store_with_type(store_name, description, "github")
             .await
     }
 }

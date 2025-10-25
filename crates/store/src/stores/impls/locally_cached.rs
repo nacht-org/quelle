@@ -216,20 +216,31 @@ impl LocallyCachedStore<GitProvider> {
         store_name: String,
         description: Option<String>,
     ) -> Result<()> {
+        self.intiialize_store_with_type(store_name, description, "git")
+            .await
+    }
+
+    pub(crate) async fn intiialize_store_with_type(
+        &self,
+        store_name: String,
+        description: Option<String>,
+        store_type: &str,
+    ) -> Result<()> {
         use crate::manager::store_manifest::StoreManifest;
 
-        // Get git-specific information
         let git_url = self.provider.url().to_string();
-        let git_description = self.provider.description();
-
-        // Use provided description or fall back to git description
-        let final_description = description.unwrap_or(git_description);
 
         // Create git-specific manifest with repository URL
-        let base_manifest =
-            StoreManifest::new(store_name.clone(), "git".to_string(), "1.0.0".to_string())
-                .with_url(git_url)
-                .with_description(final_description.clone());
+        let mut base_manifest = StoreManifest::new(
+            store_name.clone(),
+            store_type.to_string(),
+            "0.1.0".to_string(),
+        )
+        .with_url(git_url);
+
+        if let Some(desc) = description {
+            base_manifest = base_manifest.with_description(desc);
+        }
 
         // Initialize the local store with the manifest data
         self.local_store
