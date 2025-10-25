@@ -58,15 +58,16 @@ impl QuelleExtension for Extension {
             .next()
             .ok_or_else(|| eyre::eyre!("Invalid novel URL"))?;
 
+        tracing::info!("Fetching novel info for slug: {}", slug);
+
         let response = Request::post(format!("{API_URL}Novels/GetNovel"))
-            .protobuf(&GetNovelRequest {
+            .grpc(&GetNovelRequest {
                 selector: Some(Selector::Slug(slug.to_string())),
             })?
-            .add_grpc_web_headers()
             .send(&self.client)?;
 
         let novel_data = response
-            .protobuf::<GetNovelResponse>()?
+            .grpc::<GetNovelResponse>()?
             .item
             .ok_or_else(|| eyre::eyre!("Novel not found"))?;
 
@@ -129,7 +130,7 @@ impl QuelleExtension for Extension {
             .ok_or_else(|| eyre::eyre!("Invalid chapter URL"))?;
 
         let response = Request::post(format!("{API_URL}Chapters/GetChapter"))
-            .protobuf(&GetChapterRequest {
+            .grpc(&GetChapterRequest {
                 chapter_property: Some(GetChapterByProperty {
                     by_property: Some(ByProperty::Slugs(ByNovelAndChapterSlug {
                         novel_slug: novel_slug.to_string(),
@@ -137,11 +138,10 @@ impl QuelleExtension for Extension {
                     })),
                 }),
             })?
-            .add_grpc_web_headers()
             .send(&self.client)?;
 
         let chapter_data = response
-            .protobuf::<proto::GetChapterResponse>()?
+            .grpc::<proto::GetChapterResponse>()?
             .item
             .ok_or_else(|| eyre::eyre!("Chapter not found"))?;
 
@@ -184,15 +184,14 @@ fn fetch_volumes(
     max_free_chapter: Option<f64>,
 ) -> Result<Vec<Volume>, eyre::Report> {
     let response = Request::post(format!("{API_URL}Novels/SearchNovels"))
-        .protobuf(&GetChapterListRequest {
+        .grpc(&GetChapterListRequest {
             novel_id,
             filter: None,
             count: None,
         })?
-        .add_grpc_web_headers()
         .send(client)?;
 
-    let response_volumes = response.protobuf::<GetChapterListResponse>()?.items;
+    let response_volumes = response.grpc::<GetChapterListResponse>()?.items;
 
     let mut volumes = Vec::new();
     for volume_data in response_volumes {

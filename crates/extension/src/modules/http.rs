@@ -85,9 +85,30 @@ impl Request {
         Ok(self)
     }
 
+    /// Set the request body to a gRPC-Web encoded protobuf message
+    #[cfg(feature = "protobuf")]
+    pub fn grpc<M: prost::Message>(mut self, message: &M) -> Result<Self, eyre::Report> {
+        let mut buf = Vec::new();
+        message
+            .encode(&mut buf)
+            .map_err(|e| eyre!(e))
+            .wrap_err("Failed to encode protobuf message")?;
+
+        // Prepend the 5-byte gRPC message header: 1 byte flag (0), 4 bytes length (big endian)
+        let mut grpc_buf = Vec::with_capacity(5 + buf.len());
+        grpc_buf.push(0); // Compressed flag: 0 (not compressed)
+        grpc_buf.extend_from_slice(&(buf.len() as u32).to_be_bytes());
+        grpc_buf.extend_from_slice(&buf);
+
+        self.data = Some(RequestBody::Raw(grpc_buf));
+        self = self.add_grpc_headers();
+
+        Ok(self)
+    }
+
     /// Add gRPC-Web headers to the request
     #[cfg(feature = "protobuf")]
-    pub fn add_grpc_web_headers(mut self) -> Self {
+    pub fn add_grpc_headers(mut self) -> Self {
         self = self.header("Content-Type", "application/grpc-web+proto");
         self = self.header("X-Grpc-Web", "1");
         self
@@ -117,6 +138,38 @@ impl Response {
             Some(data) => {
                 let message = M::decode(&data[..])
                     .map_err(|e| eyre::eyre!("Failed to decode protobuf: {}", e))?;
+                Ok(message)
+            }
+            None => Err(eyre::eyre!("No data in response")),
+        }
+    }
+
+    /// Return the gRPC-Web decoded protobuf message from the response data.
+    #[cfg(feature = "protobuf")]
+    pub fn grpc<M: prost::Message + Default>(self) -> Result<M, eyre::Report> {
+        match self.data {
+            Some(data) => {
+                if data.len() < 5 {
+                    return Err(eyre::eyre!("Response data too short for gRPC-Web"));
+                }
+
+                // Read the gRPC-Web message header
+                let compressed_flag = data[0];
+                let length = u32::from_be_bytes([data[1], data[2], data[3], data[4]]) as usize;
+
+                if compressed_flag != 0 {
+                    return Err(eyre::eyre!("Compressed gRPC messages are not supported"));
+                }
+
+                if data.len() < 5 + length {
+                    return Err(eyre::eyre!("gRPC Response data length mismatch"));
+                }
+
+                let message_data = &data[5..5 + length];
+
+                let message = M::decode(message_data)
+                    .map_err(|e| eyre::eyre!("Failed to decode protobuf: {}", e))?;
+
                 Ok(message)
             }
             None => Err(eyre::eyre!("No data in response")),

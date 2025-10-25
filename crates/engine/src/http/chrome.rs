@@ -212,25 +212,28 @@ impl HttpExecutor for HeadlessChromeExecutor {
 
         let script = format!(
             r#"
-(async () => {{
-    {}
-    const response = await fetch("{}", {{
-        method: "{}",
-        headers: {},
-        body: {},
-    }});
+        (async () => {{
+            {}
+            const response = await fetch("{}", {{
+                method: "{}",
+                headers: {},
+                body: {},
+            }});
 
-    const headers = {{}};
-    for (const [key, value] of response.headers.entries()) {{
-        headers[key] = value;
-    }}
+            const headers = {{}};
+            for (const [key, value] of response.headers.entries()) {{
+                headers[key] = value;
+            }}
 
-    return JSON.stringify({{
-        status: response.status,
-        headers: headers,
-        data: await response.text(),
-    }});
-}})()
+            const arrayBuffer = await response.arrayBuffer();
+            const responseArray = new Uint8Array(arrayBuffer);
+
+            return JSON.stringify({{
+                status: response.status,
+                headers: headers,
+                data: responseArray.toBase64(),
+            }});
+        }})()
             "#,
             script,
             url,
@@ -238,6 +241,7 @@ impl HttpExecutor for HeadlessChromeExecutor {
             headers,
             body.unwrap_or("undefined")
         );
+
         tracing::info!("executing fetch script in browser");
 
         let result = tab
@@ -285,12 +289,14 @@ impl HttpExecutor for HeadlessChromeExecutor {
             })
             .unwrap_or_default();
 
-        let data = value
+        let base64_data = value
             .get("data")
             .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .as_bytes()
-            .to_vec();
+            .unwrap_or_default();
+
+        let data = general_purpose::STANDARD
+            .decode(base64_data)
+            .map_err(|e| HeadlessChromeError::Evaluate(e.to_string()))?;
 
         tracing::info!("successfully executed fetch script and got response");
 
