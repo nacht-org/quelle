@@ -6,8 +6,8 @@ use serde::Deserialize;
 use crate::proto::{
     get_chapter_by_property::{ByNovelAndChapterSlug, ByProperty},
     get_novel_request::Selector,
-    GetChapterByProperty, GetChapterListRequest, GetChapterListResponse, GetChapterRequest,
-    GetNovelRequest, GetNovelResponse, Timestamp,
+    DecimalValue, GetChapterByProperty, GetChapterListRequest, GetChapterListResponse,
+    GetChapterRequest, GetNovelRequest, GetNovelResponse, Timestamp,
 };
 
 pub mod proto {
@@ -90,6 +90,11 @@ impl QuelleExtension for Extension {
             ));
         }
 
+        let max_free_chapter = novel_data
+            .karma_info
+            .and_then(|ki| ki.max_free_chapter)
+            .map(|dv| f64::from(dv));
+
         let novel = Novel {
             title: novel_data.name,
             url: url.clone(),
@@ -104,7 +109,7 @@ impl QuelleExtension for Extension {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default(),
-            volumes: fetch_volumes(&self.client, novel_data.id, url.clone())?,
+            volumes: fetch_volumes(&self.client, novel_data.id, url.clone(), max_free_chapter)?,
             metadata: metadata,
             status,
             langs: META.langs.clone(),
@@ -176,6 +181,7 @@ fn fetch_volumes(
     client: &Client,
     novel_id: i32,
     novel_url: String,
+    max_free_chapter: Option<f64>,
 ) -> Result<Vec<Volume>, eyre::Report> {
     let response = Request::post(format!("{API_URL}Novels/SearchNovels"))
         .protobuf(&GetChapterListRequest {
@@ -196,9 +202,31 @@ fn fetch_volumes(
             chapters: vec![],
         };
 
-        // TODO: check if chapter is free or premium
-
         for chapter_data in volume_data.chapter_list {
+            let mut is_chapter_unlocked = chapter_data
+                .related_user_info
+                .and_then(|ruu| ruu.is_chapter_unlocked)
+                .map(|bool_value| bool_value.value)
+                .unwrap_or(false);
+
+            if !is_chapter_unlocked {
+                let is_chapter_free = max_free_chapter
+                    .and_then(|max_free| {
+                        chapter_data
+                            .number
+                            .map(|chapter_number| (max_free, f64::from(chapter_number)))
+                    })
+                    .map(|(max_free, chapter_number)| chapter_number <= max_free)
+                    .unwrap_or(true);
+
+                is_chapter_unlocked = is_chapter_free;
+            }
+
+            // Skip locked chapters for now (FIXME: implement chapter status)
+            if !is_chapter_unlocked {
+                continue;
+            }
+
             let url = format!("{}/{}", novel_url.trim_end_matches("/"), chapter_data.slug);
 
             let chapter = Chapter {
@@ -266,5 +294,11 @@ impl TryFrom<Timestamp> for DateTime<Utc> {
 
     fn try_from(ts: Timestamp) -> Result<Self, Self::Error> {
         DateTime::from_timestamp(ts.seconds, ts.nanos.try_into().unwrap_or(0)).ok_or(())
+    }
+}
+
+impl From<DecimalValue> for f64 {
+    fn from(value: DecimalValue) -> Self {
+        value.units as f64 + (value.nanos as f64 / 1_000_000_000.0)
     }
 }
