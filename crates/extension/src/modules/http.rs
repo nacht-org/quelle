@@ -85,6 +85,14 @@ impl Request {
         Ok(self)
     }
 
+    /// Add gRPC-Web headers to the request
+    #[cfg(feature = "protobuf")]
+    pub fn add_grpc_web_headers(mut self) -> Self {
+        self = self.header("Content-Type", "application/grpc-web+proto");
+        self = self.header("X-Grpc-Web", "1");
+        self
+    }
+
     pub fn send(&self, client: &Client) -> Result<Response, ResponseError> {
         client.request(self)
     }

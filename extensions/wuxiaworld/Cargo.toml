@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-quelle_extension = { path = "../../crates/extension" }
+quelle_extension = { path = "../../crates/extension", features = ["protobuf"] }
 chrono = { workspace = true }
 once_cell = { workspace = true }
 tracing = { workspace = true }
