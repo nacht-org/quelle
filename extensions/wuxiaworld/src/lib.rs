@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::proto::{
     get_chapter_by_property::{ByNovelAndChapterSlug, ByProperty},
     get_novel_request::Selector,
-    DecimalValue, GetChapterByProperty, GetChapterListRequest, GetChapterListResponse,
+    ChapterItem, DecimalValue, GetChapterByProperty, GetChapterListRequest, GetChapterListResponse,
     GetChapterRequest, GetNovelRequest, GetNovelResponse, Timestamp,
 };
 
@@ -203,27 +203,8 @@ fn fetch_volumes(
         };
 
         for chapter_data in volume_data.chapter_list {
-            let mut is_chapter_unlocked = chapter_data
-                .related_user_info
-                .and_then(|ruu| ruu.is_chapter_unlocked)
-                .map(|bool_value| bool_value.value)
-                .unwrap_or(false);
-
-            if !is_chapter_unlocked {
-                let is_chapter_free = max_free_chapter
-                    .and_then(|max_free| {
-                        chapter_data
-                            .number
-                            .map(|chapter_number| (max_free, f64::from(chapter_number)))
-                    })
-                    .map(|(max_free, chapter_number)| chapter_number <= max_free)
-                    .unwrap_or(true);
-
-                is_chapter_unlocked = is_chapter_free;
-            }
-
             // Skip locked chapters for now (FIXME: implement chapter status)
-            if !is_chapter_unlocked {
+            if !is_chapter_unlocked(&chapter_data, max_free_chapter) {
                 continue;
             }
 
@@ -246,6 +227,29 @@ fn fetch_volumes(
     }
 
     Ok(volumes)
+}
+
+fn is_chapter_unlocked(chapter_item: &ChapterItem, max_free_chapter: Option<f64>) -> bool {
+    let mut is_chapter_unlocked = chapter_item
+        .related_user_info
+        .and_then(|ruu| ruu.is_chapter_unlocked)
+        .map(|bool_value| bool_value.value)
+        .unwrap_or(false);
+
+    if !is_chapter_unlocked {
+        let is_chapter_free = max_free_chapter
+            .and_then(|max_free| {
+                chapter_item
+                    .number
+                    .map(|chapter_number| (max_free, f64::from(chapter_number)))
+            })
+            .map(|(max_free, chapter_number)| chapter_number <= max_free)
+            .unwrap_or(true);
+
+        is_chapter_unlocked = is_chapter_free;
+    }
+
+    is_chapter_unlocked
 }
 
 fn parse_novels(data: Vec<u8>) -> eyre::Result<Vec<BasicNovel>> {
