@@ -156,7 +156,6 @@ impl QuelleExtension for Extension {
     fn simple_search(&self, query: SimpleSearchQuery) -> Result<SearchResult, eyre::Report> {
         let response = Request::get(format!("{BASE_URL}/api/novels/search"))
             .param("query", query.query)
-            .expect_json()
             .send(&self.client)?;
 
         let data = response

@@ -91,13 +91,7 @@ impl HttpExecutor for HeadlessChromeExecutor {
         tab.enable_stealth_mode()
             .map_err(|e| HeadlessChromeError::NewTab(e.to_string()))?;
 
-        // Determine if we are expecting raw type (e.g., JSON) so we can skip direct navigation for GET requests
-        let expecting_raw_type = match request.expected_type {
-            Some(http::ExpectedType::Json) => true,
-            None => false,
-        };
-
-        if request.method == http::Method::Get && !expecting_raw_type {
+        if request.method == http::Method::Get && request.expect_html {
             tracing::info!("handling GET request with direct navigation");
             let response = tab
                 .navigate_to(&url)

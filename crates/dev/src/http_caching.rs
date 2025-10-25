@@ -428,6 +428,7 @@ mod tests {
             data: None,
             wait_for_element: None,
             wait_timeout_ms: None,
+            expect_html: true,
         }
     }
 

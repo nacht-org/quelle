@@ -1,7 +1,8 @@
 use eyre::{Context, eyre};
 
-use crate::http::{
-    Client, ExpectedType, FormPart, Method, Request, RequestBody, Response, ResponseError,
+use crate::{
+    http::{Client, FormPart, Method, Request, RequestBody, Response, ResponseError},
+    prelude::Html,
 };
 
 impl Request {
@@ -14,7 +15,7 @@ impl Request {
             headers: None,
             wait_for_element: None,
             wait_timeout_ms: None,
-            expected_type: None,
+            expect_html: false,
         }
     }
 
@@ -75,9 +76,8 @@ impl Request {
         self
     }
 
-    pub fn expect_json(mut self) -> Self {
-        self = self.header("Accept", "application/json");
-        self.expected_type = Some(ExpectedType::Json);
+    pub fn expect_html(mut self, expect: bool) -> Self {
+        self.expect_html = expect;
         self
     }
 
@@ -125,6 +125,17 @@ impl Request {
 
     pub fn send(&self, client: &Client) -> Result<Response, ResponseError> {
         client.request(self)
+    }
+
+    pub fn html(self, client: &Client) -> eyre::Result<Html> {
+        let response = self.expect_html(true).send(client)?;
+        let response_data = response.text()?;
+
+        let Some(html) = response_data else {
+            return Err(eyre::eyre!("No content in response"));
+        };
+
+        Ok(Html::new(&html))
     }
 }
 
