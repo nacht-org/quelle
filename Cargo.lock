@@ -1313,7 +1313,10 @@ dependencies = [
  "prost-build",
  "prost-types",
  "quelle_extension",
+ "serde",
+ "serde_json",
  "tracing",
+ "urlencoding",
 ]
 
 [[package]]

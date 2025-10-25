@@ -1,10 +1,13 @@
 use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use quelle_extension::prelude::*;
+use serde::Deserialize;
 
 use crate::proto::{
-    get_novel_request::Selector, GetChapterListRequest, GetChapterListResponse, GetNovelRequest,
-    GetNovelResponse, Timestamp,
+    get_chapter_by_property::{ByNovelAndChapterSlug, ByProperty},
+    get_novel_request::Selector,
+    GetChapterByProperty, GetChapterListRequest, GetChapterListResponse, GetChapterRequest,
+    GetNovelRequest, GetNovelResponse, Timestamp,
 };
 
 pub mod proto {
@@ -111,23 +114,61 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_chapter(&self, url: String) -> Result<ChapterContent, eyre::Report> {
-        // TODO: Implement chapter content scraping for your target website
-        // 1. Make HTTP request to the chapter URL
-        // 2. Parse HTML response
-        // 3. Extract chapter content using appropriate selectors
-        // 4. Return ChapterContent with the extracted data
-        todo!("Implement chapter content scraping for your target website")
+        let url_parts: Vec<&str> = url.trim_end_matches('/').rsplit('/').collect();
+
+        let novel_slug = url_parts
+            .get(1)
+            .ok_or_else(|| eyre::eyre!("Invalid chapter URL"))?;
+        let chapter_slug = url_parts
+            .get(0)
+            .ok_or_else(|| eyre::eyre!("Invalid chapter URL"))?;
+
+        let response = Request::post(format!("{API_URL}Chapters/GetChapter"))
+            .protobuf(&GetChapterRequest {
+                chapter_property: Some(GetChapterByProperty {
+                    by_property: Some(ByProperty::Slugs(ByNovelAndChapterSlug {
+                        novel_slug: novel_slug.to_string(),
+                        chapter_slug: chapter_slug.to_string(),
+                    })),
+                }),
+            })?
+            .add_grpc_web_headers()
+            .send(&self.client)?;
+
+        let chapter_data = response
+            .protobuf::<proto::GetChapterResponse>()?
+            .item
+            .ok_or_else(|| eyre::eyre!("Chapter not found"))?;
+
+        let content = chapter_data.content.map(|c| c.value).unwrap_or_default();
+        if content.is_empty() {
+            return Err(eyre::eyre!("Chapter content is empty"));
+        }
+
+        Ok(ChapterContent { data: content })
     }
 
     fn simple_search(&self, query: SimpleSearchQuery) -> Result<SearchResult, eyre::Report> {
-        // TODO: Implement search functionality for your target website
-        // 1. Build search URL with query parameters
-        // 2. Make HTTP request to search endpoint
-        // 3. Parse HTML response
-        // 4. Extract search results (novels list)
-        // 5. Handle pagination if supported
-        // 6. Return SearchResult with novels and pagination info
-        todo!("Implement search functionality for your target website")
+        let url = format!(
+            "{BASE_URL}/api/novels/search?query={}",
+            urlencoding::encode(&query.query)
+        );
+
+        let response = Request::get(url).send(&self.client)?;
+        let data = response
+            .data
+            .ok_or_else(|| eyre::eyre!("No data in search response"))?;
+
+        let novels = parse_novels(data)?;
+
+        Ok(SearchResult {
+            novels,
+            total_count: None,
+            current_page: 1,
+            total_pages: None,
+            has_next_page: false,
+            has_previous_page: false,
+        })
     }
 }
 
@@ -177,6 +218,36 @@ fn fetch_volumes(
     }
 
     Ok(volumes)
+}
+
+fn parse_novels(data: Vec<u8>) -> eyre::Result<Vec<BasicNovel>> {
+    #[derive(Deserialize)]
+    pub struct ApiSearchResponse {
+        pub items: Vec<ListNovel>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ListNovel {
+        pub name: String,
+        pub slug: String,
+        pub cover_url: Option<String>,
+    }
+
+    let response: ApiSearchResponse = serde_json::from_slice(&data)
+        .map_err(|e| eyre::eyre!("Failed to parse novel list: {}", e))?;
+
+    let basic_novels = response
+        .items
+        .into_iter()
+        .map(|novel| BasicNovel {
+            title: novel.name,
+            url: format!("{}/novel/{}", BASE_URL, novel.slug),
+            cover: novel.cover_url,
+        })
+        .collect();
+
+    Ok(basic_novels)
 }
 
 impl From<proto::novel_item::Status> for NovelStatus {
