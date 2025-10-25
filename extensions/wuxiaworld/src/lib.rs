@@ -94,7 +94,7 @@ impl QuelleExtension for Extension {
         let max_free_chapter = novel_data
             .karma_info
             .and_then(|ki| ki.max_free_chapter)
-            .map(|dv| f64::from(dv));
+            .map(f64::from);
 
         let novel = Novel {
             title: novel_data.name,
@@ -111,7 +111,7 @@ impl QuelleExtension for Extension {
                 })
                 .unwrap_or_default(),
             volumes: fetch_volumes(&self.client, novel_data.id, url.clone(), max_free_chapter)?,
-            metadata: metadata,
+            metadata,
             status,
             langs: META.langs.clone(),
         };
@@ -125,8 +125,7 @@ impl QuelleExtension for Extension {
         let novel_slug = url_parts
             .get(1)
             .ok_or_else(|| eyre::eyre!("Invalid chapter URL"))?;
-        let chapter_slug = url_parts
-            .get(0)
+        let chapter_slug = url_parts.first()
             .ok_or_else(|| eyre::eyre!("Invalid chapter URL"))?;
 
         let response = Request::post(format!("{API_URL}Chapters/GetChapter"))
@@ -212,7 +211,7 @@ fn fetch_volumes(
             let chapter = Chapter {
                 title: chapter_data.name,
                 index: chapter_data.offset,
-                url: url,
+                url,
                 updated_at: chapter_data
                     .published_at
                     .and_then(|ts| DateTime::<Utc>::try_from(ts).ok())
