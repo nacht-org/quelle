@@ -17,8 +17,8 @@ pub enum ExportError {
     NovelNotFound { novel_id: String },
 
     /// Storage operation failed.
-    #[error("Storage error: {message}")]
-    Storage { message: String },
+    #[error("Storage error: {0}")]
+    Storage(#[from] quelle_storage::BookStorageError),
 
     /// I/O operation failed.
     #[error("I/O error: {0}")]
@@ -33,22 +33,6 @@ pub enum ExportError {
     FormatError { message: String },
 
     /// Other error.
-    #[error("Export error: {message}")]
-    Other { message: String },
-}
-
-impl From<eyre::Report> for ExportError {
-    fn from(error: eyre::Report) -> Self {
-        ExportError::FormatError {
-            message: error.to_string(),
-        }
-    }
-}
-
-impl From<quelle_storage::BookStorageError> for ExportError {
-    fn from(error: quelle_storage::BookStorageError) -> Self {
-        ExportError::Storage {
-            message: error.to_string(),
-        }
-    }
+    #[error("Export error: {0}")]
+    Other(#[from] eyre::Report),
 }
