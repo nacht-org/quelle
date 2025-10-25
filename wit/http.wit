@@ -9,6 +9,10 @@ interface http {
         options,
     }
 
+    enum expected-type {
+        json,
+    }
+
     record request {
         method: method,
         url: string,
@@ -19,6 +23,8 @@ interface http {
         wait-for-element: option<string>,
         /// Timeout in milliseconds for element waiting (default: 30000)
         wait-timeout-ms: option<u32>,
+        /// Expected response content type (only for hinting to the http executor)
+        expected-type: option<expected-type>,
     }
 
     variant request-body {

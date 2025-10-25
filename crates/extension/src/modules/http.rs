@@ -1,6 +1,8 @@
 use eyre::{Context, eyre};
 
-use crate::http::{Client, FormPart, Method, Request, RequestBody, Response, ResponseError};
+use crate::http::{
+    Client, ExpectedType, FormPart, Method, Request, RequestBody, Response, ResponseError,
+};
 
 impl Request {
     pub fn new(method: Method, url: String) -> Self {
@@ -12,6 +14,7 @@ impl Request {
             headers: None,
             wait_for_element: None,
             wait_timeout_ms: None,
+            expected_type: None,
         }
     }
 
@@ -69,6 +72,12 @@ impl Request {
     /// Set timeout in milliseconds for element waiting (Chrome only)
     pub fn wait_timeout(mut self, timeout_ms: u32) -> Self {
         self.wait_timeout_ms = Some(timeout_ms);
+        self
+    }
+
+    pub fn expect_json(mut self) -> Self {
+        self = self.header("Accept", "application/json");
+        self.expected_type = Some(ExpectedType::Json);
         self
     }
 

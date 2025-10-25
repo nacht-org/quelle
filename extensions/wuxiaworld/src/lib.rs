@@ -154,15 +154,16 @@ impl QuelleExtension for Extension {
     }
 
     fn simple_search(&self, query: SimpleSearchQuery) -> Result<SearchResult, eyre::Report> {
-        let url = format!(
-            "{BASE_URL}/api/novels/search?query={}",
-            urlencoding::encode(&query.query)
-        );
+        let response = Request::get(format!("{BASE_URL}/api/novels/search"))
+            .param("query", query.query)
+            .expect_json()
+            .send(&self.client)?;
 
-        let response = Request::get(url).send(&self.client)?;
         let data = response
             .data
             .ok_or_else(|| eyre::eyre!("No data in search response"))?;
+
+        tracing::info!("Search response data: {:?}", String::from_utf8_lossy(&data));
 
         let novels = parse_novels(data)?;
 
@@ -183,7 +184,7 @@ fn fetch_volumes(
     novel_url: String,
     max_free_chapter: Option<f64>,
 ) -> Result<Vec<Volume>, eyre::Report> {
-    let response = Request::post(format!("{API_URL}Novels/SearchNovels"))
+    let response = Request::post(format!("{API_URL}Chapters/GetChapterList"))
         .grpc(&GetChapterListRequest {
             novel_id,
             filter: None,
@@ -194,9 +195,9 @@ fn fetch_volumes(
     let response_volumes = response.grpc::<GetChapterListResponse>()?.items;
 
     let mut volumes = Vec::new();
-    for volume_data in response_volumes {
+    for (i, volume_data) in response_volumes.into_iter().enumerate() {
         let mut volume = Volume {
-            index: volume_data.order,
+            index: i as i32,
             name: volume_data.title,
             chapters: vec![],
         };
