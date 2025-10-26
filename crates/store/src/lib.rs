@@ -18,50 +18,6 @@
 //! ## Basic Usage
 //!
 pub mod cache;
-/// ```rust
-/// use quelle_store::{StoreManager, LocalRegistryStore};
-/// use quelle_store::stores::local::LocalStore;
-///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// // Option 1: Use OS-specific defaults
-/// let mut manager = quelle_store::init_default().await?;
-///
-/// // Option 2: Use custom directory
-/// let registry_store = Box::new(LocalRegistryStore::new("./custom-extensions").await?);
-/// let mut manager = StoreManager::new(registry_store).await?;
-///
-/// // Add extension stores for discovery
-/// let local_store = LocalStore::new("./local-repo")?;
-/// let registry_config = quelle_store::RegistryStoreConfig::new("local-repo".to_string(), "local".to_string());
-/// manager.add_extension_store(local_store, registry_config).await?;
-///
-/// // Install an extension
-/// let installed = manager.install("dragontea", None, None).await?;
-/// println!("Installed: {}@{}", installed.name, installed.version);
-/// # Ok(())
-/// # }
-/// ```
-///
-/// ## Search and Discovery
-///
-/// ```rust
-/// use quelle_store::{StoreManager, SearchQuery, SearchSortBy};
-///
-/// # async fn search_example(manager: &StoreManager) -> Result<(), Box<dyn std::error::Error>> {
-/// // Search for novel scrapers
-/// let query = SearchQuery::new()
-///     .with_text("novel".to_string())
-///     .with_tags(vec!["scraper".to_string()])
-///     .sort_by(SearchSortBy::Relevance)
-///     .limit(10);
-///
-/// let results = manager.search_all_stores(&query).await?;
-/// for ext in results {
-///     println!("Found: {} by {} - {}", ext.name, ext.author, ext.description.unwrap_or_default());
-/// }
-/// # Ok(())
-/// # }
-/// ```
 pub mod error;
 pub mod manager;
 pub mod models;

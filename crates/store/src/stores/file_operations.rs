@@ -455,6 +455,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use semver::Version;
 
     use crate::stores::impls::local::{
@@ -463,7 +464,7 @@ mod tests {
     };
 
     use super::*;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
 
     /// Mock file operations for testing
     struct MockFileOperations {
@@ -567,29 +568,46 @@ mod tests {
         }
     }
 
+    /// Helper function to create a minimal LocalStoreManifest
+    fn create_local_store_manifest() -> LocalStoreManifest {
+        let base_manifest = StoreManifest::new(
+            "test-store".to_string(),
+            "local".to_string(),
+            "1.0.0".to_string(),
+        );
+
+        LocalStoreManifest {
+            base: base_manifest,
+            index: LocalStoreManifestIndex {
+                url_patterns: vec![],
+            },
+            extensions: BTreeMap::new(),
+        }
+    }
+
     #[tokio::test]
     async fn test_file_based_processor_basic() {
         let mut mock_ops = MockFileOperations::new();
 
-        // Add a simple store manifest
-        let store_manifest = StoreManifest::new(
-            "test-store".to_string(),
-            "test".to_string(),
-            "1.0.0".to_string(),
-        )
-        .with_description("Test store".to_string());
-        mock_ops.add_json_file("store.json", &store_manifest);
+        // Add a LocalStoreManifest instead of just StoreManifest
+        let local_manifest = create_local_store_manifest();
+        mock_ops.add_json_file("store.json", &local_manifest);
 
         let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
 
         let manifest = processor.get_store_manifest().await.unwrap();
         assert_eq!(manifest.name, "test-store");
-        assert_eq!(manifest.store_type, "test");
+        assert_eq!(manifest.store_type, "local");
     }
 
     #[tokio::test]
     async fn test_list_extensions_empty() {
-        let mock_ops = MockFileOperations::new();
+        let mut mock_ops = MockFileOperations::new();
+
+        // Add empty LocalStoreManifest
+        let local_manifest = create_local_store_manifest();
+        mock_ops.add_json_file("store.json", &local_manifest);
+
         let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
 
         let extensions = processor.list_extensions().await.unwrap();
@@ -597,19 +615,53 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_find_extensions_for_url() {
-        use crate::manager::store_manifest::{ExtensionVersion, StoreManifest};
-        use crate::stores::impls::local::store::LocalStoreManifest;
-        use std::collections::BTreeSet;
+    async fn test_list_extensions_with_data() {
+        let mut mock_ops = MockFileOperations::new();
 
+        // Create a LocalStoreManifest with one extension
+        let mut local_manifest = create_local_store_manifest();
+
+        let extension_summary = ExtensionVersion {
+            id: "test-ext".to_string(),
+            name: "Test Extension".to_string(),
+            version: Version::parse("1.0.0").unwrap(),
+            base_urls: vec![],
+            langs: vec!["en".to_string()],
+            last_updated: Utc::now(),
+            manifest_path: "extensions/test-ext/1.0.0/manifest.json".to_string(),
+            manifest_checksum: "checksum123".to_string(),
+        };
+
+        let mut extension_versions = ExtensionVersions {
+            latest: extension_summary.version.clone(),
+            all_versions: BTreeMap::new(),
+        };
+
+        extension_versions
+            .all_versions
+            .insert(extension_summary.version.clone(), extension_summary);
+
+        local_manifest
+            .extensions
+            .insert("test-ext".to_string(), extension_versions);
+
+        mock_ops.add_json_file("store.json", &local_manifest);
+
+        let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
+
+        let extensions = processor.list_extensions().await.unwrap();
+        assert_eq!(extensions.len(), 1);
+        assert_eq!(extensions[0].id, "test-ext");
+        assert_eq!(extensions[0].name, "Test Extension");
+        assert_eq!(extensions[0].version, Version::parse("1.0.0").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_find_extensions_for_url() {
         let mut mock_ops = MockFileOperations::new();
 
         // Create a LocalStoreManifest with URL patterns
-        let base_manifest = StoreManifest::new(
-            "test-store".to_string(),
-            "local".to_string(),
-            "1.0.0".to_string(),
-        );
+        let mut local_manifest = create_local_store_manifest();
 
         let mut url_pattern = UrlPattern {
             url_prefix: "https://example.com".to_string(),
@@ -623,6 +675,8 @@ mod tests {
         };
         url_pattern2.extensions.insert("test-extension".to_string());
 
+        local_manifest.index.url_patterns = vec![url_pattern, url_pattern2];
+
         let extension_summary = ExtensionVersion {
             id: "test-extension".to_string(),
             name: "Test Extension".to_string(),
@@ -632,17 +686,9 @@ mod tests {
                 "https://test.org".to_string(),
             ],
             langs: vec!["en".to_string()],
-            last_updated: chrono::Utc::now(),
+            last_updated: Utc::now(),
             manifest_path: "extensions/test-extension/1.0.0/manifest.json".to_string(),
             manifest_checksum: "test-checksum".to_string(),
-        };
-
-        let mut local_manifest = LocalStoreManifest {
-            base: base_manifest,
-            index: LocalStoreManifestIndex {
-                url_patterns: vec![url_pattern, url_pattern2],
-            },
-            extensions: BTreeMap::new(),
         };
 
         let mut extension_versions = ExtensionVersions {
@@ -652,7 +698,7 @@ mod tests {
 
         extension_versions
             .all_versions
-            .insert(Version::parse("1.0.0").unwrap(), extension_summary);
+            .insert(extension_summary.version.clone(), extension_summary);
 
         local_manifest
             .extensions
@@ -687,5 +733,131 @@ mod tests {
             .await
             .unwrap();
         assert!(matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_extensions() {
+        let mut mock_ops = MockFileOperations::new();
+
+        let mut local_manifest = create_local_store_manifest();
+
+        // Add multiple extensions
+        let ext1 = ExtensionVersion {
+            id: "json-parser".to_string(),
+            name: "JSON Parser".to_string(),
+            version: Version::parse("1.0.0").unwrap(),
+            base_urls: vec![],
+            langs: vec!["en".to_string()],
+            last_updated: Utc::now(),
+            manifest_path: "extensions/json-parser/1.0.0/manifest.json".to_string(),
+            manifest_checksum: "checksum1".to_string(),
+        };
+
+        let ext2 = ExtensionVersion {
+            id: "xml-handler".to_string(),
+            name: "XML Handler".to_string(),
+            version: Version::parse("2.0.0").unwrap(),
+            base_urls: vec![],
+            langs: vec!["fr".to_string()],
+            last_updated: Utc::now(),
+            manifest_path: "extensions/xml-handler/2.0.0/manifest.json".to_string(),
+            manifest_checksum: "checksum2".to_string(),
+        };
+
+        let mut versions1 = ExtensionVersions {
+            latest: ext1.version.clone(),
+            all_versions: BTreeMap::new(),
+        };
+        versions1.all_versions.insert(ext1.version.clone(), ext1);
+
+        let mut versions2 = ExtensionVersions {
+            latest: ext2.version.clone(),
+            all_versions: BTreeMap::new(),
+        };
+        versions2.all_versions.insert(ext2.version.clone(), ext2);
+
+        local_manifest
+            .extensions
+            .insert("json-parser".to_string(), versions1);
+        local_manifest
+            .extensions
+            .insert("xml-handler".to_string(), versions2);
+
+        mock_ops.add_json_file("store.json", &local_manifest);
+
+        let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
+
+        // Test text search
+        let query = SearchQuery {
+            text: Some("json".to_string()),
+            ..Default::default()
+        };
+        let results = processor.search_extensions(&query).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "json-parser");
+
+        // Test language filter
+        let query = SearchQuery {
+            tags: vec!["fr".to_string()],
+            ..Default::default()
+        };
+        let results = processor.search_extensions(&query).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "xml-handler");
+
+        // Test no matches
+        let query = SearchQuery {
+            text: Some("nonexistent".to_string()),
+            ..Default::default()
+        };
+        let results = processor.search_extensions(&query).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_extension_latest_version() {
+        let mut mock_ops = MockFileOperations::new();
+
+        let mut local_manifest = create_local_store_manifest();
+
+        let ext_summary = ExtensionVersion {
+            id: "my-ext".to_string(),
+            name: "My Extension".to_string(),
+            version: Version::parse("2.5.0").unwrap(),
+            base_urls: vec![],
+            langs: vec![],
+            last_updated: Utc::now(),
+            manifest_path: "extensions/my-ext/2.5.0/manifest.json".to_string(),
+            manifest_checksum: "checksum".to_string(),
+        };
+
+        let mut versions = ExtensionVersions {
+            latest: ext_summary.version.clone(),
+            all_versions: BTreeMap::new(),
+        };
+        versions
+            .all_versions
+            .insert(ext_summary.version.clone(), ext_summary);
+
+        local_manifest
+            .extensions
+            .insert("my-ext".to_string(), versions);
+
+        mock_ops.add_json_file("store.json", &local_manifest);
+
+        let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
+
+        let latest = processor
+            .get_extension_latest_version("my-ext")
+            .await
+            .unwrap();
+        assert_eq!(latest, Some(Version::parse("2.5.0").unwrap()));
+
+        // Test non-existent extension
+        let latest = processor
+            .get_extension_latest_version("nonexistent")
+            .await
+            .unwrap();
+        assert_eq!(latest, None);
     }
 }

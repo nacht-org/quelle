@@ -82,11 +82,11 @@ impl Html {
     ///
     /// # Example
     /// ```rust
-    /// # use extension::prelude::{Doc, ElementListExt};
+    /// # use quelle_extension::prelude::{Html, ElementListExt};
     /// # fn main() -> Result<(), eyre::Report> {
     /// let html = "<html><body><h1>Hello</h1><p>World</p></body></html>";
-    /// let doc = Doc::new(html);
-    /// let title = doc.select_first("h1")?.text()?;
+    /// let doc = Html::new(html);
+    /// let title = doc.select_first("h1")?.text_or_empty();
     /// assert_eq!(title, "Hello");
     /// # Ok(())
     /// # }

@@ -3,6 +3,7 @@
 /// # Examples
 ///
 /// ```
+/// # use quelle_extension::prelude::make_absolute_url;
 /// let abs = make_absolute_url("/foo/bar", "https://example.com/base");
 /// assert_eq!(abs, "https://example.com/foo/bar");
 /// ```
