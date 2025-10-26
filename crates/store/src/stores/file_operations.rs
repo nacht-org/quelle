@@ -124,12 +124,13 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     ) -> Result<LocalExtensionManifest> {
         let version = self.resolve_version(extension_id, version).await?;
 
-        // Get the manifest path from the extension summary
-        let summaries = self.list_extensions().await?;
-        let manifest_path = summaries
-            .iter()
-            .find(|s| s.id == extension_id && &s.version == version.as_ref())
-            .map(|s| s.manifest_path.clone())
+        // Get the manifest path from the local store manifest directly
+        let local_manifest = self.get_local_store_manifest().await?;
+        let manifest_path = local_manifest
+            .extensions
+            .get(extension_id)
+            .and_then(|versions| versions.all_versions.get(version.as_ref()))
+            .map(|summary| summary.manifest_path.clone())
             .ok_or_else(|| {
                 StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
             })?;
@@ -458,6 +459,10 @@ mod tests {
     use chrono::Utc;
     use semver::Version;
 
+    use crate::models::CompatibilityInfo;
+    use crate::registry::manifest::{
+        Attribute, ExtensionManifest, FileReference, ReadingDirection,
+    };
     use crate::stores::impls::local::{
         index::{LocalStoreManifestIndex, UrlPattern},
         store::ExtensionVersions,
@@ -465,6 +470,7 @@ mod tests {
 
     use super::*;
     use std::collections::{BTreeMap, BTreeSet, HashMap};
+    use std::path::PathBuf;
 
     /// Mock file operations for testing
     struct MockFileOperations {
@@ -493,107 +499,463 @@ mod tests {
             self.files
                 .get(path)
                 .cloned()
-                .ok_or_else(|| StoreError::ExtensionNotFound(path.to_string()))
+                .ok_or_else(|| StoreError::ExtensionNotFound(format!("File not found: {}", path)))
         }
 
         async fn file_exists(&self, path: &str) -> Result<bool> {
-            Ok(self.files.contains_key(path))
+            // Check for exact file match first
+            if self.files.contains_key(path) {
+                return Ok(true);
+            }
+
+            // Check if it's a directory by looking for files with this path as prefix
+            let prefix = if path.ends_with('/') {
+                path.to_string()
+            } else {
+                format!("{}/", path)
+            };
+
+            for file_path in self.files.keys() {
+                if file_path.starts_with(&prefix) {
+                    return Ok(true);
+                }
+            }
+
+            Ok(false)
         }
 
         async fn list_directory(&self, path: &str) -> Result<Vec<String>> {
-            // Handle specific directory cases for testing
-            match path {
-                "extensions" => {
-                    // Return extension names that exist
-                    let mut extensions = Vec::new();
-                    for file_path in self.files.keys() {
-                        if file_path.starts_with("extensions/")
-                            && file_path.contains("/manifest.json")
-                        {
-                            let parts: Vec<&str> = file_path.split('/').collect();
-                            if parts.len() >= 2 {
-                                let extension_name = parts[1];
-                                if !extensions.contains(&extension_name.to_string()) {
-                                    extensions.push(extension_name.to_string());
-                                }
-                            }
-                        }
-                    }
-                    Ok(extensions)
-                }
-                path if path.starts_with("extensions/") => {
-                    // Return versions for this extension
-                    let extension_prefix = format!("{}/", path);
-                    let mut versions = Vec::new();
-                    for file_path in self.files.keys() {
-                        if file_path.starts_with(&extension_prefix)
-                            && file_path.ends_with("/manifest.json")
-                        {
-                            let remaining = &file_path[extension_prefix.len()..];
-                            if let Some(slash_pos) = remaining.find('/') {
-                                let version = &remaining[..slash_pos];
-                                if !versions.contains(&version.to_string()) {
-                                    versions.push(version.to_string());
-                                }
-                            }
-                        }
-                    }
-                    Ok(versions)
-                }
-                _ => {
-                    // Generic directory listing logic
-                    let prefix = if path.ends_with('/') {
-                        path.to_string()
-                    } else {
-                        format!("{}/", path)
-                    };
+            let prefix = if path.ends_with('/') {
+                path.to_string()
+            } else {
+                format!("{}/", path)
+            };
 
-                    let mut entries = std::collections::HashSet::new();
+            let mut entries = std::collections::HashSet::new();
 
-                    for file_path in self.files.keys() {
-                        if file_path.starts_with(&prefix) {
-                            let remaining = &file_path[prefix.len()..];
-                            if let Some(slash_pos) = remaining.find('/') {
-                                let first_part = &remaining[..slash_pos];
-                                if !first_part.is_empty() {
-                                    entries.insert(first_part.to_string());
-                                }
-                            }
+            for file_path in self.files.keys() {
+                if file_path.starts_with(&prefix) {
+                    let remaining = &file_path[prefix.len()..];
+                    if let Some(slash_pos) = remaining.find('/') {
+                        let first_part = &remaining[..slash_pos];
+                        if !first_part.is_empty() {
+                            entries.insert(first_part.to_string());
                         }
+                    } else if !remaining.is_empty() {
+                        // File directly in directory
+                        entries.insert(remaining.to_string());
                     }
-
-                    Ok(entries.into_iter().collect())
                 }
             }
+
+            Ok(entries.into_iter().collect())
         }
     }
 
-    /// Helper function to create a minimal LocalStoreManifest
-    fn create_local_store_manifest() -> LocalStoreManifest {
-        let base_manifest = StoreManifest::new(
-            "test-store".to_string(),
-            "local".to_string(),
-            "1.0.0".to_string(),
-        );
+    /// Test fixture builder for creating test data
+    struct TestFixture {
+        mock_ops: MockFileOperations,
+        local_manifest: LocalStoreManifest,
+    }
 
-        LocalStoreManifest {
-            base: base_manifest,
-            index: LocalStoreManifestIndex {
-                url_patterns: vec![],
-            },
-            extensions: BTreeMap::new(),
+    impl TestFixture {
+        fn new() -> Self {
+            let base_manifest = StoreManifest::new(
+                "test-store".to_string(),
+                "local".to_string(),
+                "1.0.0".to_string(),
+            );
+
+            let local_manifest = LocalStoreManifest {
+                base: base_manifest,
+                index: LocalStoreManifestIndex {
+                    url_patterns: vec![],
+                },
+                extensions: BTreeMap::new(),
+            };
+
+            Self {
+                mock_ops: MockFileOperations::new(),
+                local_manifest,
+            }
+        }
+
+        /// Add an extension to the test fixture
+        fn with_extension(
+            mut self,
+            id: &str,
+            name: &str,
+            version: &str,
+            langs: Vec<String>,
+        ) -> Self {
+            let version = Version::parse(version).unwrap();
+
+            let extension_summary = ExtensionVersion {
+                id: id.to_string(),
+                name: name.to_string(),
+                version: version.clone(),
+                base_urls: vec![],
+                langs,
+                last_updated: Utc::now(),
+                manifest_path: format!("extensions/{}/{}/manifest.json", id, version),
+                manifest_checksum: {
+                    use sha2::{Digest, Sha256};
+                    format!(
+                        "{:x}",
+                        Sha256::digest(format!("manifest-{}", id).as_bytes())
+                    )
+                },
+            };
+
+            let mut extension_versions = ExtensionVersions {
+                latest: version.clone(),
+                all_versions: BTreeMap::new(),
+            };
+
+            extension_versions
+                .all_versions
+                .insert(version, extension_summary);
+
+            self.local_manifest
+                .extensions
+                .insert(id.to_string(), extension_versions);
+
+            self
+        }
+
+        /// Add multiple versions of an extension
+        fn with_extension_versions(
+            mut self,
+            id: &str,
+            name: &str,
+            versions: &[&str],
+            langs: Vec<String>,
+        ) -> Self {
+            let parsed_versions: Vec<Version> = versions
+                .iter()
+                .map(|v| Version::parse(v).unwrap())
+                .collect();
+
+            let latest = parsed_versions.iter().max().unwrap().clone();
+
+            let mut extension_versions = ExtensionVersions {
+                latest: latest.clone(),
+                all_versions: BTreeMap::new(),
+            };
+
+            for version in parsed_versions {
+                let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
+
+                let extension_summary = ExtensionVersion {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    version: version.clone(),
+                    base_urls: vec![],
+                    langs: langs.clone(),
+                    last_updated: Utc::now(),
+                    manifest_path: manifest_path.clone(),
+                    manifest_checksum: {
+                        use sha2::{Digest, Sha256};
+                        format!(
+                            "{:x}",
+                            Sha256::digest(format!("manifest-{}-{}", id, version).as_bytes())
+                        )
+                    },
+                };
+
+                // Create a basic extension manifest for this version
+                let extension_manifest = ExtensionManifest {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    version: version.clone(),
+                    author: "Test Author".to_string(),
+                    langs: langs.clone(),
+                    base_urls: vec!["https://example.com".to_string()],
+                    rds: vec![ReadingDirection::Ltr],
+                    attrs: vec![Attribute::Fanfiction],
+                    signature: None,
+                    wasm_file: FileReference::new("extension.wasm".to_string(), b"fake wasm"),
+                    assets: vec![],
+                };
+
+                // Create LocalExtensionManifest
+                let local_manifest = LocalExtensionManifest {
+                    manifest: extension_manifest,
+                    path: PathBuf::from(format!("extensions/{}/{}", id, version)),
+                    metadata: None,
+                };
+
+                // Add manifest file to mock filesystem
+                self.mock_ops.add_json_file(&manifest_path, &local_manifest);
+
+                // Add WASM file to mock filesystem
+                self.mock_ops.add_file(
+                    &format!("extensions/{}/{}/extension.wasm", id, version),
+                    b"fake wasm".to_vec(),
+                );
+
+                extension_versions
+                    .all_versions
+                    .insert(version, extension_summary);
+            }
+
+            self.local_manifest
+                .extensions
+                .insert(id.to_string(), extension_versions);
+
+            self
+        }
+
+        /// Add an extension with metadata for testing metadata operations
+        fn with_extension_metadata(
+            mut self,
+            id: &str,
+            name: &str,
+            version: &str,
+            langs: Vec<String>,
+            metadata: ExtensionMetadata,
+        ) -> Self {
+            let version = Version::parse(version).unwrap();
+            let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
+
+            let extension_summary = ExtensionVersion {
+                id: id.to_string(),
+                name: name.to_string(),
+                version: version.clone(),
+                base_urls: vec![],
+                langs,
+                last_updated: Utc::now(),
+                manifest_path: manifest_path.clone(),
+                manifest_checksum: {
+                    use sha2::{Digest, Sha256};
+                    format!(
+                        "{:x}",
+                        Sha256::digest(format!("manifest-{}", id).as_bytes())
+                    )
+                },
+            };
+
+            // Create a basic extension manifest
+            let extension_manifest = ExtensionManifest {
+                id: id.to_string(),
+                name: name.to_string(),
+                version: version.clone(),
+                author: "Test Author".to_string(),
+                langs: vec!["en".to_string()],
+                base_urls: vec!["https://example.com".to_string()],
+                rds: vec![ReadingDirection::Ltr],
+                attrs: vec![Attribute::Fanfiction],
+                signature: None,
+                wasm_file: FileReference {
+                    path: "extension.wasm".to_string(),
+                    checksum: "blake3:fake_checksum".to_string(),
+                    size: 1024,
+                },
+                assets: vec![],
+            };
+
+            // Create LocalExtensionManifest with metadata
+            let local_manifest = LocalExtensionManifest {
+                manifest: extension_manifest,
+                path: PathBuf::from(format!("extensions/{}/{}", id, version)),
+                metadata: Some(metadata),
+            };
+
+            // Add to extensions map
+            let mut extension_versions = ExtensionVersions {
+                latest: version.clone(),
+                all_versions: BTreeMap::new(),
+            };
+            extension_versions
+                .all_versions
+                .insert(version, extension_summary);
+
+            self.local_manifest
+                .extensions
+                .insert(id.to_string(), extension_versions);
+
+            // Add manifest file
+            self.mock_ops.add_json_file(&manifest_path, &local_manifest);
+
+            self
+        }
+
+        /// Add an extension with assets for testing asset operations
+        fn with_extension_assets(
+            mut self,
+            id: &str,
+            name: &str,
+            version: &str,
+            langs: Vec<String>,
+            asset_files: Vec<(&str, &str)>, // (name, path) pairs
+        ) -> Self {
+            let version_parsed = Version::parse(version).unwrap();
+            let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
+
+            // Create asset references
+            let assets: Vec<crate::registry::manifest::AssetReference> = asset_files
+                .iter()
+                .map(|(name, path)| crate::registry::manifest::AssetReference {
+                    name: name.to_string(),
+                    file: FileReference {
+                        path: path.to_string(),
+                        checksum: format!(
+                            "blake3:{}",
+                            blake3::hash(b"fake asset content").to_hex()
+                        ),
+                        size: 100,
+                    },
+                    asset_type: "generic".to_string(),
+                })
+                .collect();
+
+            // Create extension manifest with assets
+            let extension_manifest = ExtensionManifest {
+                id: id.to_string(),
+                name: name.to_string(),
+                version: version_parsed.clone(),
+                author: "Test Author".to_string(),
+                langs: langs.clone(),
+                base_urls: vec!["https://example.com".to_string()],
+                rds: vec![ReadingDirection::Ltr],
+                attrs: vec![Attribute::Fanfiction],
+                signature: None,
+                wasm_file: FileReference::new("extension.wasm".to_string(), b"fake wasm"),
+                assets,
+            };
+
+            // Create LocalExtensionManifest
+            let local_manifest = LocalExtensionManifest {
+                manifest: extension_manifest,
+                path: PathBuf::from(format!("extensions/{}/{}", id, version)),
+                metadata: None,
+            };
+
+            // Add to extensions map
+            let extension_summary = ExtensionVersion {
+                id: id.to_string(),
+                name: name.to_string(),
+                version: version_parsed.clone(),
+                base_urls: vec![],
+                langs,
+                last_updated: Utc::now(),
+                manifest_path: manifest_path.clone(),
+                manifest_checksum: {
+                    use sha2::{Digest, Sha256};
+                    format!(
+                        "{:x}",
+                        Sha256::digest(format!("manifest-{}", id).as_bytes())
+                    )
+                },
+            };
+
+            let mut extension_versions = ExtensionVersions {
+                latest: version_parsed.clone(),
+                all_versions: BTreeMap::new(),
+            };
+            extension_versions
+                .all_versions
+                .insert(version_parsed, extension_summary);
+
+            self.local_manifest
+                .extensions
+                .insert(id.to_string(), extension_versions);
+
+            // Add manifest file
+            self.mock_ops.add_json_file(&manifest_path, &local_manifest);
+
+            // Add WASM file
+            self.mock_ops.add_file(
+                &format!("extensions/{}/{}/extension.wasm", id, version),
+                b"fake wasm".to_vec(),
+            );
+
+            // Add asset files
+            for (_, path) in asset_files {
+                self.mock_ops.add_file(
+                    &format!("extensions/{}/{}/{}", id, version, path),
+                    b"fake asset content".to_vec(),
+                );
+            }
+
+            self
+        }
+
+        /// Add a URL pattern mapping for testing URL-based extension finding
+        fn with_url_pattern(mut self, url_prefix: &str, extension_ids: &[&str]) -> Self {
+            let mut url_pattern = UrlPattern {
+                url_prefix: url_prefix.to_string(),
+                extensions: BTreeSet::new(),
+            };
+
+            for id in extension_ids {
+                url_pattern.extensions.insert(id.to_string());
+            }
+
+            self.local_manifest.index.url_patterns.push(url_pattern);
+
+            // Also update base_urls in the extension summaries
+            for ext_id in extension_ids {
+                if let Some(versions) = self.local_manifest.extensions.get_mut(*ext_id) {
+                    for (_, summary) in versions.all_versions.iter_mut() {
+                        if !summary.base_urls.contains(&url_prefix.to_string()) {
+                            summary.base_urls.push(url_prefix.to_string());
+                        }
+                    }
+                }
+            }
+
+            self
+        }
+
+        /// Add a full extension manifest for testing manifest operations
+        fn with_full_manifest(mut self, id: &str, version: &str, wasm_content: &[u8]) -> Self {
+            let version_parsed = Version::parse(version).unwrap();
+            let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
+            let wasm_path = format!("extensions/{}/{}/extension.wasm", id, version);
+
+            // Create a proper ExtensionManifest
+            let wasm_file = FileReference::new("extension.wasm".to_string(), wasm_content);
+
+            let extension_manifest = ExtensionManifest {
+                id: id.to_string(),
+                name: id.to_string(),
+                version: version_parsed.clone(),
+                author: "Test Author".to_string(),
+                langs: vec!["en".to_string()],
+                base_urls: vec!["https://example.com".to_string()],
+                rds: vec![ReadingDirection::Ltr],
+                attrs: vec![Attribute::Fanfiction],
+                signature: None,
+                wasm_file: wasm_file.clone(),
+                assets: vec![],
+            };
+
+            // Create LocalExtensionManifest
+            let local_manifest = LocalExtensionManifest {
+                manifest: extension_manifest,
+                path: PathBuf::from(format!("extensions/{}/{}", id, version)),
+                metadata: None,
+            };
+
+            // Add manifest and wasm files
+            self.mock_ops.add_json_file(&manifest_path, &local_manifest);
+            self.mock_ops.add_file(&wasm_path, wasm_content.to_vec());
+
+            self
+        }
+
+        /// Build the processor with all configured data
+        fn build(mut self) -> FileBasedProcessor<MockFileOperations> {
+            self.mock_ops
+                .add_json_file("store.json", &self.local_manifest);
+            FileBasedProcessor::new(self.mock_ops, "test-store".to_string())
         }
     }
 
     #[tokio::test]
     async fn test_file_based_processor_basic() {
-        let mut mock_ops = MockFileOperations::new();
-
-        // Add a LocalStoreManifest instead of just StoreManifest
-        let local_manifest = create_local_store_manifest();
-        mock_ops.add_json_file("store.json", &local_manifest);
-
-        let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
+        let processor = TestFixture::new().build();
 
         let manifest = processor.get_store_manifest().await.unwrap();
         assert_eq!(manifest.name, "test-store");
@@ -602,13 +964,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_extensions_empty() {
-        let mut mock_ops = MockFileOperations::new();
-
-        // Add empty LocalStoreManifest
-        let local_manifest = create_local_store_manifest();
-        mock_ops.add_json_file("store.json", &local_manifest);
-
-        let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
+        let processor = TestFixture::new().build();
 
         let extensions = processor.list_extensions().await.unwrap();
         assert!(extensions.is_empty());
@@ -616,38 +972,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_extensions_with_data() {
-        let mut mock_ops = MockFileOperations::new();
-
-        // Create a LocalStoreManifest with one extension
-        let mut local_manifest = create_local_store_manifest();
-
-        let extension_summary = ExtensionVersion {
-            id: "test-ext".to_string(),
-            name: "Test Extension".to_string(),
-            version: Version::parse("1.0.0").unwrap(),
-            base_urls: vec![],
-            langs: vec!["en".to_string()],
-            last_updated: Utc::now(),
-            manifest_path: "extensions/test-ext/1.0.0/manifest.json".to_string(),
-            manifest_checksum: "checksum123".to_string(),
-        };
-
-        let mut extension_versions = ExtensionVersions {
-            latest: extension_summary.version.clone(),
-            all_versions: BTreeMap::new(),
-        };
-
-        extension_versions
-            .all_versions
-            .insert(extension_summary.version.clone(), extension_summary);
-
-        local_manifest
-            .extensions
-            .insert("test-ext".to_string(), extension_versions);
-
-        mock_ops.add_json_file("store.json", &local_manifest);
-
-        let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
+        let processor = TestFixture::new()
+            .with_extension(
+                "test-ext",
+                "Test Extension",
+                "1.0.0",
+                vec!["en".to_string()],
+            )
+            .build();
 
         let extensions = processor.list_extensions().await.unwrap();
         assert_eq!(extensions.len(), 1);
@@ -657,75 +989,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_list_multiple_extensions() {
+        let processor = TestFixture::new()
+            .with_extension("ext-1", "Extension One", "1.0.0", vec!["en".to_string()])
+            .with_extension("ext-2", "Extension Two", "2.0.0", vec!["fr".to_string()])
+            .with_extension("ext-3", "Extension Three", "3.0.0", vec!["es".to_string()])
+            .build();
+
+        let extensions = processor.list_extensions().await.unwrap();
+        assert_eq!(extensions.len(), 3);
+
+        let ids: Vec<&str> = extensions.iter().map(|e| e.id.as_str()).collect();
+        assert!(ids.contains(&"ext-1"));
+        assert!(ids.contains(&"ext-2"));
+        assert!(ids.contains(&"ext-3"));
+    }
+
+    #[tokio::test]
     async fn test_find_extensions_for_url() {
-        let mut mock_ops = MockFileOperations::new();
+        let processor = TestFixture::new()
+            .with_extension(
+                "test-ext",
+                "Test Extension",
+                "1.0.0",
+                vec!["en".to_string()],
+            )
+            .with_url_pattern("https://example.com", &["test-ext"])
+            .with_url_pattern("https://test.org", &["test-ext"])
+            .build();
 
-        // Create a LocalStoreManifest with URL patterns
-        let mut local_manifest = create_local_store_manifest();
-
-        let mut url_pattern = UrlPattern {
-            url_prefix: "https://example.com".to_string(),
-            extensions: BTreeSet::new(),
-        };
-        url_pattern.extensions.insert("test-extension".to_string());
-
-        let mut url_pattern2 = UrlPattern {
-            url_prefix: "https://test.org".to_string(),
-            extensions: BTreeSet::new(),
-        };
-        url_pattern2.extensions.insert("test-extension".to_string());
-
-        local_manifest.index.url_patterns = vec![url_pattern, url_pattern2];
-
-        let extension_summary = ExtensionVersion {
-            id: "test-extension".to_string(),
-            name: "Test Extension".to_string(),
-            version: Version::parse("1.0.0").unwrap(),
-            base_urls: vec![
-                "https://example.com".to_string(),
-                "https://test.org".to_string(),
-            ],
-            langs: vec!["en".to_string()],
-            last_updated: Utc::now(),
-            manifest_path: "extensions/test-extension/1.0.0/manifest.json".to_string(),
-            manifest_checksum: "test-checksum".to_string(),
-        };
-
-        let mut extension_versions = ExtensionVersions {
-            latest: extension_summary.version.clone(),
-            all_versions: BTreeMap::new(),
-        };
-
-        extension_versions
-            .all_versions
-            .insert(extension_summary.version.clone(), extension_summary);
-
-        local_manifest
-            .extensions
-            .insert("test-extension".to_string(), extension_versions);
-
-        // Add the LocalStoreManifest as store.json
-        mock_ops.add_json_file("store.json", &local_manifest);
-
-        let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
-
-        // Test matching URL
+        // Test matching URLs
         let matches = processor
             .find_extensions_for_url("https://example.com/some/path")
             .await
             .unwrap();
         assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].0, "test-extension");
+        assert_eq!(matches[0].0, "test-ext");
         assert_eq!(matches[0].1, "Test Extension");
 
-        // Test another matching URL
         let matches = processor
             .find_extensions_for_url("https://test.org/another/path")
             .await
             .unwrap();
         assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].0, "test-extension");
-        assert_eq!(matches[0].1, "Test Extension");
 
         // Test non-matching URL
         let matches = processor
@@ -736,79 +1042,157 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_extensions() {
-        let mut mock_ops = MockFileOperations::new();
+    async fn test_multiple_extensions_for_same_url() {
+        let processor = TestFixture::new()
+            .with_extension("ext-1", "Extension One", "1.0.0", vec![])
+            .with_extension("ext-2", "Extension Two", "1.0.0", vec![])
+            .with_url_pattern("https://shared.com", &["ext-1", "ext-2"])
+            .build();
 
-        let mut local_manifest = create_local_store_manifest();
+        let matches = processor
+            .find_extensions_for_url("https://shared.com/path")
+            .await
+            .unwrap();
+        assert_eq!(matches.len(), 2);
+    }
 
-        // Add multiple extensions
-        let ext1 = ExtensionVersion {
-            id: "json-parser".to_string(),
-            name: "JSON Parser".to_string(),
-            version: Version::parse("1.0.0").unwrap(),
-            base_urls: vec![],
-            langs: vec!["en".to_string()],
-            last_updated: Utc::now(),
-            manifest_path: "extensions/json-parser/1.0.0/manifest.json".to_string(),
-            manifest_checksum: "checksum1".to_string(),
-        };
+    #[tokio::test]
+    async fn test_search_extensions_by_text() {
+        let processor = TestFixture::new()
+            .with_extension(
+                "json-parser",
+                "JSON Parser",
+                "1.0.0",
+                vec!["en".to_string()],
+            )
+            .with_extension(
+                "xml-handler",
+                "XML Handler",
+                "2.0.0",
+                vec!["fr".to_string()],
+            )
+            .build();
 
-        let ext2 = ExtensionVersion {
-            id: "xml-handler".to_string(),
-            name: "XML Handler".to_string(),
-            version: Version::parse("2.0.0").unwrap(),
-            base_urls: vec![],
-            langs: vec!["fr".to_string()],
-            last_updated: Utc::now(),
-            manifest_path: "extensions/xml-handler/2.0.0/manifest.json".to_string(),
-            manifest_checksum: "checksum2".to_string(),
-        };
-
-        let mut versions1 = ExtensionVersions {
-            latest: ext1.version.clone(),
-            all_versions: BTreeMap::new(),
-        };
-        versions1.all_versions.insert(ext1.version.clone(), ext1);
-
-        let mut versions2 = ExtensionVersions {
-            latest: ext2.version.clone(),
-            all_versions: BTreeMap::new(),
-        };
-        versions2.all_versions.insert(ext2.version.clone(), ext2);
-
-        local_manifest
-            .extensions
-            .insert("json-parser".to_string(), versions1);
-        local_manifest
-            .extensions
-            .insert("xml-handler".to_string(), versions2);
-
-        mock_ops.add_json_file("store.json", &local_manifest);
-
-        let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
-
-        // Test text search
         let query = SearchQuery {
             text: Some("json".to_string()),
-            ..Default::default()
+            tags: vec![],
+            categories: vec![],
+            author: None,
+            min_version: None,
+            max_version: None,
+            sort_by: crate::models::SearchSortBy::default(),
+            limit: None,
+            offset: None,
+            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "json-parser");
 
-        // Test language filter
+        // Case insensitive search
         let query = SearchQuery {
+            text: Some("JSON".to_string()),
+            tags: vec![],
+            categories: vec![],
+            author: None,
+            min_version: None,
+            max_version: None,
+            sort_by: crate::models::SearchSortBy::default(),
+            limit: None,
+            offset: None,
+            include_prerelease: false,
+        };
+        let results = processor.search_extensions(&query).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "json-parser");
+    }
+
+    #[tokio::test]
+    async fn test_search_extensions_by_language() {
+        let processor = TestFixture::new()
+            .with_extension(
+                "json-parser",
+                "JSON Parser",
+                "1.0.0",
+                vec!["en".to_string()],
+            )
+            .with_extension(
+                "xml-handler",
+                "XML Handler",
+                "2.0.0",
+                vec!["fr".to_string()],
+            )
+            .build();
+
+        let query = SearchQuery {
+            text: None,
             tags: vec!["fr".to_string()],
-            ..Default::default()
+            categories: vec![],
+            author: None,
+            min_version: None,
+            max_version: None,
+            sort_by: crate::models::SearchSortBy::default(),
+            limit: None,
+            offset: None,
+            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "xml-handler");
+    }
 
-        // Test no matches
+    #[tokio::test]
+    async fn test_search_extensions_combined_filters() {
+        let processor = TestFixture::new()
+            .with_extension("json-en", "JSON Parser EN", "1.0.0", vec!["en".to_string()])
+            .with_extension("json-fr", "JSON Parser FR", "1.0.0", vec!["fr".to_string()])
+            .with_extension(
+                "xml-handler",
+                "XML Handler",
+                "2.0.0",
+                vec!["fr".to_string()],
+            )
+            .build();
+
+        let query = SearchQuery {
+            text: Some("json".to_string()),
+            tags: vec!["fr".to_string()],
+            categories: vec![],
+            author: None,
+            min_version: None,
+            max_version: None,
+            sort_by: crate::models::SearchSortBy::default(),
+            limit: None,
+            offset: None,
+            include_prerelease: false,
+        };
+        let results = processor.search_extensions(&query).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "json-fr");
+    }
+
+    #[tokio::test]
+    async fn test_search_no_matches() {
+        let processor = TestFixture::new()
+            .with_extension(
+                "json-parser",
+                "JSON Parser",
+                "1.0.0",
+                vec!["en".to_string()],
+            )
+            .build();
+
         let query = SearchQuery {
             text: Some("nonexistent".to_string()),
-            ..Default::default()
+            tags: vec![],
+            categories: vec![],
+            author: None,
+            min_version: None,
+            max_version: None,
+            sort_by: crate::models::SearchSortBy::default(),
+            limit: None,
+            offset: None,
+            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert!(results.is_empty());
@@ -816,48 +1200,504 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_extension_latest_version() {
-        let mut mock_ops = MockFileOperations::new();
-
-        let mut local_manifest = create_local_store_manifest();
-
-        let ext_summary = ExtensionVersion {
-            id: "my-ext".to_string(),
-            name: "My Extension".to_string(),
-            version: Version::parse("2.5.0").unwrap(),
-            base_urls: vec![],
-            langs: vec![],
-            last_updated: Utc::now(),
-            manifest_path: "extensions/my-ext/2.5.0/manifest.json".to_string(),
-            manifest_checksum: "checksum".to_string(),
-        };
-
-        let mut versions = ExtensionVersions {
-            latest: ext_summary.version.clone(),
-            all_versions: BTreeMap::new(),
-        };
-        versions
-            .all_versions
-            .insert(ext_summary.version.clone(), ext_summary);
-
-        local_manifest
-            .extensions
-            .insert("my-ext".to_string(), versions);
-
-        mock_ops.add_json_file("store.json", &local_manifest);
-
-        let processor = FileBasedProcessor::new(mock_ops, "test-store".to_string());
+        let processor = TestFixture::new()
+            .with_extension("my-ext", "My Extension", "2.5.0", vec![])
+            .build();
 
         let latest = processor
             .get_extension_latest_version("my-ext")
             .await
             .unwrap();
         assert_eq!(latest, Some(Version::parse("2.5.0").unwrap()));
+    }
 
-        // Test non-existent extension
+    #[tokio::test]
+    async fn test_get_extension_latest_version_not_found() {
+        let processor = TestFixture::new().build();
+
         let latest = processor
             .get_extension_latest_version("nonexistent")
             .await
             .unwrap();
         assert_eq!(latest, None);
+    }
+
+    #[tokio::test]
+    async fn test_list_extension_versions() {
+        let processor = TestFixture::new()
+            .with_extension_versions(
+                "multi-version",
+                "Multi Version",
+                &["1.0.0", "1.1.0", "2.0.0"],
+                vec![],
+            )
+            .build();
+
+        let versions = processor
+            .list_extension_versions("multi-version")
+            .await
+            .unwrap();
+        assert_eq!(versions.len(), 3);
+        assert!(versions.contains(&Version::parse("1.0.0").unwrap()));
+        assert!(versions.contains(&Version::parse("1.1.0").unwrap()));
+        assert!(versions.contains(&Version::parse("2.0.0").unwrap()));
+    }
+
+    #[tokio::test]
+    async fn test_list_extension_versions_not_found() {
+        let processor = TestFixture::new().build();
+
+        let result = processor.list_extension_versions("nonexistent").await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StoreError::ExtensionNotFound(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_check_extension_version_exists() {
+        let processor = TestFixture::new()
+            .with_extension_versions("my-ext", "My Ext", &["1.0.0", "2.0.0"], vec![])
+            .build();
+
+        let exists = processor
+            .check_extension_version_exists("my-ext", &Version::parse("1.0.0").unwrap())
+            .await
+            .unwrap();
+        assert!(exists);
+
+        let exists = processor
+            .check_extension_version_exists("my-ext", &Version::parse("3.0.0").unwrap())
+            .await
+            .unwrap();
+        assert!(!exists);
+    }
+
+    #[tokio::test]
+    async fn test_get_extension_wasm_with_checksum() {
+        let wasm_content = b"fake wasm content";
+
+        let fixture = TestFixture::new()
+            .with_extension("test-ext", "Test Extension", "1.0.0", vec![])
+            .with_full_manifest("test-ext", "1.0.0", wasm_content);
+
+        let processor = fixture.build();
+
+        let local_manifest = processor
+            .get_local_extension_manifest("test-ext", Some(&Version::parse("1.0.0").unwrap()))
+            .await
+            .unwrap();
+
+        let wasm = processor.get_extension_wasm(&local_manifest).await.unwrap();
+        assert_eq!(wasm, wasm_content);
+    }
+
+    #[tokio::test]
+    async fn test_check_extension_updates() {
+        let processor = TestFixture::new()
+            .with_extension_versions("ext-1", "Extension 1", &["1.0.0", "2.0.0"], vec![])
+            .with_extension("ext-2", "Extension 2", "1.0.0", vec![])
+            .build();
+
+        let installed = vec![
+            InstalledExtension {
+                id: "ext-1".to_string(),
+                name: "Extension 1".to_string(),
+                version: Version::parse("1.0.0").unwrap(),
+                manifest: ExtensionManifest {
+                    id: "ext-1".to_string(),
+                    name: "Extension 1".to_string(),
+                    version: Version::parse("1.0.0").unwrap(),
+                    author: "Test Author".to_string(),
+                    langs: vec!["en".to_string()],
+                    base_urls: vec!["https://example.com".to_string()],
+                    rds: vec![ReadingDirection::Ltr],
+                    attrs: vec![],
+                    signature: None,
+                    wasm_file: FileReference {
+                        path: "extension.wasm".to_string(),
+                        checksum: "abc123".to_string(),
+                        size: 1024,
+                    },
+                    assets: vec![],
+                },
+                metadata: None,
+                size: 1024,
+                installed_at: chrono::Utc::now(),
+                last_updated: None,
+                source_store: "test-store".to_string(),
+                auto_update: false,
+                checksum: None,
+            },
+            InstalledExtension {
+                id: "ext-2".to_string(),
+                name: "Extension 2".to_string(),
+                version: Version::parse("1.0.0").unwrap(),
+                manifest: ExtensionManifest {
+                    id: "ext-2".to_string(),
+                    name: "Extension 2".to_string(),
+                    version: Version::parse("1.0.0").unwrap(),
+                    author: "Test Author".to_string(),
+                    langs: vec!["en".to_string()],
+                    base_urls: vec!["https://example.com".to_string()],
+                    rds: vec![ReadingDirection::Ltr],
+                    attrs: vec![],
+                    signature: None,
+                    wasm_file: FileReference {
+                        path: "extension.wasm".to_string(),
+                        checksum: "def456".to_string(),
+                        size: 2048,
+                    },
+                    assets: vec![],
+                },
+                metadata: None,
+                size: 2048,
+                installed_at: chrono::Utc::now(),
+                last_updated: None,
+                source_store: "test-store".to_string(),
+                auto_update: false,
+                checksum: None,
+            },
+        ];
+
+        let updates = processor
+            .check_extension_updates(&installed, "test-store")
+            .await
+            .unwrap();
+
+        assert_eq!(updates.len(), 2);
+
+        // Check ext-1 has update available
+        match &updates[0] {
+            UpdateInfo::UpdateAvailable(info) => {
+                assert_eq!(info.extension_id, "ext-1");
+                assert_eq!(info.current_version, Version::parse("1.0.0").unwrap());
+                assert_eq!(info.latest_version, Version::parse("2.0.0").unwrap());
+            }
+            _ => panic!("Expected UpdateAvailable for ext-1"),
+        }
+
+        // Check ext-2 has no update
+        match &updates[1] {
+            UpdateInfo::NoUpdateNeeded(info) => {
+                assert_eq!(info.extension_id, "ext-2");
+            }
+            _ => panic!("Expected NoUpdateNeeded for ext-2"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_updates_for_missing_extension() {
+        let processor = TestFixture::new().build();
+
+        let installed = vec![InstalledExtension {
+            id: "missing-ext".to_string(),
+            name: "Missing Extension".to_string(),
+            version: Version::parse("1.0.0").unwrap(),
+            manifest: ExtensionManifest {
+                id: "missing-ext".to_string(),
+                name: "Missing Extension".to_string(),
+                version: Version::parse("1.0.0").unwrap(),
+                author: "Test Author".to_string(),
+                langs: vec!["en".to_string()],
+                base_urls: vec!["https://example.com".to_string()],
+                rds: vec![ReadingDirection::Ltr],
+                attrs: vec![],
+                signature: None,
+                wasm_file: FileReference {
+                    path: "extension.wasm".to_string(),
+                    checksum: "missing123".to_string(),
+                    size: 512,
+                },
+                assets: vec![],
+            },
+            metadata: None,
+            size: 512,
+            installed_at: chrono::Utc::now(),
+            last_updated: None,
+            source_store: "test-store".to_string(),
+            auto_update: false,
+            checksum: None,
+        }];
+
+        let updates = processor
+            .check_extension_updates(&installed, "test-store")
+            .await
+            .unwrap();
+
+        assert_eq!(updates.len(), 1);
+        match &updates[0] {
+            UpdateInfo::CheckFailed(info) => {
+                assert_eq!(info.extension_id, "missing-ext");
+                assert!(info.error.contains("not found"));
+            }
+            _ => panic!("Expected CheckFailed for missing extension"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_extension_metadata() {
+        let metadata = ExtensionMetadata {
+            description: "Test extension description".to_string(),
+            long_description: Some("Long description of the test extension".to_string()),
+            keywords: vec!["parser".to_string(), "utility".to_string()],
+            categories: vec!["tools".to_string()],
+            homepage: Some("https://example.com".to_string()),
+            repository: Some("https://github.com/test/repo".to_string()),
+            documentation: None,
+            changelog: None,
+            license: Some("MIT".to_string()),
+            compatibility: CompatibilityInfo {
+                min_engine_version: None,
+                max_engine_version: None,
+                platforms: None,
+                required_features: vec![],
+            },
+        };
+
+        let processor = TestFixture::new()
+            .with_extension_metadata(
+                "metadata-ext",
+                "Metadata Extension",
+                "1.0.0",
+                vec!["en".to_string()],
+                metadata.clone(),
+            )
+            .build();
+
+        let result = processor
+            .get_extension_metadata("metadata-ext", Some(&Version::parse("1.0.0").unwrap()))
+            .await
+            .unwrap();
+
+        assert!(result.is_some());
+        let retrieved_metadata = result.unwrap();
+        assert_eq!(
+            retrieved_metadata.description,
+            "Test extension description".to_string()
+        );
+        assert_eq!(
+            retrieved_metadata.keywords,
+            vec!["parser".to_string(), "utility".to_string()]
+        );
+        assert_eq!(
+            retrieved_metadata.homepage,
+            Some("https://example.com".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_extension_metadata_not_found() {
+        let processor = TestFixture::new().build();
+
+        let result = processor.get_extension_metadata("nonexistent", None).await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StoreError::ExtensionNotFound(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_get_extension_metadata_no_metadata() {
+        let processor = TestFixture::new()
+            .with_extension(
+                "no-metadata",
+                "No Metadata",
+                "1.0.0",
+                vec!["en".to_string()],
+            )
+            .build();
+
+        let result = processor
+            .get_extension_metadata("no-metadata", Some(&Version::parse("1.0.0").unwrap()))
+            .await
+            .unwrap();
+
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_extension_info() {
+        let processor = TestFixture::new()
+            .with_extension_versions(
+                "multi-ext",
+                "Multi Extension",
+                &["1.0.0", "1.1.0", "2.0.0"],
+                vec!["en".to_string()],
+            )
+            .build();
+
+        let info = processor.get_extension_info("multi-ext").await.unwrap();
+
+        assert_eq!(info.len(), 3);
+        let versions: Vec<Version> = info.iter().map(|i| i.version.clone()).collect();
+        assert!(versions.contains(&Version::parse("1.0.0").unwrap()));
+        assert!(versions.contains(&Version::parse("1.1.0").unwrap()));
+        assert!(versions.contains(&Version::parse("2.0.0").unwrap()));
+
+        // Check that all infos have correct basic data
+        for ext_info in &info {
+            assert_eq!(ext_info.id, "multi-ext");
+            assert_eq!(ext_info.name, "Multi Extension");
+            assert_eq!(ext_info.author, "Test Author");
+            assert_eq!(ext_info.store_source, "test-store");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_extension_info_not_found() {
+        let processor = TestFixture::new().build();
+
+        let result = processor.get_extension_info("nonexistent").await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StoreError::ExtensionNotFound(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_get_extension_version_info() {
+        let processor = TestFixture::new()
+            .with_extension_versions(
+                "version-test",
+                "Version Test",
+                &["1.5.0"],
+                vec!["en".to_string()],
+            )
+            .build();
+
+        let info = processor
+            .get_extension_version_info("version-test", Some(&Version::parse("1.5.0").unwrap()))
+            .await
+            .unwrap();
+
+        assert_eq!(info.id, "version-test");
+        assert_eq!(info.name, "Version Test");
+        assert_eq!(info.version, Version::parse("1.5.0").unwrap());
+        assert_eq!(info.author, "Test Author");
+        assert_eq!(info.store_source, "test-store");
+        assert!(info.description.is_none()); // ExtensionManifest doesn't have description
+        assert!(info.tags.is_empty()); // No tags extracted from manifest
+    }
+
+    #[tokio::test]
+    async fn test_get_extension_version_info_latest() {
+        let processor = TestFixture::new()
+            .with_extension_versions(
+                "latest-test",
+                "Latest Test",
+                &["2.0.0"],
+                vec!["en".to_string()],
+            )
+            .build();
+
+        // Test getting info for latest version (None)
+        let info = processor
+            .get_extension_version_info("latest-test", None)
+            .await
+            .unwrap();
+
+        assert_eq!(info.id, "latest-test");
+        assert_eq!(info.version, Version::parse("2.0.0").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_get_extension_package() {
+        let _wasm_content = b"test wasm content for package";
+
+        let processor = TestFixture::new()
+            .with_extension_assets(
+                "package-test",
+                "Package Test",
+                "1.0.0",
+                vec!["en".to_string()],
+                vec![("icon.png", "icon.png"), ("config.json", "config.json")],
+            )
+            .build();
+
+        let package = processor
+            .get_extension_package(
+                "package-test",
+                Some(&Version::parse("1.0.0").unwrap()),
+                "test-store".to_string(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(package.manifest.id, "package-test");
+        assert_eq!(package.manifest.name, "Package Test");
+        assert_eq!(package.manifest.version, Version::parse("1.0.0").unwrap());
+        assert_eq!(package.wasm_component, b"fake wasm");
+        assert_eq!(package.source_store, "test-store");
+
+        // Check assets are loaded
+        assert_eq!(package.assets.len(), 2);
+        assert!(package.assets.contains_key("icon.png"));
+        assert!(package.assets.contains_key("config.json"));
+        assert_eq!(package.assets["icon.png"], b"fake asset content");
+    }
+
+    #[tokio::test]
+    async fn test_get_extension_package_no_assets() {
+        let processor = TestFixture::new()
+            .with_extension_versions("no-assets", "No Assets", &["1.0.0"], vec!["en".to_string()])
+            .build();
+
+        let package = processor
+            .get_extension_package(
+                "no-assets",
+                Some(&Version::parse("1.0.0").unwrap()),
+                "test-store".to_string(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(package.manifest.id, "no-assets");
+        assert!(package.assets.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_extension_assets() {
+        let processor = TestFixture::new()
+            .with_extension_assets(
+                "asset-test",
+                "Asset Test",
+                "1.0.0",
+                vec!["en".to_string()],
+                vec![
+                    ("icon", "icon.png"),
+                    ("documentation", "README.md"),
+                    ("config", "settings.json"),
+                ],
+            )
+            .build();
+
+        let assets = processor
+            .list_extension_assets("asset-test", Some(&Version::parse("1.0.0").unwrap()))
+            .await
+            .unwrap();
+
+        assert_eq!(assets.len(), 3);
+        assert!(assets.contains(&"icon.png".to_string()));
+        assert!(assets.contains(&"README.md".to_string()));
+        assert!(assets.contains(&"settings.json".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_list_extension_assets_no_assets() {
+        let processor = TestFixture::new()
+            .with_extension_versions("no-assets", "No Assets", &["1.0.0"], vec!["en".to_string()])
+            .build();
+
+        let assets = processor
+            .list_extension_assets("no-assets", Some(&Version::parse("1.0.0").unwrap()))
+            .await
+            .unwrap();
+
+        assert!(assets.is_empty());
     }
 }
