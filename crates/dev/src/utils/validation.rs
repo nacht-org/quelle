@@ -56,7 +56,7 @@ pub fn validate_base_url(url: String) -> Result<String> {
 
 /// Validate language code (ISO 639-1)
 pub fn validate_language(lang: String) -> Result<String> {
-    let lang = lang.trim().to_lowercase();
+    let lang = lang.trim().to_string();
 
     if lang.is_empty() {
         return Err(eyre!("Language code cannot be empty"));
@@ -74,7 +74,7 @@ pub fn validate_language(lang: String) -> Result<String> {
         ));
     }
 
-    Ok(lang)
+    Ok(lang.to_lowercase())
 }
 
 /// Validate and normalize reading direction

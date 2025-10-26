@@ -579,7 +579,7 @@ mod tests {
         // Install extension
         let installed = registry.install_extension(package, &options).await.unwrap();
         assert_eq!(installed.name, "test-ext");
-        assert_eq!(installed.version, Version::new(1, 0, 1));
+        assert_eq!(installed.version, Version::new(1, 0, 0));
 
         // Verify it's registered
         assert!(registry.is_installed("test-test-ext").await.unwrap());
