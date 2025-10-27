@@ -300,6 +300,7 @@ impl GitHubStore {
     /// Clear the HTTP cache
     pub async fn clear_cache(&self) {
         self.processor.file_ops().clear_cache().await;
+        self.processor.clear_cache().await;
     }
 
     /// Get cache statistics

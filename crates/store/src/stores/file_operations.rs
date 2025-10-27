@@ -7,6 +7,8 @@
 use semver::Version;
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use tracing::{debug, warn};
 
@@ -40,6 +42,7 @@ pub(crate) trait FileOperations: Send + Sync {
 pub(crate) struct FileBasedProcessor<F: FileOperations> {
     file_ops: F,
     store_name: String,
+    store_cache: Arc<RwLock<Option<LocalStoreManifest>>>,
 }
 
 impl<F: FileOperations> FileBasedProcessor<F> {
@@ -48,6 +51,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         Self {
             file_ops,
             store_name,
+            store_cache: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -78,8 +82,26 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
     /// Get the local store manifest for URL routing and extension listing
     pub async fn get_local_store_manifest(&self) -> Result<LocalStoreManifest> {
-        self.read_json_file::<LocalStoreManifest>("store.json")
-            .await
+        {
+            let read_guard = self.store_cache.read().await;
+            if let Some(manifest) = &*read_guard {
+                return Ok(manifest.clone());
+            }
+        }
+
+        let manifest = self
+            .read_json_file::<LocalStoreManifest>("store.json")
+            .await?;
+
+        let mut write_guard = self.store_cache.write().await;
+        *write_guard = Some(manifest.clone());
+
+        Ok(manifest)
+    }
+
+    pub async fn clear_cache(&self) {
+        let mut write_guard = self.store_cache.write().await;
+        *write_guard = None;
     }
 
     /// Resolve version (get latest if None provided)
@@ -1684,5 +1706,41 @@ mod tests {
             .unwrap();
 
         assert!(assets.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_clear_cache_invalidates_local_store_manifest() {
+        let mut fixture = TestFixture::new().build();
+
+        // Initial fetch of store manifest to cache it
+        let first_manifest = fixture.get_local_store_manifest().await.unwrap();
+
+        // Overwrite the store manifest file to simulate a change
+        fixture.file_ops.add_json_file(
+            "store.json",
+            &LocalStoreManifest {
+                index: LocalStoreManifestIndex {
+                    url_patterns: vec![],
+                },
+                extensions: BTreeMap::new(),
+                base: StoreManifest::new(
+                    "modified-store".to_string(),
+                    "local".to_string(),
+                    "1.0.0".to_string(),
+                ),
+            },
+        );
+
+        // Test that manifest is unchanged due to caching
+        let cached_manifest = fixture.get_local_store_manifest().await.unwrap();
+        assert_eq!(first_manifest.base.name, "test-store");
+        assert_eq!(first_manifest.base.name, cached_manifest.base.name);
+
+        // Clear cache
+        fixture.clear_cache().await;
+
+        // Test that manifest is updated after cache clear
+        let updated_manifest = fixture.get_local_store_manifest().await.unwrap();
+        assert_eq!(updated_manifest.base.name, "modified-store");
     }
 }

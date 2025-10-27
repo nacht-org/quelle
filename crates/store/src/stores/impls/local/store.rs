@@ -765,8 +765,7 @@ impl CacheableStore for LocalStore {
     }
 
     async fn clear_cache(&self) -> Result<()> {
-        // Local stores don't have a cache to clear
-        // But we can regenerate the store manifest
+        self.processor.clear_cache().await;
         Ok(())
     }
 
