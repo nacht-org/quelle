@@ -176,26 +176,11 @@ impl<F: FileOperations> FileBasedProcessor<F> {
         extension_id: &str,
         version: Option<&Version>,
     ) -> Result<Option<ExtensionMetadata>> {
-        let version = self.resolve_version(extension_id, version).await?;
+        let local_manifest = self
+            .get_local_extension_manifest(extension_id, version)
+            .await?;
 
-        // Get the manifest path from the extension summary
-        let summaries = self.list_extensions().await?;
-        let manifest_path = summaries
-            .iter()
-            .find(|s| s.id == extension_id && &s.version == version.as_ref())
-            .map(|s| s.manifest_path.clone())
-            .ok_or_else(|| {
-                StoreError::ExtensionNotFound(format!("{}@{}", extension_id, version))
-            })?;
-
-        // File-based stores always use LocalExtensionManifest
-        match self
-            .read_json_file::<LocalExtensionManifest>(&manifest_path)
-            .await
-        {
-            Ok(local_manifest) => Ok(local_manifest.metadata),
-            Err(_) => Ok(None),
-        }
+        Ok(local_manifest.metadata)
     }
 
     /// List all extensions in the store
