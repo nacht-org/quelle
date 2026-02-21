@@ -109,7 +109,7 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_chapter(&self, url: String) -> Result<ChapterContent, eyre::Report> {
-        let mut doc = Request::get(&url)
+        let doc = Request::get(&url)
             .html(&self.client)
             .map_err(|e| eyre!(e))
             .wrap_err("Failed to fetch chapter page")?;
@@ -123,9 +123,8 @@ impl QuelleExtension for Extension {
         // Remove unwanted elements
         for selector in &bad_selectors {
             if let Ok(elements) = doc.select(selector) {
-                let node_ids: Vec<_> = elements.into_iter().map(|e| e.element.id()).collect();
-                for node_id in node_ids {
-                    doc.detach(node_id);
+                for element in elements {
+                    element.detach();
                 }
             }
         }
@@ -138,9 +137,8 @@ impl QuelleExtension for Extension {
 
         // Remove all div tags inside content
         if let Ok(divs) = content.select("div") {
-            let node_ids: Vec<_> = divs.into_iter().map(|e| e.element.id()).collect();
-            for node_id in node_ids {
-                doc.detach(node_id);
+            for div in divs {
+                div.detach();
             }
         }
 

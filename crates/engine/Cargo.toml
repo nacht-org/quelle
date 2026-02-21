@@ -19,3 +19,5 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 thiserror.workspace = true
 url = "2.5.4"
 chrono.workspace = true
+scraper.workspace = true
+ego-tree.workspace = true

@@ -1259,11 +1259,9 @@ name = "extension_dragontea"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "ego-tree 0.10.0",
  "eyre",
  "once_cell",
  "quelle_extension",
- "scraper 0.24.0",
  "tracing",
 ]
 
@@ -3495,8 +3493,10 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clap",
+ "ego-tree 0.10.0",
  "headless_chrome",
  "reqwest 0.12.20",
+ "scraper 0.24.0",
  "serde_json",
  "thiserror 2.0.12",
  "tokio",
@@ -3534,11 +3534,9 @@ name = "quelle_extension"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "ego-tree 0.10.0",
  "eyre",
  "parse_datetime",
  "prost",
- "scraper 0.24.0",
  "thiserror 2.0.12",
  "tracing",
  "tracing-subscriber",

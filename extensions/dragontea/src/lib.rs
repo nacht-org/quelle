@@ -1,5 +1,6 @@
 use eyre::{eyre, Context};
 use once_cell::sync::Lazy;
+
 use quelle_extension::prelude::*;
 
 register_extension!(Extension);
@@ -14,6 +15,11 @@ const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     attrs: vec![],
     capabilities: SourceCapabilities::default(),
 });
+
+// Character mapping for text jumbling/reordering used as anti-scraping on dragontea.
+// Each char in JUMBLED_CHARS maps to the corresponding char in NORMAL_CHARS.
+const JUMBLED_CHARS: &str = "ZYXWVUTSRQPONMLKJIHGFEDCBAzyxwvutsrqponmlkjihgfedcba";
+const NORMAL_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 pub struct Extension {
     client: Client,
@@ -37,7 +43,6 @@ impl QuelleExtension for Extension {
             .map_err(|e| eyre!(e))
             .wrap_err("Failed to fetch novel page")?;
 
-        // Extract basic novel info
         let title = doc.select_first(".post-title").text()?;
         let author = doc.select_first(".author-content").text()?;
 
@@ -48,10 +53,11 @@ impl QuelleExtension for Extension {
             .map(|src| make_absolute_url(&src, &url))
             .unwrap_or_default();
 
-        // Extract synopsis with text reordering
+        // Extract synopsis — each paragraph has jumbled text that needs remapping.
         let mut description = Vec::new();
         for element in doc.select(".summary__content > p")? {
-            let text = jumble::reorder_text(&element.text_or_empty());
+            remap_text_nodes(&element, JUMBLED_CHARS, NORMAL_CHARS);
+            let text = element.text_or_empty();
             if !text.trim().is_empty() {
                 description.push(text);
             }
@@ -59,7 +65,6 @@ impl QuelleExtension for Extension {
 
         let mut metadata = Vec::new();
 
-        // Extract metadata from post-content items
         for item in doc.select(".post-content_item")? {
             if let (Ok(key_elem), Ok(value_elem)) = (
                 item.select_first(".summary-heading"),
@@ -84,7 +89,6 @@ impl QuelleExtension for Extension {
             }
         }
 
-        // Extract genres
         for genre in doc.select(".genres-content > a")? {
             metadata.push(Metadata::new(
                 String::from("subject"),
@@ -93,7 +97,6 @@ impl QuelleExtension for Extension {
             ));
         }
 
-        // Extract tags
         for tag in doc.select(".tags-content > a")? {
             metadata.push(Metadata::new(
                 String::from("tag"),
@@ -102,7 +105,6 @@ impl QuelleExtension for Extension {
             ));
         }
 
-        // Extract artist if available
         if let Ok(artist) = doc.select_first(".artist-content > a") {
             metadata.push(Metadata::new(
                 String::from("contributor"),
@@ -111,7 +113,7 @@ impl QuelleExtension for Extension {
             ));
         }
 
-        // Fetch chapters via POST request
+        // Fetch chapters via POST request.
         let chapters_url = format!("{}/ajax/chapters/", url.trim_end_matches('/'));
         let chapters_response = Request::post(&chapters_url)
             .send(&self.client)
@@ -125,7 +127,7 @@ impl QuelleExtension for Extension {
         let chapters_doc = Html::new(&chapters_text);
         let mut chapters = Vec::new();
 
-        // Extract chapters in reverse order (as in original Python code)
+        // Extract chapters in reverse order (newest-first in DOM, oldest-first in output).
         let chapter_links: Vec<_> = chapters_doc
             .select(".wp-manga-chapter > a")?
             .into_iter()
@@ -166,35 +168,22 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_chapter(&self, url: String) -> Result<ChapterContent, eyre::Report> {
-        // Convert HTTPS to HTTP as in original Python code
+        // Convert HTTPS to HTTP as in original Python code.
         let http_url = url.replace("https:", "http:");
 
-        let mut html = Request::get(&http_url)
+        let doc = Request::get(&http_url)
             .wait_for_element(".reading-content")
             .html(&self.client)
             .map_err(|e| eyre!(e))
             .wrap_err("Failed to fetch chapter page")?;
 
-        // TODO: Clean and reorder text content
-        let content = html
+        let content = doc
             .select_first_opt(".text-left")?
-            .or_else(|| html.select_first_opt(".reading-content").ok().flatten())
+            .or_else(|| doc.select_first_opt(".reading-content").ok().flatten())
             .ok_or_else(|| eyre!("Could not find chapter content"))?;
 
-        let text_nodes = content
-            .element
-            .descendants()
-            .filter(|node| node.value().is_text())
-            .map(|node| node.id())
-            .collect::<Vec<_>>();
-
-        jumble::reorder_html_text(&mut html.doc, text_nodes);
-
-        // Re-select content after modifications
-        let content = html
-            .select_first_opt(".text-left")?
-            .or_else(|| html.select_first_opt(".reading-content").ok().flatten())
-            .ok_or_else(|| eyre!("Could not find chapter content"))?;
+        // Remap all jumbled text nodes within the content element in-place.
+        remap_text_nodes(&content, JUMBLED_CHARS, NORMAL_CHARS);
 
         Ok(ChapterContent {
             data: content
@@ -204,32 +193,29 @@ impl QuelleExtension for Extension {
     }
 }
 
-mod jumble {
-    use ego_tree::NodeId;
-    use once_cell::sync::Lazy;
-    use scraper::Html;
-    use std::collections::HashMap;
+/// Recursively walks the children of `element` in pre-order and remaps the text
+/// content of every text node using the provided character mapping.
+///
+/// `from` and `to` must be the same length; each character in `from` is replaced
+/// by the corresponding character in `to`. Characters not in `from` are unchanged.
+fn remap_text_nodes(element: &Element, from: &str, to: &str) {
+    let map: std::collections::HashMap<char, char> = from.chars().zip(to.chars()).collect();
+    remap_recursive(element, &map);
+}
 
-    // Character mapping for text jumbling/reordering
-    const NORMAL_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    const JUMBLED_CHARS: &str = "ZYXWVUTSRQPONMLKJIHGFEDCBAzyxwvutsrqponmlkjihgfedcba";
-
-    static JUMBLE_MAP: Lazy<HashMap<char, char>> =
-        Lazy::new(|| JUMBLED_CHARS.chars().zip(NORMAL_CHARS.chars()).collect());
-
-    pub fn reorder_text(text: &str) -> String {
-        text.chars()
-            .map(|c| JUMBLE_MAP.get(&c).copied().unwrap_or(c))
-            .collect()
-    }
-
-    pub fn reorder_html_text(doc: &mut Html, node_ids: Vec<NodeId>) {
-        for node_id in node_ids {
-            if let Some(mut node) = doc.tree.get_mut(node_id) {
-                if let scraper::Node::Text(text) = node.value() {
-                    let reordered = reorder_text(&text.text);
-                    text.text = reordered.into();
-                }
+fn remap_recursive(element: &Element, map: &std::collections::HashMap<char, char>) {
+    for child in element.children() {
+        match child {
+            ChildNode::Text(text_node) => {
+                let remapped: String = text_node
+                    .text()
+                    .chars()
+                    .map(|c| map.get(&c).copied().unwrap_or(c))
+                    .collect();
+                text_node.set_text(remapped);
+            }
+            ChildNode::Element(child_elem) => {
+                remap_recursive(&child_elem, map);
             }
         }
     }

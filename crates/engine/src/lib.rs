@@ -6,6 +6,7 @@
 pub mod bindings;
 pub mod error;
 pub mod http;
+pub mod scraper;
 mod state;
 
 use std::sync::Arc;
@@ -43,6 +44,10 @@ impl ExtensionEngine {
         crate::bindings::quelle::extension::http::add_to_linker::<_, HasSelf<_>>(
             &mut linker,
             |state| &mut state.http,
+        )?;
+        crate::bindings::quelle::extension::scraper::add_to_linker::<_, HasSelf<_>>(
+            &mut linker,
+            |state| &mut state.scraper,
         )?;
         crate::bindings::quelle::extension::tracing::add_to_linker::<_, HasSelf<_>>(
             &mut linker,

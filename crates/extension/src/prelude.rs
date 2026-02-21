@@ -1,5 +1,7 @@
 pub use crate::common::net::make_absolute_url;
-pub use crate::common::scraping::*;
+pub use crate::common::scraping::{
+    ChildNode, Element, ElementExt, ElementList, ElementListExt, Html, TextNode,
+};
 pub use crate::filters::{FilterBuilder, SortOptionBuilder, TriState};
 pub use crate::http::{Client, Method, Request};
 pub use crate::novel::{

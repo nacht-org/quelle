@@ -3,6 +3,7 @@ package quelle:extension@0.1.0;
 world extension {
     import source;
     import http;
+    import scraper;
     import tracing;
     import error;
     import time;

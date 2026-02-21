@@ -85,7 +85,7 @@ impl QuelleExtension for Extension {
             description,
             langs: META.langs.clone(),
             cover,
-            status: NovelStatus::Unknown, // RoyalRoad doesn't have a clear status indicator
+            status: NovelStatus::Unknown,
             volumes,
             metadata,
             url,
@@ -95,7 +95,7 @@ impl QuelleExtension for Extension {
     }
 
     fn fetch_chapter(&self, url: String) -> Result<ChapterContent, eyre::Report> {
-        let mut doc = Request::get(&url)
+        let doc = Request::get(&url)
             .html(&self.client)
             .map_err(|e| eyre!(e))
             .wrap_err("Failed to fetch chapter page")?;
@@ -130,24 +130,17 @@ impl QuelleExtension for Extension {
 
         // Remove hidden elements based on CSS patterns (anti-scraping protection)
         if !hidden_classes.is_empty() {
-            // Create selector string for all hidden classes
             let hidden_selector = hidden_classes.join(", ");
 
             if let Ok(hidden_elements) = doc.select(&hidden_selector) {
-                // Collect node IDs of elements to remove
-                let mut node_ids_to_remove = Vec::new();
-                for element in hidden_elements {
-                    node_ids_to_remove.push(element.element.id());
-                }
-
                 tracing::debug!(
                     "Removing {} hidden elements from chapter content",
-                    node_ids_to_remove.len()
+                    hidden_elements.len()
                 );
 
-                // Remove each hidden element using proper node detachment
-                for node_id in node_ids_to_remove {
-                    doc.detach(node_id);
+                // Each Element is owned — detach directly, no ID collection needed.
+                for element in hidden_elements {
+                    element.detach();
                 }
             }
         }
@@ -175,7 +168,7 @@ impl QuelleExtension for Extension {
 
         let mut novels = Vec::new();
 
-        // Extract search results - limit to first 5 as per original Python code
+        // Extract search results — limit to first 5 as per original behaviour
         for element in doc.select("h2.fiction-title a[href]")?.into_iter().take(5) {
             let title = element.text_or_empty();
             let url = element
@@ -183,8 +176,6 @@ impl QuelleExtension for Extension {
                 .map(|href| make_absolute_url(&href, BASE_URL))
                 .ok_or_eyre("Failed to get novel URL")?;
 
-            // For now, we'll skip cover images in search results as they require
-            // more complex DOM traversal that would need additional scraping
             let cover = None;
 
             novels.push(BasicNovel { title, cover, url });
@@ -194,7 +185,7 @@ impl QuelleExtension for Extension {
             novels,
             total_count: None,
             current_page,
-            total_pages: Some(1), // RoyalRoad search doesn't seem to have pagination in the basic search
+            total_pages: Some(1),
             has_next_page: false,
             has_previous_page: false,
         })
@@ -204,11 +195,11 @@ impl QuelleExtension for Extension {
 fn extract_chapters(_client: &Client, doc: &Html) -> Result<Vec<Volume>, eyre::Report> {
     let mut volume = Volume::default();
 
-    // Royal Road chapter structure - look for table rows containing chapter links
+    // Royal Road chapter structure — look for table rows containing chapter links
     let chapter_rows = doc.select("table tbody tr")?;
 
     for (index, row) in chapter_rows.into_iter().enumerate() {
-        // Look for chapter link - Royal Road puts chapter links in the first column
+        // Look for chapter link — Royal Road puts chapter links in the first column
         let link_opt = row.select_first_opt("td:first-child a[href]")?;
 
         let Some(link) = link_opt else {
