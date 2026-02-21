@@ -192,9 +192,17 @@ async fn test_novel_info_with_url(dev_server: &DevServer, url: &str) -> Result<(
             }
         }
         Err(e) => {
-            println!("Error: Failed to fetch novel info: {}", e.message);
-            if let Some(location) = e.location {
-                println!("   Location: {}", location);
+            let chain = e
+                .frames
+                .iter()
+                .map(|f| f.message.as_str())
+                .collect::<Vec<_>>()
+                .join(": ");
+            println!("Error: Failed to fetch novel info: {}", chain);
+            for frame in &e.frames {
+                if let Some(loc) = &frame.location {
+                    println!("   at {}", loc);
+                }
             }
         }
     }
@@ -260,9 +268,17 @@ async fn test_chapter_with_url(dev_server: &DevServer, url: &str) -> Result<()> 
             }
         }
         Err(e) => {
-            println!("Error: Failed to fetch chapter content: {}", e.message);
-            if let Some(location) = e.location {
-                println!("   Location: {}", location);
+            let chain = e
+                .frames
+                .iter()
+                .map(|f| f.message.as_str())
+                .collect::<Vec<_>>()
+                .join(": ");
+            println!("Error: Failed to fetch chapter content: {}", chain);
+            for frame in &e.frames {
+                if let Some(loc) = &frame.location {
+                    println!("   at {}", loc);
+                }
             }
         }
     }
@@ -324,9 +340,17 @@ async fn test_search_with_query(dev_server: &DevServer, query: &str) -> Result<(
             println!("   Has more pages: {}", search_result.has_next_page);
         }
         Err(e) => {
-            println!("Error: Search failed: {}", e.message);
-            if let Some(location) = e.location {
-                println!("   Location: {}", location);
+            let chain = e
+                .frames
+                .iter()
+                .map(|f| f.message.as_str())
+                .collect::<Vec<_>>()
+                .join(": ");
+            println!("Error: Search failed: {}", chain);
+            for frame in &e.frames {
+                if let Some(loc) = &frame.location {
+                    println!("   at {}", loc);
+                }
             }
         }
     }

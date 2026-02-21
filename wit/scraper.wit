@@ -30,6 +30,9 @@ interface scraper {
         /// Select the first descendant element matching a CSS selector, or none if absent.
         select-first: func(selector: string) -> result<option<node>, selector-error>;
 
+        /// Get the tag name of this element (e.g. "div", "a", "p").
+        name: func() -> string;
+
         /// Get an attribute value by name.
         attr: func(name: string) -> option<string>;
 

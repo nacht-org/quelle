@@ -2,6 +2,32 @@ use crate::bindings::quelle::extension::error::Error as ExtensionError;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+// ---------------------------------------------------------------------------
+// chain_display — inherent helper on the generated ExtensionError type
+// ---------------------------------------------------------------------------
+
+impl ExtensionError {
+    /// Formats the full error chain as a single human-readable string.
+    ///
+    /// Frames are joined with `": "` (outermost context first, root cause last).
+    /// Panic frames that carry a source location append `" [at <loc>]"` after
+    /// their message so the location is visible inline.
+    pub fn chain_display(&self) -> String {
+        self.frames
+            .iter()
+            .map(|f| match &f.location {
+                Some(loc) => format!("{} [at {}]", f.message, loc),
+                None => f.message.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join(": ")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Engine-level Error enum
+// ---------------------------------------------------------------------------
+
 /// This defines the error types used in the engine for handling various errors
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -12,18 +38,18 @@ pub enum Error {
     #[error(transparent)]
     WasmtimeError(#[from] wasmtime::Error),
 
-    /// Extension returned an error.
+    /// Extension returned an application-level error.
     ///
-    /// This error is returned when extension methods return an error.
-    /// It wraps the [`ExtensionError`] that was returned by the extension.
-    #[error(transparent)]
+    /// The full error chain is rendered by [`ExtensionError::chain_display`] so callers
+    /// see every `.wrap_err()` context layer, not just the outermost message.
+    #[error("{}", .0.chain_display())]
     ExtensionError(#[from] ExtensionError),
 
-    /// An error that occurs during the call to extensions methods.
+    /// An error that occurs during the call to an extension method (e.g. a WASM trap).
     ///
-    /// This error is returned when an extension method fails to execute properly.
-    /// It wraps the `wasmtime::Error` that occurred during the call, and optionally includes a panic error
-    /// if the extension encountered a panic during execution.
+    /// `panic_error` carries the last panic reported by the extension via
+    /// `report-panic`, if any, and can be used by callers to surface a more
+    /// informative message than the raw wasmtime trap.
     #[error("Runtime error: {wasmtime_error}")]
     RuntimeError {
         #[source]

@@ -74,7 +74,7 @@ impl Html {
         let nodes = self
             .doc
             .select(pattern)
-            .map_err(|e| eyre!("Failed to compile selector `{pattern}`: {}", e.message))?;
+            .map_err(|e| eyre::Report::msg(e.message))?;
         Ok(ElementList {
             elements: nodes.into_iter().map(|node| Element { node }).collect(),
         })
@@ -87,7 +87,7 @@ impl Html {
     /// or the selector is malformed.
     pub fn select_first(&self, pattern: &str) -> Result<Element, eyre::Report> {
         self.select_first_opt(pattern)?
-            .ok_or_else(|| eyre!("Element not found: {pattern}"))
+            .ok_or_else(|| eyre!("no element matched selector `{pattern}`"))
     }
 
     /// Optionally finds the **first** HTML element in the document matching your **CSS selector**.
@@ -99,7 +99,7 @@ impl Html {
         let node = self
             .doc
             .select_first(pattern)
-            .map_err(|e| eyre!("Failed to compile selector `{pattern}`: {}", e.message))?;
+            .map_err(|e| eyre::Report::msg(e.message))?;
         Ok(node.map(|node| Element { node }))
     }
 }
@@ -160,7 +160,7 @@ impl Element {
         let nodes = self
             .node
             .select(pattern)
-            .map_err(|e| eyre!("Failed to compile selector `{pattern}`: {}", e.message))?;
+            .map_err(|e| eyre::Report::msg(e.message))?;
         Ok(ElementList {
             elements: nodes.into_iter().map(|node| Element { node }).collect(),
         })
@@ -172,8 +172,12 @@ impl Element {
     /// *inside* a particular product listing (`<div>`). It returns the first matching `Element`,
     /// or an error if nothing is found or the selector is malformed.
     pub fn select_first(&self, pattern: &str) -> Result<Element, eyre::Report> {
-        self.select_first_opt(pattern)?
-            .ok_or_else(|| eyre!("Element not found: {pattern}"))
+        self.select_first_opt(pattern)?.ok_or_else(|| {
+            eyre!(
+                "no element matched selector `{pattern}` within <{}>",
+                self.name()
+            )
+        })
     }
 
     /// Optionally finds the **first descendant** HTML element *within this specific element*
@@ -186,8 +190,13 @@ impl Element {
         let node = self
             .node
             .select_first(pattern)
-            .map_err(|e| eyre!("Failed to compile selector `{pattern}`: {}", e.message))?;
+            .map_err(|e| eyre::Report::msg(e.message))?;
         Ok(node.map(|node| Element { node }))
+    }
+
+    /// Returns the tag name of this element (e.g. `"div"`, `"a"`, `"p"`).
+    pub fn name(&self) -> String {
+        self.node.name()
     }
 
     /// Retrieves the value of a specific **HTML attribute** (e.g., `href`, `src`, `id`).
@@ -196,7 +205,7 @@ impl Element {
     /// It returns the attribute's value as a `String`, or an error if the attribute doesn't exist.
     pub fn attr(&self, name: &str) -> Result<String, eyre::Report> {
         self.attr_opt(name)
-            .ok_or_else(|| eyre!("attribute '{name}' not found in element"))
+            .ok_or_else(|| eyre!("attribute `{name}` not found on <{}>", self.name()))
     }
 
     /// Use this when an attribute might or might not be present on an element.
@@ -311,17 +320,12 @@ pub trait ElementExt: Sized {
     /// Extracts the **trimmed visible text content** of the element.
     ///
     /// Returns the element's text as a `String`, or an error if no text is found.
-    fn text(self) -> Result<String, eyre::Report> {
-        self.text_opt()?
-            .ok_or_else(|| eyre!("text not found in element"))
-    }
+    fn text(self) -> Result<String, eyre::Report>;
 
     /// Retrieves the **trimmed visible text content** of the element.
     ///
     /// Always returns a `String`. If no text is found, returns an empty string.
-    fn text_or_empty(self) -> Result<String, eyre::Report> {
-        self.text_opt().map(|opt| opt.unwrap_or_default())
-    }
+    fn text_or_empty(self) -> Result<String, eyre::Report>;
 
     /// Optionally extracts the **trimmed visible text content** of the element.
     ///
@@ -332,10 +336,7 @@ pub trait ElementExt: Sized {
     /// Retrieves the value of a specific **HTML attribute** (e.g., `href`, `src`, `id`).
     ///
     /// Returns the attribute's value as a `String`, or an error if the attribute is not found.
-    fn attr(self, name: &str) -> Result<String, eyre::Report> {
-        self.attr_opt(name)?
-            .ok_or_else(|| eyre!("attribute '{name}' not found in element"))
-    }
+    fn attr(self, name: &str) -> Result<String, eyre::Report>;
 
     /// Optionally retrieves the value of a specific **HTML attribute**.
     ///
@@ -347,10 +348,7 @@ pub trait ElementExt: Sized {
     /// and all its children.
     ///
     /// Returns the outer HTML as a `String`, or an error if no HTML content is found.
-    fn html(self) -> Result<String, eyre::Report> {
-        self.html_opt()?
-            .ok_or_else(|| eyre!("HTML content not found in element"))
-    }
+    fn html(self) -> Result<String, eyre::Report>;
 
     /// Optionally retrieves the **trimmed outer HTML content** of the element.
     ///
@@ -359,12 +357,43 @@ pub trait ElementExt: Sized {
 }
 
 impl ElementExt for Result<Element, eyre::Report> {
+    fn text(self) -> Result<String, eyre::Report> {
+        self.and_then(|element| {
+            let tag = element.name();
+            element
+                .text_opt()
+                .ok_or_else(|| eyre!("no text content in <{tag}>"))
+        })
+    }
+
+    fn text_or_empty(self) -> Result<String, eyre::Report> {
+        self.map(|element| element.text_or_empty())
+    }
+
     fn text_opt(self) -> Result<Option<String>, eyre::Report> {
         self.map(|element| element.text_opt())
     }
 
+    fn attr(self, name: &str) -> Result<String, eyre::Report> {
+        self.and_then(|element| {
+            let tag = element.name();
+            element
+                .attr_opt(name)
+                .ok_or_else(|| eyre!("attribute `{name}` not found on <{tag}>"))
+        })
+    }
+
     fn attr_opt(self, name: &str) -> Result<Option<String>, eyre::Report> {
         self.map(|element| element.attr_opt(name))
+    }
+
+    fn html(self) -> Result<String, eyre::Report> {
+        self.and_then(|element| {
+            let tag = element.name();
+            element
+                .html_opt()
+                .ok_or_else(|| eyre!("no HTML content in <{tag}>"))
+        })
     }
 
     fn html_opt(self) -> Result<Option<String>, eyre::Report> {

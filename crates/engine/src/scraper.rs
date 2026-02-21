@@ -199,6 +199,19 @@ impl wit::HostNode for Scraper {
         }))
     }
 
+    async fn name(&mut self, self_: Resource<HostNode>) -> String {
+        let node = self.table.get(&self_).expect("node resource missing");
+        let tree_node = node
+            .tree
+            .0
+            .tree
+            .get(node.id)
+            .expect("node id not found in tree");
+        scraper::ElementRef::wrap(tree_node)
+            .map(|el| el.value().name().to_string())
+            .unwrap_or_default()
+    }
+
     async fn attr(&mut self, self_: Resource<HostNode>, name: String) -> Option<String> {
         let node = self.table.get(&self_).expect("node resource missing");
         let tree_node = node
