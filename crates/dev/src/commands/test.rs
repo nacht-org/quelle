@@ -11,11 +11,12 @@ pub async fn start_interactive(
     extension_name: String,
     url: Option<Url>,
     query: Option<String>,
+    chrome: bool,
 ) -> Result<()> {
     println!("Starting interactive test session for '{}'", extension_name);
 
     let extension_path = find_extension_path(&extension_name)?;
-    let mut dev_server = DevServer::new(extension_name.clone(), extension_path, false).await?;
+    let mut dev_server = DevServer::new(extension_name.clone(), extension_path, chrome).await?;
 
     println!("Building extension...");
     dev_server.build_extension().await?;
