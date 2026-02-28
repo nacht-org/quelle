@@ -14,9 +14,9 @@ wasmtime::component::bindgen!({
         "complex-search": async,
     },
     with: {
-        "quelle:extension/http/client": crate::http::HostClient,
-        "quelle:extension/scraper/document": crate::scraper::HostDocument,
-        "quelle:extension/scraper/node": crate::scraper::HostNode,
-        "quelle:extension/scraper/text-node": crate::scraper::HostTextNode,
+        "quelle:extension/http.client": crate::http::HostClient,
+        "quelle:extension/scraper.document": crate::scraper::HostDocument,
+        "quelle:extension/scraper.node": crate::scraper::HostNode,
+        "quelle:extension/scraper.text-node": crate::scraper::HostTextNode,
     }
 });
