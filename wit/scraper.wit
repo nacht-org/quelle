@@ -1,0 +1,67 @@
+interface scraper {
+    /// Returned when a CSS selector string is malformed.
+    record selector-error {
+        message: string,
+    }
+
+    /// A direct child of a node — either an element or a raw text node.
+    variant child-node {
+        element(node),
+        text(text-node),
+    }
+
+    /// A parsed HTML document. The root you start all queries from.
+    resource document {
+        /// Parse an HTML string into a document.
+        constructor(html: string);
+
+        /// Select all elements matching a CSS selector.
+        select: func(selector: string) -> result<list<node>, selector-error>;
+
+        /// Select the first element matching a CSS selector, or none if absent.
+        select-first: func(selector: string) -> result<option<node>, selector-error>;
+    }
+
+    /// An owned handle to a single element in the document tree.
+    resource node {
+        /// Select all descendant elements matching a CSS selector.
+        select: func(selector: string) -> result<list<node>, selector-error>;
+
+        /// Select the first descendant element matching a CSS selector, or none if absent.
+        select-first: func(selector: string) -> result<option<node>, selector-error>;
+
+        /// Get the tag name of this element (e.g. "div", "a", "p").
+        name: func() -> string;
+
+        /// Get an attribute value by name.
+        attr: func(name: string) -> option<string>;
+
+        /// Get all descendant text nodes joined into a single string.
+        text: func() -> string;
+
+        /// Get the outer HTML of this element (including its own tag and all children).
+        outer-html: func() -> string;
+
+        /// Get the inner HTML of this element (all children as an HTML string).
+        inner-html: func() -> string;
+
+        /// Detach this node from the document tree.
+        detach: func();
+
+        /// Get the direct children of this node in document order.
+        /// Each child is either an element or a raw text node, allowing
+        /// extensions to implement any tree traversal (pre-order, post-order,
+        /// BFS, etc.) entirely on their side.
+        children: func() -> list<child-node>;
+    }
+
+    /// An owned handle to a raw text node within the document tree.
+    /// Unlike `node`, a text node carries no tag or attributes — only a string value.
+    resource text-node {
+        /// Read the current text content of this node.
+        text: func() -> string;
+
+        /// Overwrite the text content of this node in-place.
+        set-text: func(content: string);
+    }
+}

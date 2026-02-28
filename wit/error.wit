@@ -2,9 +2,26 @@ interface error {
     /// This function should be called when a panic occurs in the component.
     report-panic: func(error: error);
 
-    /// Represents an error that can occur in the component.
-    record error {
+    /// A single frame in an error chain.
+    ///
+    /// Each frame carries the message for one layer of context, plus an optional
+    /// source location (file, line, column).  Index 0 in the `frames` list is the
+    /// outermost context (e.g. "failed to fetch chapter"); the last entry is the
+    /// root cause (e.g. "no element matched selector '.content'").
+    record error-frame {
+        /// The human-readable message for this layer of the chain.
         message: string,
+
+        /// Optional source location string (e.g. "src/lib.rs 42:5").
+        /// Set for panic frames; `none` for normal propagated errors.
         location: option<string>,
+    }
+
+    /// An error with a full chain of causes.
+    ///
+    /// `frames` always contains at least one entry.
+    /// Index 0 is the outermost context; the last entry is the root cause.
+    record error {
+        frames: list<error-frame>,
     }
 }

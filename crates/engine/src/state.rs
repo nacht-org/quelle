@@ -5,12 +5,14 @@ use crate::bindings::quelle::extension::{
     error as wit_error, novel, source, time as wit_time, tracing as wit_tracing,
 };
 use crate::http::{Http, HttpExecutor};
+use crate::scraper::Scraper;
 use chrono::Local;
 use tracing::event;
 use wasmtime::component::HasData;
 
 pub struct State {
     pub http: Http,
+    pub scraper: Scraper,
     pub panic_error: Option<wit_error::Error>,
 }
 
@@ -18,6 +20,7 @@ impl State {
     pub fn new(executor: Arc<dyn HttpExecutor>) -> Self {
         Self {
             http: Http::new(executor),
+            scraper: Scraper::new(),
             panic_error: None,
         }
     }

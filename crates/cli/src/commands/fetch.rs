@@ -412,7 +412,15 @@ pub async fn fetch_novel_with_extension(
 
     match result {
         Ok(novel) => Ok(novel),
-        Err(wit_error) => Err(eyre::eyre!("Extension error: {:?}", wit_error)),
+        Err(wit_error) => {
+            let chain = wit_error
+                .frames
+                .iter()
+                .map(|f| f.message.as_str())
+                .collect::<Vec<_>>()
+                .join(": ");
+            Err(eyre::eyre!("Extension error: {}", chain))
+        }
     }
 }
 
@@ -429,7 +437,15 @@ pub async fn fetch_chapter_with_extension(
 
     match result {
         Ok(chapter) => Ok(chapter),
-        Err(wit_error) => Err(eyre::eyre!("Extension error: {:?}", wit_error)),
+        Err(wit_error) => {
+            let chain = wit_error
+                .frames
+                .iter()
+                .map(|f| f.message.as_str())
+                .collect::<Vec<_>>()
+                .join(": ");
+            Err(eyre::eyre!("Extension error: {}", chain))
+        }
     }
 }
 

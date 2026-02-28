@@ -36,6 +36,9 @@ pub enum DevCommands {
         /// Enable verbose logging
         #[arg(long, short)]
         verbose: bool,
+        /// Use Chrome HTTP executor instead of Reqwest (better for JS-heavy sites)
+        #[arg(long, default_value = "true")]
+        chrome: bool,
     },
     /// Generate a new extension from template
     Generate {
@@ -80,7 +83,8 @@ pub async fn handle_command(cmd: DevCommands) -> Result<()> {
             url,
             query,
             verbose: _,
-        } => test::start_interactive(extension, url, query).await,
+            chrome,
+        } => test::start_interactive(extension, url, query, chrome).await,
         DevCommands::Generate {
             name,
             display_name,

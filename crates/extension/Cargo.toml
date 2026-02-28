@@ -8,8 +8,6 @@ wit-bindgen = "0.42.1"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 eyre.workspace = true
-scraper.workspace = true
-ego-tree.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 # The newer versions use jiff, which is not compatible with our current setup

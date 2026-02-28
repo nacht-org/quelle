@@ -1,82 +1,51 @@
-use ego_tree::NodeId;
 use eyre::eyre;
-use scraper::{ElementRef, Selector};
+
+use crate::wit::quelle::extension::scraper as wit_scraper;
+
+// ---------------------------------------------------------------------------
+// ChildNode
+// ---------------------------------------------------------------------------
+
+/// A direct child of a node — either an element or a raw text node.
+pub enum ChildNode {
+    Element(Element),
+    Text(TextNode),
+}
+
+// ---------------------------------------------------------------------------
+// TextNode
+// ---------------------------------------------------------------------------
+
+/// An owned handle to a raw text node within the document tree.
+/// Unlike [`Element`], a text node carries no tag or attributes — only a string value.
+pub struct TextNode {
+    pub(crate) node: wit_scraper::TextNode,
+}
+
+impl TextNode {
+    /// Read the current text content of this text node.
+    pub fn text(&self) -> String {
+        self.node.text()
+    }
+
+    /// Overwrite the text content of this text node in-place.
+    pub fn set_text(&self, content: impl Into<String>) {
+        self.node.set_text(&content.into());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Html
+// ---------------------------------------------------------------------------
 
 /// Represents an entire HTML document after it has been parsed.
 /// Think of this as your starting point for querying any web page.
 pub struct Html {
-    pub doc: scraper::Html,
+    pub(crate) doc: wit_scraper::Document,
 }
 
 impl Html {
-    /// Detaches a node from the document tree.
-    pub fn detach(&mut self, id: NodeId) {
-        if let Some(mut node) = self.doc.tree.get_mut(id) {
-            node.detach();
-        }
-    }
-}
-
-/// A collection of HTML elements, typically the result of a selection query
-/// that matches multiple items. You can iterate over these to process each element.
-pub struct ElementList<'a> {
-    pub elements: Vec<ElementRef<'a>>,
-}
-
-impl<'a> ElementList<'a> {
-    /// Creates an iterator over the elements in the list.
-    pub fn iter(&self) -> impl Iterator<Item = Element<'a>> + '_ {
-        self.elements
-            .iter()
-            .map(|element| Element { element: *element }) // FIXME: avoid the deref
-    }
-
-    /// Returns if the list is empty.
-    pub fn is_empty(&self) -> bool {
-        self.elements.is_empty()
-    }
-}
-
-/// An iterator that allows you to loop through each `Element` within an `ElementList`.
-pub struct ElementListIntoIter<'a> {
-    pub elements: std::vec::IntoIter<ElementRef<'a>>,
-}
-
-impl<'a> IntoIterator for ElementList<'a> {
-    type Item = Element<'a>;
-    type IntoIter = ElementListIntoIter<'a>;
-
-    /// Allows `ElementList` to be used in a `for` loop, making it easy to process
-    /// each found element.
-    fn into_iter(self) -> Self::IntoIter {
-        ElementListIntoIter {
-            elements: self.elements.into_iter(),
-        }
-    }
-}
-
-impl<'a> Iterator for ElementListIntoIter<'a> {
-    type Item = Element<'a>;
-
-    /// Retrieves the next `Element` from the list.
-    fn next(&mut self) -> Option<Self::Item> {
-        self.elements.next().map(|element| Element { element })
-    }
-}
-
-/// Represents a single HTML element within the parsed document.
-/// You can perform further selections or extract data from this individual element.
-pub struct Element<'a> {
-    pub element: ElementRef<'a>,
-}
-
-/// A helper function to parse a CSS selector string into a `Selector`.
-fn compile_selector(pattern: &str) -> Result<Selector, eyre::Report> {
-    Selector::parse(pattern).map_err(|e| eyre!("Failed to compile selector: {e}"))
-}
-
-impl Html {
-    /// Creates a new `Doc` from an HTML string.
+    /// Creates a new `Html` by parsing an HTML string.
     ///
     /// Use this to load your HTML content and prepare it for querying.
     ///
@@ -92,18 +61,23 @@ impl Html {
     /// # }
     /// ```
     pub fn new(html: &str) -> Self {
-        let doc = scraper::Html::parse_document(html);
-        Html { doc }
+        Html {
+            doc: wit_scraper::Document::new(html),
+        }
     }
 
     /// Finds all HTML elements in the document that match your **CSS selector**.
     ///
     /// Use this when you expect multiple items (e.g., all list items, all product cards).
     /// Returns an `ElementList` containing all matches, or an error if the selector is malformed.
-    pub fn select(&self, pattern: &str) -> Result<ElementList<'_>, eyre::Report> {
-        let selector = compile_selector(pattern)?;
-        let elements = self.doc.select(&selector).collect();
-        Ok(ElementList { elements })
+    pub fn select(&self, pattern: &str) -> Result<ElementList, eyre::Report> {
+        let nodes = self
+            .doc
+            .select(pattern)
+            .map_err(|e| eyre::Report::msg(e.message))?;
+        Ok(ElementList {
+            elements: nodes.into_iter().map(|node| Element { node }).collect(),
+        })
     }
 
     /// Finds the **first** HTML element in the document that matches your **CSS selector**.
@@ -111,9 +85,9 @@ impl Html {
     /// This is useful when you're looking for a unique element, like a page title or a single
     /// primary image. It returns the first matching `Element`, or an error if nothing is found
     /// or the selector is malformed.
-    pub fn select_first(&self, pattern: &str) -> Result<Element<'_>, eyre::Report> {
+    pub fn select_first(&self, pattern: &str) -> Result<Element, eyre::Report> {
         self.select_first_opt(pattern)?
-            .ok_or_else(|| eyre!("Element not found: {pattern}"))
+            .ok_or_else(|| eyre!("no element matched selector `{pattern}`"))
     }
 
     /// Optionally finds the **first** HTML element in the document matching your **CSS selector**.
@@ -121,47 +95,75 @@ impl Html {
     /// Use this when an element might or might not be present on the page, allowing you to
     /// gracefully handle its absence. It returns `Some(Element)` if a match is found,
     /// `None` if no match, or an error if the selector is malformed.
-    pub fn select_first_opt(&self, pattern: &str) -> Result<Option<Element<'_>>, eyre::Report> {
-        let selector = compile_selector(pattern)?;
-        Ok(self
+    pub fn select_first_opt(&self, pattern: &str) -> Result<Option<Element>, eyre::Report> {
+        let node = self
             .doc
-            .select(&selector)
-            .next()
-            .map(|element| Element { element }))
+            .select_first(pattern)
+            .map_err(|e| eyre::Report::msg(e.message))?;
+        Ok(node.map(|node| Element { node }))
     }
 }
 
-/// Extends `Result<ElementList, ...>` to easily extract text from multiple elements.
-pub trait ElementListExt<'a>: Sized {
-    /// Gathers the trimmed text content from *all* elements in the list.
-    ///
-    /// This is helpful for quickly collecting data points like all news headlines or
-    /// all items in a category. It returns a `Vec<String>` where each string is
-    /// the text from one element, or an error if the initial selection failed.
-    fn text_all(self) -> Result<Vec<String>, eyre::Report>;
+// ---------------------------------------------------------------------------
+// ElementList
+// ---------------------------------------------------------------------------
+
+/// A collection of HTML elements, typically the result of a selection query
+/// that matches multiple items. You can iterate over these to process each element.
+pub struct ElementList {
+    pub(crate) elements: Vec<Element>,
 }
 
-impl<'a> ElementListExt<'a> for Result<ElementList<'a>, eyre::Report> {
-    fn text_all(self) -> Result<Vec<String>, eyre::Report> {
-        self.map(|list| {
-            list.elements
-                .into_iter()
-                .map(|element| element.text().collect::<String>().trim().to_string())
-                .collect()
-        })
+impl ElementList {
+    /// Creates an iterator over the elements in the list.
+    pub fn iter(&self) -> impl Iterator<Item = &Element> + '_ {
+        self.elements.iter()
+    }
+
+    /// Returns the number of elements in the list.
+    pub fn len(&self) -> usize {
+        self.elements.len()
+    }
+
+    /// Returns whether the list is empty.
+    pub fn is_empty(&self) -> bool {
+        self.elements.is_empty()
     }
 }
 
-impl<'a> Element<'a> {
+impl IntoIterator for ElementList {
+    type Item = Element;
+    type IntoIter = std::vec::IntoIter<Element>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.elements.into_iter()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Element
+// ---------------------------------------------------------------------------
+
+/// Represents a single HTML element within the parsed document.
+/// You can perform further selections or extract data from this individual element.
+pub struct Element {
+    pub(crate) node: wit_scraper::Node,
+}
+
+impl Element {
     /// Finds all **descendant** HTML elements *within this specific element* that match the **CSS selector**.
     ///
     /// Use this to narrow your search. For example, find all links (`<a>`) *only within* a specific
     /// navigation bar (`<nav>`). It returns an `ElementList` of matching descendants,
     /// or an error if the selector is malformed.
-    pub fn select(&self, pattern: &str) -> Result<ElementList<'a>, eyre::Report> {
-        let selector = compile_selector(pattern)?;
-        let elements: Vec<ElementRef<'_>> = self.element.select(&selector).collect();
-        Ok(ElementList { elements })
+    pub fn select(&self, pattern: &str) -> Result<ElementList, eyre::Report> {
+        let nodes = self
+            .node
+            .select(pattern)
+            .map_err(|e| eyre::Report::msg(e.message))?;
+        Ok(ElementList {
+            elements: nodes.into_iter().map(|node| Element { node }).collect(),
+        })
     }
 
     /// Finds the **first descendant** HTML element *within this specific element* that matches the **CSS selector**.
@@ -169,9 +171,13 @@ impl<'a> Element<'a> {
     /// Ideal for drilling down to a unique sub-element, like finding the price (`<span>`)
     /// *inside* a particular product listing (`<div>`). It returns the first matching `Element`,
     /// or an error if nothing is found or the selector is malformed.
-    pub fn select_first(&self, pattern: &str) -> Result<Element<'a>, eyre::Report> {
-        self.select_first_opt(pattern)?
-            .ok_or_else(|| eyre!("Element not found: {pattern}"))
+    pub fn select_first(&self, pattern: &str) -> Result<Element, eyre::Report> {
+        self.select_first_opt(pattern)?.ok_or_else(|| {
+            eyre!(
+                "no element matched selector `{pattern}` within <{}>",
+                self.name()
+            )
+        })
     }
 
     /// Optionally finds the **first descendant** HTML element *within this specific element*
@@ -180,13 +186,17 @@ impl<'a> Element<'a> {
     /// Use this to try and find an optional sub-element without causing an error if it's missing.
     /// It returns `Some(Element)` if a match is found, `None` if no match,
     /// or an error if the selector is malformed.
-    pub fn select_first_opt(&self, pattern: &str) -> Result<Option<Element<'a>>, eyre::Report> {
-        let selector = compile_selector(pattern)?;
-        Ok(self
-            .element
-            .select(&selector)
-            .next()
-            .map(|element| Element { element }))
+    pub fn select_first_opt(&self, pattern: &str) -> Result<Option<Element>, eyre::Report> {
+        let node = self
+            .node
+            .select_first(pattern)
+            .map_err(|e| eyre::Report::msg(e.message))?;
+        Ok(node.map(|node| Element { node }))
+    }
+
+    /// Returns the tag name of this element (e.g. `"div"`, `"a"`, `"p"`).
+    pub fn name(&self) -> String {
+        self.node.name()
     }
 
     /// Retrieves the value of a specific **HTML attribute** (e.g., `href`, `src`, `id`).
@@ -195,23 +205,20 @@ impl<'a> Element<'a> {
     /// It returns the attribute's value as a `String`, or an error if the attribute doesn't exist.
     pub fn attr(&self, name: &str) -> Result<String, eyre::Report> {
         self.attr_opt(name)
-            .ok_or_else(|| eyre!("attribute '{name}' not found in element"))
+            .ok_or_else(|| eyre!("attribute `{name}` not found on <{}>", self.name()))
     }
 
-    /// Optionally retrieves the value of a specific **HTML attribute**.
-    ///
     /// Use this when an attribute might or might not be present on an element.
     /// It returns `Some(String)` with the attribute's value, or `None` if the attribute is missing.
     pub fn attr_opt(&self, name: &str) -> Option<String> {
-        self.element.value().attr(name).map(|s| s.to_string())
+        self.node.attr(name)
     }
 
     /// Extracts the **trimmed visible text content** of this element and all its children.
     ///
-    /// Use this when you are sure the element contains text. It returns the text as a `String`,
-    /// or `None` if no text is found.
+    /// Returns `None` if the element contains no text.
     pub fn text_opt(&self) -> Option<String> {
-        let value = self.element.text().collect::<String>();
+        let value = self.node.text();
         let value = value.trim();
         if value.is_empty() {
             None
@@ -224,17 +231,17 @@ impl<'a> Element<'a> {
     ///
     /// This is your go-to method for extracting the human-readable content, like the title of an article,
     /// or the text inside a paragraph. It returns a `String` containing the combined, trimmed text.
+    /// Returns an empty string if no text is found.
     pub fn text_or_empty(&self) -> String {
-        self.element.text().collect::<String>().trim().to_string()
+        self.node.text().trim().to_string()
     }
 
     /// Returns the **outer HTML** of this element, including its own tag and all its children.
     ///
     /// This is useful when you want to extract the full HTML markup for a section of the page,
-    /// such as a card, a div, or any container element. The result includes the element's opening
-    /// and closing tags, as well as all nested content.
+    /// such as a card, a div, or any container element.
     pub fn html_opt(&self) -> Option<String> {
-        let value = self.element.html();
+        let value = self.node.outer_html();
         let value = value.trim();
         if value.is_empty() {
             None
@@ -242,74 +249,151 @@ impl<'a> Element<'a> {
             Some(value.to_string())
         }
     }
+
+    /// Returns the **inner HTML** of this element (all children as an HTML string, excluding
+    /// this element's own tag).
+    pub fn inner_html_opt(&self) -> Option<String> {
+        let value = self.node.inner_html();
+        let value = value.trim();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    }
+
+    /// Detaches this element from the document tree.
+    ///
+    /// After calling this, the element is no longer part of the document and will not appear
+    /// in any subsequent selections on the document or its ancestors.
+    pub fn detach(self) {
+        self.node.detach();
+    }
+
+    /// Returns the direct children of this element in document order.
+    ///
+    /// Each child is either an [`Element`] or a [`TextNode`], giving you the
+    /// building blocks for any tree traversal — pre-order, post-order, BFS, etc. —
+    /// implemented entirely in extension code.
+    pub fn children(&self) -> Vec<ChildNode> {
+        self.node
+            .children()
+            .into_iter()
+            .map(|child| match child {
+                wit_scraper::ChildNode::Element(node) => ChildNode::Element(Element { node }),
+                wit_scraper::ChildNode::Text(node) => ChildNode::Text(TextNode { node }),
+            })
+            .collect()
+    }
 }
 
+// ---------------------------------------------------------------------------
+// ElementListExt — extends Result<ElementList, _>
+// ---------------------------------------------------------------------------
+
+/// Extends `Result<ElementList, ...>` to easily extract text from multiple elements.
+pub trait ElementListExt: Sized {
+    /// Gathers the trimmed text content from *all* elements in the list.
+    ///
+    /// Returns a `Vec<String>` where each string is the text from one element,
+    /// or an error if the initial selection failed.
+    fn text_all(self) -> Result<Vec<String>, eyre::Report>;
+}
+
+impl ElementListExt for Result<ElementList, eyre::Report> {
+    fn text_all(self) -> Result<Vec<String>, eyre::Report> {
+        self.map(|list| {
+            list.elements
+                .into_iter()
+                .map(|element| element.text_or_empty())
+                .collect()
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ElementExt — extends Result<Element, _>
+// ---------------------------------------------------------------------------
+
 /// Extends `Result<Element, ...>` to easily extract text, attributes, or HTML from a single element.
-pub trait ElementExt<'a>: Sized {
+pub trait ElementExt: Sized {
     /// Extracts the **trimmed visible text content** of the element.
     ///
-    /// Use this to get the text from an element if you are sure it contains text.
-    /// It returns the element's text as a `String`, or an error if no text is found.
-    fn text(self) -> Result<String, eyre::Report> {
-        self.text_opt()?
-            .ok_or_else(|| eyre!("text not found in element"))
-    }
+    /// Returns the element's text as a `String`, or an error if no text is found.
+    fn text(self) -> Result<String, eyre::Report>;
 
     /// Retrieves the **trimmed visible text content** of the element.
     ///
-    /// This method always returns a `String`. If no text is found, it provides an
-    /// **empty string** (`""`) instead of an error or `None`, making it convenient
-    /// for cases where you always expect a string result.
-    fn text_or_empty(self) -> Result<String, eyre::Report> {
-        self.text_opt().map(|opt| opt.unwrap_or_default())
-    }
+    /// Always returns a `String`. If no text is found, returns an empty string.
+    fn text_or_empty(self) -> Result<String, eyre::Report>;
 
     /// Optionally extracts the **trimmed visible text content** of the element.
     ///
-    /// Use this when an element might not have any text, avoiding an error in such cases.
-    /// It returns `Some(String)` with the element's text, `None` if no text, or an error if
+    /// Returns `Some(String)` with the element's text, `None` if no text, or an error if
     /// the initial element selection failed.
     fn text_opt(self) -> Result<Option<String>, eyre::Report>;
 
     /// Retrieves the value of a specific **HTML attribute** (e.g., `href`, `src`, `id`).
     ///
-    /// Use this when you are certain the attribute exists. It returns the attribute's value
-    /// as a `String`, or an error if the attribute is not found.
-    fn attr(self, name: &str) -> Result<String, eyre::Report> {
-        self.attr_opt(name)?
-            .ok_or_else(|| eyre!("attribute '{name}' not found in element"))
-    }
+    /// Returns the attribute's value as a `String`, or an error if the attribute is not found.
+    fn attr(self, name: &str) -> Result<String, eyre::Report>;
 
     /// Optionally retrieves the value of a specific **HTML attribute**.
     ///
-    /// Use this when an attribute might be missing from an element. It returns
-    /// `Some(String)` with the attribute's value, `None` if missing, or an error if
+    /// Returns `Some(String)` with the attribute's value, `None` if missing, or an error if
     /// the initial element selection failed.
     fn attr_opt(self, name: &str) -> Result<Option<String>, eyre::Report>;
 
-    /// Retrieves the **trimmed outer HTML content** of the element, including its own tag and all its children.
+    /// Retrieves the **trimmed outer HTML content** of the element, including its own tag
+    /// and all its children.
     ///
-    /// Use this when you need the complete HTML structure of a section, not just its plain text or inner content.
-    /// It returns the outer HTML as a `String`, or an error if the initial element selection failed.
-    fn html(self) -> Result<String, eyre::Report> {
-        self.html_opt()?
-            .ok_or_else(|| eyre!("HTML content not found in element"))
-    }
+    /// Returns the outer HTML as a `String`, or an error if no HTML content is found.
+    fn html(self) -> Result<String, eyre::Report>;
 
     /// Optionally retrieves the **trimmed outer HTML content** of the element.
     ///
-    /// This method returns `Some(String)` with the outer HTML if it exists, or `None` if the element has no HTML content.
-    /// It also returns an error if the initial element selection failed.
+    /// Returns `Some(String)` with the outer HTML if it exists, or `None` if empty.
     fn html_opt(self) -> Result<Option<String>, eyre::Report>;
 }
 
-impl<'a> ElementExt<'a> for Result<Element<'a>, eyre::Report> {
+impl ElementExt for Result<Element, eyre::Report> {
+    fn text(self) -> Result<String, eyre::Report> {
+        self.and_then(|element| {
+            let tag = element.name();
+            element
+                .text_opt()
+                .ok_or_else(|| eyre!("no text content in <{tag}>"))
+        })
+    }
+
+    fn text_or_empty(self) -> Result<String, eyre::Report> {
+        self.map(|element| element.text_or_empty())
+    }
+
     fn text_opt(self) -> Result<Option<String>, eyre::Report> {
         self.map(|element| element.text_opt())
     }
 
+    fn attr(self, name: &str) -> Result<String, eyre::Report> {
+        self.and_then(|element| {
+            let tag = element.name();
+            element
+                .attr_opt(name)
+                .ok_or_else(|| eyre!("attribute `{name}` not found on <{tag}>"))
+        })
+    }
+
     fn attr_opt(self, name: &str) -> Result<Option<String>, eyre::Report> {
         self.map(|element| element.attr_opt(name))
+    }
+
+    fn html(self) -> Result<String, eyre::Report> {
+        self.and_then(|element| {
+            let tag = element.name();
+            element
+                .html_opt()
+                .ok_or_else(|| eyre!("no HTML content in <{tag}>"))
+        })
     }
 
     fn html_opt(self) -> Result<Option<String>, eyre::Report> {
