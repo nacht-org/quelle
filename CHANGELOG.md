@@ -46,3 +46,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `novelfull` extension: replaced `element.element.id()` + `doc.detach(node_id)`
   with direct `element.detach()` calls.
 - `royalroad` extension: same detach simplification; `mut doc` binding removed.
+- Upgrade wasmtime to 42.0.
