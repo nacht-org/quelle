@@ -85,8 +85,10 @@ impl QuelleExtension for Extension {
             .map_err(|e| eyre!(e))
             .wrap_err("Failed to fetch chapter")?;
 
+        let content = doc.select_first("#chp_raw")?;
+
         Ok(ChapterContent {
-            data: doc.select_first("#chp_raw").html()?,
+            data: ContentCleaner::new().clean(&content)?,
         })
     }
 

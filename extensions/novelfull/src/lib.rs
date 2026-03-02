@@ -114,46 +114,21 @@ impl QuelleExtension for Extension {
             .map_err(|e| eyre!(e))
             .wrap_err("Failed to fetch chapter page")?;
 
-        // Bad CSS selectors to remove
-        let bad_selectors = vec![
-            r#"div[align="left"]"#,
-            r#"img[src*="proxy?container=focus"]"#,
-        ];
-
-        // Remove unwanted elements
-        for selector in &bad_selectors {
-            if let Ok(elements) = doc.select(selector) {
-                for element in elements {
-                    element.detach();
-                }
-            }
-        }
-
-        // Get chapter content (try both possible selectors)
         let content = doc
             .select_first_opt("#chr-content")?
             .or_else(|| doc.select_first_opt("#chapter-content").ok().flatten())
             .ok_or_eyre("Chapter content not found")?;
 
-        // Remove all div tags inside content
-        if let Ok(divs) = content.select("div") {
-            for div in divs {
-                div.detach();
-            }
-        }
-
-        // Extract cleaned HTML
-        let cleaned_content = doc
-            .select_first_opt("#chr-content")?
-            .or_else(|| doc.select_first_opt("#chapter-content").ok().flatten())
-            .ok_or_eyre("Chapter content not found")?;
-
-        let cleaned_content = cleaned_content
-            .html_opt()
-            .ok_or_eyre("Failed to extract chapter HTML content")?;
+        // NovelFull embeds proxy images and misaligned divs alongside the usual noise.
+        let cleaner = ContentCleaner::empty()
+            .remove(r#"div[align="left"]"#)
+            .remove(r#"img[src*="proxy?container=focus"]"#)
+            .remove_tag("div")
+            .remove_tag("script")
+            .remove_tag("style");
 
         Ok(ChapterContent {
-            data: cleaned_content,
+            data: cleaner.clean(&content)?,
         })
     }
 

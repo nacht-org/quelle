@@ -186,9 +186,7 @@ impl QuelleExtension for Extension {
         remap_text_nodes(&content, JUMBLED_CHARS, NORMAL_CHARS);
 
         Ok(ChapterContent {
-            data: content
-                .html_opt()
-                .ok_or_else(|| eyre!("Failed to extract chapter HTML"))?,
+            data: ContentCleaner::new().clean(&content)?,
         })
     }
 }

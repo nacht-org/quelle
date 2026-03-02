@@ -1,6 +1,7 @@
 use eyre::{Context, OptionExt, eyre};
 use once_cell::sync::Lazy;
 use quelle_extension::prelude::*;
+use regex::Regex;
 
 register_extension!(Extension);
 
@@ -100,56 +101,30 @@ impl QuelleExtension for Extension {
             .map_err(|e| eyre!(e))
             .wrap_err("Failed to fetch chapter page")?;
 
-        // Outside the loop regex compilation to avoid recompiling on each iteration
-        let hidden_class_re = regex::Regex::new(
-            r"(\.[a-zA-Z][a-zA-Z0-9_-]*)\{[^}]*display:none[^}]*speak:never[^}]*\}",
-        )
-        .map_err(|e| eyre!("Regex error: {}", e))?;
+        // RoyalRoad injects hidden spans via dynamically-generated CSS classes as an
+        // anti-scraping measure. Extract those class names from inline <style> blocks
+        // and pass them to the cleaner so they get removed along with everything else.
+        let hidden_class_re =
+            Regex::new(r"(\.[a-zA-Z][a-zA-Z0-9_-]*)\{[^}]*display:none[^}]*speak:never[^}]*\}")
+                .map_err(|e| eyre!("Regex error: {}", e))?;
 
-        // Find hidden class patterns from CSS (anti-scraping protection)
-        let mut hidden_classes = Vec::new();
+        let mut cleaner = ContentCleaner::new();
+
         for style_element in doc.select("head > style")? {
-            let css_text = style_element.text_or_empty();
+            let clean_css = style_element
+                .text_or_empty()
+                .replace(&[' ', '\n', '\r', '\t'][..], "");
 
-            // Remove whitespace and newlines for easier parsing
-            let clean_css = css_text.replace(&[' ', '\n', '\r', '\t'][..], "");
-
-            // Look for patterns like .abc123{display:none;speak:never;}
             for cap in hidden_class_re.captures_iter(&clean_css) {
                 if let Some(class) = cap.get(1) {
-                    hidden_classes.push(class.as_str().to_string());
+                    cleaner = cleaner.remove(class.as_str());
                 }
             }
         }
 
-        tracing::debug!(
-            "Found {} hidden classes: {:?}",
-            hidden_classes.len(),
-            hidden_classes
-        );
-
-        // Remove hidden elements based on CSS patterns (anti-scraping protection)
-        if !hidden_classes.is_empty() {
-            let hidden_selector = hidden_classes.join(", ");
-
-            if let Ok(hidden_elements) = doc.select(&hidden_selector) {
-                tracing::debug!(
-                    "Removing {} hidden elements from chapter content",
-                    hidden_elements.len()
-                );
-
-                // Each Element is owned — detach directly, no ID collection needed.
-                for element in hidden_elements {
-                    element.detach();
-                }
-            }
-        }
-
-        // Get chapter content after hidden element removal
-        let cleaned_content = doc.select_first(".chapter .chapter-content").html()?;
-
+        let content = doc.select_first(".chapter .chapter-content")?;
         Ok(ChapterContent {
-            data: cleaned_content,
+            data: cleaner.clean(&content)?,
         })
     }
 
