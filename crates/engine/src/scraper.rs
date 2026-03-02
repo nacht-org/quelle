@@ -1,54 +1,39 @@
 use std::sync::Arc;
 
 use ego_tree::NodeId;
+use html5ever::{LocalName, QualName, ns};
 use wasmtime::component::{HasData, Resource, ResourceTable};
 
 use crate::bindings::quelle::extension::scraper as wit;
 use crate::state::State;
 
-// ---------------------------------------------------------------------------
-// HtmlTree — Send + Sync wrapper around scraper::Html
-// ---------------------------------------------------------------------------
-
-/// Newtype wrapper that makes `scraper::Html` usable inside `Arc` within
-/// async wasmtime host implementations.
+/// Newtype that makes `scraper::Html` usable inside `Arc` for async wasmtime hosts.
 ///
 /// # Safety
-/// `scraper::Html` uses `Cell`/`UnsafeCell` internally, which makes it `!Send`.
-/// However, all access to the tree goes through the wasmtime store lock, so only
-/// one thread touches the data at a time. We assert this invariant here.
+/// `scraper::Html` is `!Send` due to internal `Cell` usage. All access is
+/// serialised through the wasmtime store lock, so only one thread touches the
+/// data at a time.
 struct HtmlTree(scraper::Html);
 
 unsafe impl Send for HtmlTree {}
 unsafe impl Sync for HtmlTree {}
 
-// ---------------------------------------------------------------------------
-// Host resource types
-// ---------------------------------------------------------------------------
-
-/// Host-side document state. The parsed HTML tree is stored behind an `Arc` so
-/// that `HostNode` and `HostTextNode` handles can outlive the `HostDocument`.
+/// Parsed HTML document. The tree is `Arc`-shared so node handles can outlive it.
 pub struct HostDocument {
     tree: Arc<HtmlTree>,
 }
 
-/// Host-side element node. Carries a shared reference to the tree and the
-/// stable `NodeId` that identifies this element within it.
+/// Handle to an element node — shared tree reference plus a stable `NodeId`.
 pub struct HostNode {
     tree: Arc<HtmlTree>,
     id: NodeId,
 }
 
-/// Host-side text node. Same layout as `HostNode` but points at a raw text
-/// node rather than an element.
+/// Handle to a text node. Same layout as `HostNode` but without tag or attributes.
 pub struct HostTextNode {
     tree: Arc<HtmlTree>,
     id: NodeId,
 }
-
-// ---------------------------------------------------------------------------
-// Scraper — host state stored inside `State`
-// ---------------------------------------------------------------------------
 
 pub struct Scraper {
     table: ResourceTable,
@@ -66,19 +51,11 @@ impl HasData for Scraper {
     type Data<'a> = &'a mut State;
 }
 
-// ---------------------------------------------------------------------------
-// Helper: compile a CSS selector
-// ---------------------------------------------------------------------------
-
 fn compile_selector(selector: &str) -> Result<scraper::Selector, wit::SelectorError> {
     scraper::Selector::parse(selector).map_err(|e| wit::SelectorError {
         message: format!("invalid selector `{selector}`: {e}"),
     })
 }
-
-// ---------------------------------------------------------------------------
-// HostDocument
-// ---------------------------------------------------------------------------
 
 impl wit::HostDocument for Scraper {
     async fn new(&mut self, html: String) -> Resource<HostDocument> {
@@ -138,10 +115,6 @@ impl wit::HostDocument for Scraper {
         Ok(())
     }
 }
-
-// ---------------------------------------------------------------------------
-// HostNode
-// ---------------------------------------------------------------------------
 
 impl wit::HostNode for Scraper {
     async fn select(
@@ -238,6 +211,54 @@ impl wit::HostNode for Scraper {
             .unwrap_or_default()
     }
 
+    async fn has_attr(&mut self, self_: Resource<HostNode>, name: String) -> bool {
+        let node = self.table.get(&self_).expect("node resource missing");
+        let tree_node = node
+            .tree
+            .0
+            .tree
+            .get(node.id)
+            .expect("node id not found in tree");
+        scraper::ElementRef::wrap(tree_node)
+            .and_then(|el| el.value().attr(&name))
+            .is_some()
+    }
+
+    async fn attr_names(&mut self, self_: Resource<HostNode>) -> Vec<String> {
+        let node = self.table.get(&self_).expect("node resource missing");
+        let tree_node = node
+            .tree
+            .0
+            .tree
+            .get(node.id)
+            .expect("node id not found in tree");
+        scraper::ElementRef::wrap(tree_node)
+            .map(|el| {
+                el.value()
+                    .attrs()
+                    .map(|(name, _)| name.to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    async fn remove_attr(&mut self, self_: Resource<HostNode>, name: String) {
+        let node = self.table.get(&self_).expect("node resource missing");
+        let node_id = node.id;
+        // Safety: all tree mutations are serialised through the wasmtime store lock.
+        let tree_ptr = Arc::as_ptr(&node.tree) as *mut HtmlTree;
+        unsafe {
+            if let Some(mut n) = (*tree_ptr).0.tree.get_mut(node_id) {
+                if let scraper::node::Node::Element(el) = n.value() {
+                    let qualname = QualName::new(None, ns!(), LocalName::from(name.as_str()));
+                    if let Ok(idx) = el.attrs.binary_search_by(|a| a.0.cmp(&qualname)) {
+                        el.attrs.remove(idx);
+                    }
+                }
+            }
+        }
+    }
+
     async fn outer_html(&mut self, self_: Resource<HostNode>) -> String {
         let node = self.table.get(&self_).expect("node resource missing");
         let tree_node = node
@@ -267,8 +288,7 @@ impl wit::HostNode for Scraper {
     async fn detach(&mut self, self_: Resource<HostNode>) {
         let node = self.table.get(&self_).expect("node resource missing");
         let node_id = node.id;
-        // Safety: all access to the tree is serialised through the wasmtime store
-        // lock, so no concurrent access is possible.
+        // Safety: all tree mutations are serialised through the wasmtime store lock.
         let tree_ptr = Arc::as_ptr(&node.tree) as *mut HtmlTree;
         unsafe {
             if let Some(mut n) = (*tree_ptr).0.tree.get_mut(node_id) {
@@ -331,10 +351,6 @@ impl wit::HostNode for Scraper {
     }
 }
 
-// ---------------------------------------------------------------------------
-// HostTextNode
-// ---------------------------------------------------------------------------
-
 impl wit::HostTextNode for Scraper {
     async fn text(&mut self, self_: Resource<HostTextNode>) -> String {
         let node = self.table.get(&self_).expect("text-node resource missing");
@@ -353,7 +369,7 @@ impl wit::HostTextNode for Scraper {
     async fn set_text(&mut self, self_: Resource<HostTextNode>, content: String) {
         let node = self.table.get(&self_).expect("text-node resource missing");
         let node_id = node.id;
-        // Safety: see comment in `detach`.
+        // Safety: all tree mutations are serialised through the wasmtime store lock.
         let tree_ptr = Arc::as_ptr(&node.tree) as *mut HtmlTree;
         unsafe {
             if let Some(mut n) = (*tree_ptr).0.tree.get_mut(node_id) {
@@ -369,9 +385,5 @@ impl wit::HostTextNode for Scraper {
         Ok(())
     }
 }
-
-// ---------------------------------------------------------------------------
-// Host (namespace-level)
-// ---------------------------------------------------------------------------
 
 impl wit::Host for Scraper {}

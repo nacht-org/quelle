@@ -3516,6 +3516,7 @@ dependencies = [
  "clap",
  "ego-tree 0.10.0",
  "headless_chrome",
+ "html5ever 0.35.0",
  "reqwest 0.12.28",
  "scraper 0.24.0",
  "serde_json",

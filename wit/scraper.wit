@@ -45,6 +45,18 @@ interface scraper {
         /// Get the inner HTML of this element (all children as an HTML string).
         inner-html: func() -> string;
 
+        /// Check whether an attribute exists on this element.
+        has-attr: func(name: string) -> bool;
+
+        /// Remove an attribute from this element by name.
+        /// No-op if the attribute does not exist.
+        remove-attr: func(name: string);
+
+        /// Return the names of all attributes present on this element.
+        /// Useful for allowlist-style attribute cleaning without needing to
+        /// guess which attributes might be present.
+        attr-names: func() -> list<string>;
+
         /// Detach this node from the document tree.
         detach: func();
 
