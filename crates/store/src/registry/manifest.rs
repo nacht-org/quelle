@@ -191,16 +191,6 @@ pub mod checksum {
         pub fn preferred() -> Self {
             ChecksumAlgorithm::Blake3
         }
-
-        /// Check if this algorithm is considered secure
-        pub fn is_secure(&self) -> bool {
-            match self {
-                ChecksumAlgorithm::Sha256 => true,
-                ChecksumAlgorithm::Sha384 => true,
-                ChecksumAlgorithm::Sha512 => true,
-                ChecksumAlgorithm::Blake3 => true,
-            }
-        }
     }
 
     impl Display for Checksum {

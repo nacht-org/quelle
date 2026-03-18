@@ -200,12 +200,7 @@ impl LocalRegistryStore {
     async fn save_registry(&mut self) -> Result<()> {
         self.registry.last_updated = Utc::now();
 
-        let content = serde_json::to_string_pretty(&self.registry).map_err(|e| {
-            StoreError::SerializationErrorWithContext {
-                operation: "serialize registry".to_string(),
-                source: e,
-            }
-        })?;
+        let content = serde_json::to_string_pretty(&self.registry)?;
 
         // Create backup if registry exists
         if self.registry_path.exists() {

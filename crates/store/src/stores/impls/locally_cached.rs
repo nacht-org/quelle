@@ -216,11 +216,11 @@ impl LocallyCachedStore<GitProvider> {
         store_name: String,
         description: Option<String>,
     ) -> Result<()> {
-        self.intiialize_store_with_type(store_name, description, "git")
+        self.initialize_store_with_type(store_name, description, "git")
             .await
     }
 
-    pub(crate) async fn intiialize_store_with_type(
+    pub(crate) async fn initialize_store_with_type(
         &self,
         store_name: String,
         description: Option<String>,
@@ -274,9 +274,9 @@ impl LocallyCachedStore<GitProvider> {
 
         let write_config = self.provider.write_config.as_ref().ok_or_else(|| {
             tracing::error!("No write configuration available for git provider");
-            crate::error::StoreError::InvalidPackage {
-                reason: "Git write configuration not available".to_string(),
-            }
+            crate::error::StoreError::ConfigError(
+                "Git write configuration not available".to_string(),
+            )
         })?;
 
         if !self.provider.is_git_repo() {

@@ -82,7 +82,7 @@ impl GitHubStoreBuilder {
             }
         }
 
-        Err(StoreError::InvalidConfiguration(format!(
+        Err(StoreError::ConfigError(format!(
             "Invalid GitHub URL: {}. Expected format: https://github.com/owner/repo",
             url
         )))
@@ -348,7 +348,7 @@ impl GitHubStore {
         description: Option<String>,
     ) -> Result<()> {
         self.as_git_store()?
-            .intiialize_store_with_type(store_name, description, "github")
+            .initialize_store_with_type(store_name, description, "github")
             .await
     }
 }

@@ -15,10 +15,7 @@ use tracing::{debug, warn};
 use crate::error::{Result, StoreError};
 use crate::manager::store_manifest::ExtensionVersion;
 use crate::manager::store_manifest::StoreManifest;
-use crate::models::{
-    ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQuery, UpdateAvailableInfo,
-    UpdateCheckFailedInfo, UpdateNotNeededInfo,
-};
+use crate::models::{ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQuery};
 use crate::registry::manifest::{ExtensionManifest, FileReference, LocalExtensionManifest};
 use crate::stores::impls::local::store::LocalStoreManifest;
 use crate::{InstalledExtension, UpdateInfo};
@@ -400,33 +397,32 @@ impl<F: FileOperations> FileBasedProcessor<F> {
             let result = match self.get_extension_latest_version(&installed_ext.id).await {
                 Ok(Some(latest_version)) => {
                     if latest_version > installed_ext.version {
-                        UpdateInfo::UpdateAvailable(UpdateAvailableInfo {
-                            extension_id: installed_ext.id.clone(),
-                            current_version: installed_ext.version.clone(),
+                        UpdateInfo::available(
+                            installed_ext.id.clone(),
+                            installed_ext.version.clone(),
                             latest_version,
-                            update_size: None,
-                            store_source: store_source.to_string(),
-                        })
+                            store_source.to_string(),
+                        )
                     } else {
-                        UpdateInfo::NoUpdateNeeded(UpdateNotNeededInfo {
-                            extension_id: installed_ext.id.clone(),
-                            current_version: installed_ext.version.clone(),
-                            store_source: store_source.to_string(),
-                        })
+                        UpdateInfo::up_to_date(
+                            installed_ext.id.clone(),
+                            installed_ext.version.clone(),
+                            store_source.to_string(),
+                        )
                     }
                 }
-                Ok(None) => UpdateInfo::CheckFailed(UpdateCheckFailedInfo {
-                    extension_id: installed_ext.id.clone(),
-                    current_version: installed_ext.version.clone(),
-                    store_source: store_source.to_string(),
-                    error: "Extension not found in store".to_string(),
-                }),
-                Err(e) => UpdateInfo::CheckFailed(UpdateCheckFailedInfo {
-                    extension_id: installed_ext.id.clone(),
-                    current_version: installed_ext.version.clone(),
-                    store_source: store_source.to_string(),
-                    error: e.to_string(),
-                }),
+                Ok(None) => UpdateInfo::check_failed(
+                    installed_ext.id.clone(),
+                    installed_ext.version.clone(),
+                    store_source.to_string(),
+                    "Extension not found in store".to_string(),
+                ),
+                Err(e) => UpdateInfo::check_failed(
+                    installed_ext.id.clone(),
+                    installed_ext.version.clone(),
+                    store_source.to_string(),
+                    e.to_string(),
+                ),
             };
 
             results.push(result);
@@ -1376,22 +1372,23 @@ mod tests {
         assert_eq!(updates.len(), 2);
 
         // Check ext-1 has update available
-        match &updates[0] {
-            UpdateInfo::UpdateAvailable(info) => {
-                assert_eq!(info.extension_id, "ext-1");
-                assert_eq!(info.current_version, Version::parse("1.0.0").unwrap());
-                assert_eq!(info.latest_version, Version::parse("2.0.0").unwrap());
+        let update0 = &updates[0];
+        assert_eq!(update0.extension_id, "ext-1");
+        assert_eq!(update0.current_version, Version::parse("1.0.0").unwrap());
+        match &update0.status {
+            crate::models::UpdateStatus::Available { latest_version, .. } => {
+                assert_eq!(*latest_version, Version::parse("2.0.0").unwrap());
             }
-            _ => panic!("Expected UpdateAvailable for ext-1"),
+            _ => panic!("Expected Available status for ext-1"),
         }
 
         // Check ext-2 has no update
-        match &updates[1] {
-            UpdateInfo::NoUpdateNeeded(info) => {
-                assert_eq!(info.extension_id, "ext-2");
-            }
-            _ => panic!("Expected NoUpdateNeeded for ext-2"),
-        }
+        let update1 = &updates[1];
+        assert_eq!(update1.extension_id, "ext-2");
+        assert!(
+            matches!(update1.status, crate::models::UpdateStatus::UpToDate),
+            "Expected UpToDate status for ext-2"
+        );
     }
 
     #[tokio::test]
@@ -1434,12 +1431,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(updates.len(), 1);
-        match &updates[0] {
-            UpdateInfo::CheckFailed(info) => {
-                assert_eq!(info.extension_id, "missing-ext");
-                assert!(info.error.contains("not found"));
+        let update = &updates[0];
+        assert_eq!(update.extension_id, "missing-ext");
+        match &update.status {
+            crate::models::UpdateStatus::CheckFailed(error) => {
+                assert!(error.contains("not found"));
             }
-            _ => panic!("Expected CheckFailed for missing extension"),
+            _ => panic!("Expected CheckFailed status for missing extension"),
         }
     }
 

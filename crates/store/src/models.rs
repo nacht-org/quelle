@@ -60,50 +60,6 @@ impl ExtensionListing {
             store_source,
         }
     }
-
-    /// Convert to full ExtensionInfo with additional optional fields
-    pub fn to_extension_info(self) -> ExtensionInfo {
-        ExtensionInfo {
-            id: self.id,
-            name: self.name,
-            version: self.version,
-            description: self.description,
-            author: self.author,
-            tags: self.tags,
-            last_updated: self.last_updated,
-            download_count: None,
-            size: None,
-            homepage: None,
-            repository: None,
-            license: None,
-            store_source: self.store_source,
-        }
-    }
-}
-
-impl ExtensionInfo {
-    /// Convert from ExtensionSummary to ExtensionInfo
-    /// This eliminates implementation-specific details like manifest_path and manifest_checksum
-    pub fn from_summary(
-        summary: &crate::manager::store_manifest::ExtensionVersion,
-        store_source: String,
-    ) -> Self {
-        Self {
-            id: summary.id.clone(),
-            name: summary.name.clone(),
-            version: summary.version.clone(),
-            description: None, // ExtensionSummary doesn't have description
-            author: "Unknown".to_string(), // ExtensionSummary doesn't have author
-            tags: summary.langs.clone(), // Use langs as tags for now
-            last_updated: Some(summary.last_updated),
-            download_count: None,
-            size: None,
-            homepage: None,
-            repository: None,
-            license: None,
-            store_source,
-        }
-    }
 }
 
 /// Complete extension package with all files and metadata
@@ -454,65 +410,74 @@ impl InstalledExtension {
 
 /// Result of checking a single extension for updates
 #[derive(Debug, Clone)]
-pub enum UpdateInfo {
-    UpdateAvailable(UpdateAvailableInfo),
-    NoUpdateNeeded(UpdateNotNeededInfo),
-    CheckFailed(UpdateCheckFailedInfo),
-}
-
-#[derive(Debug, Clone)]
-pub struct UpdateAvailableInfo {
-    pub extension_id: String,
-    pub current_version: Version,
-    pub latest_version: Version,
-    pub update_size: Option<u64>,
-    pub store_source: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct UpdateNotNeededInfo {
+pub struct UpdateInfo {
     pub extension_id: String,
     pub current_version: Version,
     pub store_source: String,
+    pub status: UpdateStatus,
 }
 
+/// The outcome of an update check for a specific extension
 #[derive(Debug, Clone)]
-pub struct UpdateCheckFailedInfo {
-    pub extension_id: String,
-    pub current_version: Version,
-    pub store_source: String,
-    pub error: String,
+pub enum UpdateStatus {
+    /// A newer version is available in the store
+    Available {
+        latest_version: Version,
+        update_size: Option<u64>,
+    },
+    /// Already at the latest version
+    UpToDate,
+    /// The check could not be completed
+    CheckFailed(String),
 }
 
 impl UpdateInfo {
-    pub fn extension_id(&self) -> &str {
-        match self {
-            UpdateInfo::UpdateAvailable(UpdateAvailableInfo { extension_id, .. }) => extension_id,
-            UpdateInfo::NoUpdateNeeded(UpdateNotNeededInfo { extension_id, .. }) => extension_id,
-            UpdateInfo::CheckFailed(UpdateCheckFailedInfo { extension_id, .. }) => extension_id,
+    pub fn available(
+        extension_id: String,
+        current_version: Version,
+        latest_version: Version,
+        store_source: String,
+    ) -> Self {
+        Self {
+            extension_id,
+            current_version,
+            store_source,
+            status: UpdateStatus::Available {
+                latest_version,
+                update_size: None,
+            },
         }
     }
 
-    pub fn current_version(&self) -> &Version {
-        match self {
-            UpdateInfo::UpdateAvailable(UpdateAvailableInfo {
-                current_version, ..
-            }) => current_version,
-            UpdateInfo::NoUpdateNeeded(UpdateNotNeededInfo {
-                current_version, ..
-            }) => current_version,
-            UpdateInfo::CheckFailed(UpdateCheckFailedInfo {
-                current_version, ..
-            }) => current_version,
+    pub fn up_to_date(
+        extension_id: String,
+        current_version: Version,
+        store_source: String,
+    ) -> Self {
+        Self {
+            extension_id,
+            current_version,
+            store_source,
+            status: UpdateStatus::UpToDate,
         }
     }
 
-    pub fn store_source(&self) -> &str {
-        match self {
-            UpdateInfo::UpdateAvailable(UpdateAvailableInfo { store_source, .. }) => store_source,
-            UpdateInfo::NoUpdateNeeded(UpdateNotNeededInfo { store_source, .. }) => store_source,
-            UpdateInfo::CheckFailed(UpdateCheckFailedInfo { store_source, .. }) => store_source,
+    pub fn check_failed(
+        extension_id: String,
+        current_version: Version,
+        store_source: String,
+        error: String,
+    ) -> Self {
+        Self {
+            extension_id,
+            current_version,
+            store_source,
+            status: UpdateStatus::CheckFailed(error),
         }
+    }
+
+    pub fn is_available(&self) -> bool {
+        matches!(self.status, UpdateStatus::Available { .. })
     }
 }
 

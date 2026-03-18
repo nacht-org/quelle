@@ -239,9 +239,7 @@ impl RegistryStoreConfigs {
         StoreConfigCounts {
             total,
             enabled,
-            disabled: total - enabled,
             trusted,
-            untrusted: total - trusted,
             stale,
         }
     }
@@ -257,10 +255,18 @@ impl RegistryStoreConfigs {
 pub struct StoreConfigCounts {
     pub total: usize,
     pub enabled: usize,
-    pub disabled: usize,
     pub trusted: usize,
-    pub untrusted: usize,
     pub stale: usize,
+}
+
+impl StoreConfigCounts {
+    pub fn disabled(&self) -> usize {
+        self.total - self.enabled
+    }
+
+    pub fn untrusted(&self) -> usize {
+        self.total - self.trusted
+    }
 }
 
 #[cfg(test)]
@@ -360,9 +366,9 @@ mod tests {
         let counts = configs.store_counts();
         assert_eq!(counts.total, 3);
         assert_eq!(counts.enabled, 2);
-        assert_eq!(counts.disabled, 1);
+        assert_eq!(counts.disabled(), 1);
         assert_eq!(counts.trusted, 1);
-        assert_eq!(counts.untrusted, 2);
+        assert_eq!(counts.untrusted(), 2);
     }
 
     #[test]

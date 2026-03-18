@@ -145,13 +145,13 @@ impl GitStoreBuilder {
     /// - The store cannot be initialized
     pub fn build(self) -> Result<GitStore> {
         let cache_dir = self.cache_dir.ok_or_else(|| {
-            crate::error::StoreError::InvalidConfiguration(
+            crate::error::StoreError::ConfigError(
                 "cache_dir must be set before building GitStore".to_string(),
             )
         })?;
 
         let name = self.name.ok_or_else(|| {
-            crate::error::StoreError::InvalidConfiguration(
+            crate::error::StoreError::ConfigError(
                 "name must be set before building GitStore".to_string(),
             )
         })?;

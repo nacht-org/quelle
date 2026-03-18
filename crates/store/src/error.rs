@@ -53,29 +53,14 @@ pub enum StoreError {
     #[error("Concurrent access error: {0}")]
     ConcurrencyError(String),
 
-    #[error("Configuration error: {message}")]
-    ConfigurationError { message: String },
-
     #[error("Unsupported store type: {0}")]
     UnsupportedStoreType(String),
-
-    #[error("Invalid configuration: {0}")]
-    InvalidConfiguration(String),
-
-    #[error("Validation failed: {0}")]
-    ValidationFailed(String),
 
     #[error("Runtime error: {0}")]
     RuntimeError(String),
 
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
-
-    #[error("Serialization operation '{operation}' failed: {source}")]
-    SerializationErrorWithContext {
-        operation: String,
-        source: serde_json::Error,
-    },
 
     #[error("Failed to create store of type '{store_type}': {source}")]
     StoreCreationError {
@@ -137,63 +122,25 @@ pub type Result<T> = std::result::Result<T, StoreError>;
 
 impl StoreError {
     pub fn is_recoverable(&self) -> bool {
-        match self {
-            StoreError::NetworkError(_) => true,
-            StoreError::StoreUnhealthy(_, _) => true,
-            StoreError::StoreUnavailable(_) => true,
-            StoreError::Timeout => true,
-            StoreError::ConcurrencyError(_) => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            StoreError::NetworkError(_)
+                | StoreError::StoreUnhealthy(_, _)
+                | StoreError::StoreUnavailable(_)
+                | StoreError::Timeout
+                | StoreError::ConcurrencyError(_)
+        )
     }
 
     pub fn is_user_error(&self) -> bool {
-        match self {
-            StoreError::ExtensionNotFound(_) => true,
-            StoreError::VersionNotFound { .. } => true,
-            StoreError::InvalidVersion(_) => true,
-            StoreError::PermissionDenied(_) => true,
-            StoreError::ConfigError(_) => true,
-            _ => false,
-        }
-    }
-}
-
-#[derive(Error, Debug)]
-pub enum LocalStoreError {
-    #[error("Extension directory not found: {0}")]
-    DirectoryNotFound(String),
-
-    #[error("Invalid directory structure: {0}")]
-    InvalidStructure(String),
-
-    #[error("File not found: {0}")]
-    FileNotFound(String),
-
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
-
-    #[error("Invalid manifest: {0}")]
-    InvalidManifest(String),
-
-    #[error("Checksum mismatch for file: {0}")]
-    ChecksumMismatch(String),
-}
-
-impl From<LocalStoreError> for StoreError {
-    fn from(err: LocalStoreError) -> Self {
-        match err {
-            LocalStoreError::DirectoryNotFound(name) => StoreError::ExtensionNotFound(name),
-            LocalStoreError::FileNotFound(file) => StoreError::ExtensionNotFound(file),
-            LocalStoreError::InvalidStructure(msg) => StoreError::ConfigError(msg),
-            LocalStoreError::Io(err) => StoreError::IoError(err),
-            LocalStoreError::Json(err) => StoreError::SerializationError(err),
-            LocalStoreError::InvalidManifest(msg) => StoreError::ValidationError(msg),
-            LocalStoreError::ChecksumMismatch(file) => StoreError::ChecksumMismatch(file),
-        }
+        matches!(
+            self,
+            StoreError::ExtensionNotFound(_)
+                | StoreError::VersionNotFound { .. }
+                | StoreError::InvalidVersion(_)
+                | StoreError::PermissionDenied(_)
+                | StoreError::ConfigError(_)
+        )
     }
 }
 
@@ -224,7 +171,6 @@ pub enum GitStoreError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    // Publishing-specific errors
     #[error(
         "Repository has uncommitted changes. Please commit or stash changes before publishing."
     )]
@@ -297,64 +243,6 @@ impl From<GitStoreError> for StoreError {
             }
             GitStoreError::InconsistentState { details } => {
                 StoreError::RuntimeError(format!("Repository in inconsistent state: {}", details))
-            }
-        }
-    }
-}
-
-#[cfg(feature = "http")]
-#[derive(Error, Debug)]
-pub enum HttpStoreError {
-    #[error("HTTP request failed: {0}")]
-    RequestFailed(String),
-
-    #[error("HTTP response error: {status}")]
-    ResponseError { status: u16 },
-
-    #[error("Network error: {0}")]
-    Network(#[from] reqwest::Error),
-
-    #[error("Invalid URL: {0}")]
-    InvalidUrl(String),
-
-    #[error("Download failed: {0}")]
-    DownloadFailed(String),
-
-    #[error("Rate limit exceeded")]
-    RateLimitExceeded,
-
-    #[error("Authentication required")]
-    AuthenticationRequired,
-
-    #[error("Server unavailable")]
-    ServerUnavailable,
-}
-
-#[cfg(feature = "http")]
-impl From<HttpStoreError> for StoreError {
-    fn from(err: HttpStoreError) -> Self {
-        match err {
-            HttpStoreError::RequestFailed(msg) => StoreError::NetworkError(msg),
-            HttpStoreError::ResponseError { status } => match status {
-                404 => StoreError::ExtensionNotFound("HTTP 404".to_string()),
-                401 | 403 => StoreError::PermissionDenied(format!("HTTP {}", status)),
-                429 => StoreError::NetworkError("Rate limit exceeded".to_string()),
-                500..=599 => StoreError::StoreUnavailable(format!("Server error: {}", status)),
-                _ => StoreError::NetworkError(format!("HTTP error: {}", status)),
-            },
-            HttpStoreError::Network(err) => StoreError::NetworkError(err.to_string()),
-            HttpStoreError::InvalidUrl(url) => {
-                StoreError::ConfigError(format!("Invalid URL: {}", url))
-            }
-            HttpStoreError::DownloadFailed(msg) => StoreError::NetworkError(msg),
-            HttpStoreError::RateLimitExceeded => {
-                StoreError::NetworkError("Rate limit exceeded".to_string())
-            }
-            HttpStoreError::AuthenticationRequired => {
-                StoreError::PermissionDenied("Authentication required".to_string())
-            }
-            HttpStoreError::ServerUnavailable => {
-                StoreError::StoreUnavailable("Server unavailable".to_string())
             }
         }
     }

@@ -76,24 +76,6 @@ pub enum LifecycleEvent {
     },
 }
 
-impl LifecycleEvent {
-    /// Get the extension ID for this event
-    pub fn extension_id(&self) -> &str {
-        match self {
-            Self::Published { extension_id, .. } => extension_id,
-            Self::Unpublished { extension_id, .. } => extension_id,
-        }
-    }
-
-    /// Get the version for this event
-    pub fn version(&self) -> &str {
-        match self {
-            Self::Published { version, .. } => version,
-            Self::Unpublished { version, .. } => version,
-        }
-    }
-}
-
 /// Provider capabilities that can be queried
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -193,9 +175,9 @@ pub trait StoreProvider: Send + Sync {
     /// The default implementation checks if the provider supports write capability.
     async fn ensure_writable(&self) -> Result<()> {
         if !self.supports_capability(Capability::Write) {
-            return Err(crate::error::StoreError::InvalidPackage {
-                reason: "Provider does not support write operations".to_string(),
-            });
+            return Err(crate::error::StoreError::UnsupportedOperation(
+                "Provider does not support write operations".to_string(),
+            ));
         }
         Ok(())
     }

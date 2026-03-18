@@ -76,7 +76,6 @@ impl StoreManager {
         })
     }
 
-    /// Add an extension store to the manager (for discovering extensions)
     /// Add an extension store to the manager with registry configuration
     pub async fn add_extension_store<S: ReadableStore + 'static>(
         &mut self,
@@ -117,12 +116,10 @@ impl StoreManager {
     }
 
     /// Clear all extension stores
-    pub async fn clear_extension_stores(&mut self) -> Result<()> {
+    pub fn clear_extension_stores(&mut self) {
         self.extension_stores.clear();
-        Ok(())
     }
 
-    /// Get information about all registered extension stores
     /// Get list of store names
     pub fn list_extension_stores(&self) -> &[ManagedStore] {
         &self.extension_stores
@@ -146,7 +143,6 @@ impl StoreManager {
             .find(|managed_store| managed_store.config.store_name == name)
     }
 
-    /// Sort stores by priority (lower number = higher priority)
     /// Sort stores by priority (higher priority first)
     fn sort_stores_by_priority(&mut self) {
         self.extension_stores.sort_by(|a, b| {
@@ -157,15 +153,15 @@ impl StoreManager {
         });
     }
 
-    /// Refresh all stores (health check and cache refresh)
+    /// Refresh all stores (health check and cache refresh).
+    /// Returns the names of stores that failed the health check.
     pub async fn refresh_stores(&mut self) -> Result<Vec<String>> {
-        let failed_stores = Vec::new();
+        let mut failed_stores = Vec::new();
 
         info!(
             "Refreshing {} extension stores",
             self.extension_stores.len()
         );
-        let mut _failed_stores = Vec::new();
 
         for managed_store in &self.extension_stores {
             let store_name = &managed_store.config.store_name;
@@ -177,18 +173,18 @@ impl StoreManager {
                 Ok(Ok(health)) => {
                     if !health.healthy {
                         warn!("Store '{}' is unhealthy: {:?}", store_name, health.error);
-                        _failed_stores.push(store_name.clone());
+                        failed_stores.push(store_name.clone());
                     } else {
                         debug!("Store '{}' is healthy", store_name);
                     }
                 }
                 Ok(Err(e)) => {
                     warn!("Health check failed for store '{}': {}", store_name, e);
-                    _failed_stores.push(store_name.clone());
+                    failed_stores.push(store_name.clone());
                 }
                 Err(_) => {
                     warn!("Health check timed out for store '{}'", store_name);
-                    _failed_stores.push(store_name.clone());
+                    failed_stores.push(store_name.clone());
                 }
             }
         }
@@ -861,7 +857,7 @@ impl StoreManager {
 
         for update_info in updates {
             let result = self
-                .update(update_info.extension_id(), options.clone())
+                .update(&update_info.extension_id, options.clone())
                 .await;
 
             update_results.push(result);
@@ -956,31 +952,25 @@ impl StoreManager {
         // Remove duplicate updates, keeping the one from the most trusted store
         let mut seen: HashMap<String, String> = HashMap::new();
         updates.retain(|update| {
-            if let Some(existing_store) = seen.get(update.extension_id()) {
+            if let Some(existing_store) = seen.get(&update.extension_id) {
                 // Check if existing update is from a trusted store
                 let existing_trusted = self
                     .get_extension_store(existing_store)
                     .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
                 let current_trusted = self
-                    .get_extension_store(update.store_source())
+                    .get_extension_store(&update.store_source)
                     .map(|ms| ms.config.trusted)
                     .unwrap_or(false);
 
                 if current_trusted && !existing_trusted {
-                    seen.insert(
-                        update.extension_id().to_string(),
-                        update.store_source().to_string(),
-                    );
+                    seen.insert(update.extension_id.clone(), update.store_source.clone());
                     true
                 } else {
                     false
                 }
             } else {
-                seen.insert(
-                    update.extension_id().to_string(),
-                    update.store_source().to_string(),
-                );
+                seen.insert(update.extension_id.clone(), update.store_source.clone());
                 true
             }
         });

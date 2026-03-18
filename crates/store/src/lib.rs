@@ -34,7 +34,7 @@ pub use manager::{ExtensionVersion, ManagedStore, StoreManager, StoreManifest};
 pub use models::{
     CompatibilityInfo, ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions,
     InstalledExtension, SearchQuery, SearchSortBy, StoreConfig, StoreHealth, StoreInfo, UpdateInfo,
-    UpdateOptions,
+    UpdateOptions, UpdateStatus,
 };
 
 // Registry module re-exports

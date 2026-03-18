@@ -342,7 +342,7 @@ async fn handle_add_store(
 
     // Try to apply the updated registry config to store manager
     // If it fails (e.g., store doesn't have proper manifest), warn but don't fail
-    store_manager.clear_extension_stores().await?;
+    store_manager.clear_extension_stores();
     if let Err(e) = config.registry.apply(store_manager).await {
         println!("Warning: Store added but could not be loaded: {}", e);
     }
@@ -798,7 +798,7 @@ async fn handle_remove_store(
 
     // Try to apply the updated registry config to store manager
     // If it fails, warn but don't fail the removal operation
-    store_manager.clear_extension_stores().await?;
+    store_manager.clear_extension_stores();
     if let Err(e) = config.registry.apply(store_manager).await {
         println!("Warning: Error reloading remaining stores: {}", e);
     }
