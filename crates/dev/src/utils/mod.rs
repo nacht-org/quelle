@@ -7,6 +7,18 @@ pub mod debug;
 pub mod fs;
 pub mod validation;
 
+/// The HTTP executor backend to use for extension requests.
+#[derive(Debug, Clone, Default, clap::ValueEnum)]
+pub enum Executor {
+    /// Flaregun cloud-scraper — bypasses Cloudflare and other bot protections (default)
+    #[default]
+    Flaregun,
+    /// Headless Chrome — handles JavaScript-heavy sites; falls back to Flaregun on failure
+    Chrome,
+    /// Plain reqwest — fast and lightweight, no JS support
+    Reqwest,
+}
+
 /// Find the extension directory for a given extension name
 pub fn find_extension_path(extension_name: &str) -> Result<PathBuf> {
     let extension_path = PathBuf::from("extensions").join(extension_name);
@@ -26,9 +38,11 @@ pub fn find_project_root(start_dir: &std::path::Path) -> Result<std::path::PathB
         let cargo_toml = current.join("Cargo.toml");
         if cargo_toml.exists()
             && let Ok(content) = std::fs::read_to_string(&cargo_toml)
-                && content.contains("[workspace]") && content.contains("extensions") {
-                    return Ok(current.to_path_buf());
-                }
+            && content.contains("[workspace]")
+            && content.contains("extensions")
+        {
+            return Ok(current.to_path_buf());
+        }
 
         match current.parent() {
             Some(parent) => current = parent,

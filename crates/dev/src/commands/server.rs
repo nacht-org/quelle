@@ -2,9 +2,9 @@
 
 use eyre::Result;
 
-use crate::server;
+use crate::server::{self, Executor};
 
 /// Handle development server command
-pub async fn handle(extension_name: String, watch: bool, use_chrome: bool) -> Result<()> {
-    server::start(extension_name, watch, use_chrome).await
+pub async fn handle(extension_name: String, watch: bool, executor: Executor) -> Result<()> {
+    server::start(extension_name, watch, executor).await
 }

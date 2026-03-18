@@ -4,6 +4,8 @@ use clap::Subcommand;
 use eyre::Result;
 use url::Url;
 
+use crate::server::Executor;
+
 pub mod generate;
 pub mod server;
 pub mod test;
@@ -19,9 +21,9 @@ pub enum DevCommands {
         /// Auto-rebuild on file changes
         #[arg(long, default_value = "true")]
         watch: bool,
-        /// Use Chrome HTTP executor instead of Reqwest (better for JS-heavy sites)
-        #[arg(long, default_value = "true")]
-        chrome: bool,
+        /// HTTP executor backend to use
+        #[arg(long, value_enum, default_value_t = Executor::Flaregun)]
+        executor: Executor,
     },
     /// Interactive testing shell for extensions
     Test {
@@ -36,9 +38,9 @@ pub enum DevCommands {
         /// Enable verbose logging
         #[arg(long, short)]
         verbose: bool,
-        /// Use Chrome HTTP executor instead of Reqwest (better for JS-heavy sites)
-        #[arg(long, default_value = "true")]
-        chrome: bool,
+        /// HTTP executor backend to use
+        #[arg(long, value_enum, default_value_t = Executor::Flaregun)]
+        executor: Executor,
     },
     /// Generate a new extension from template
     Generate {
@@ -76,15 +78,15 @@ pub async fn handle_command(cmd: DevCommands) -> Result<()> {
         DevCommands::Server {
             extension,
             watch,
-            chrome,
-        } => server::handle(extension, watch, chrome).await,
+            executor,
+        } => server::handle(extension, watch, executor).await,
         DevCommands::Test {
             extension,
             url,
             query,
             verbose: _,
-            chrome,
-        } => test::start_interactive(extension, url, query, chrome).await,
+            executor,
+        } => test::start_interactive(extension, url, query, executor).await,
         DevCommands::Generate {
             name,
             display_name,

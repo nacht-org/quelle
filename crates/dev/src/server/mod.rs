@@ -13,7 +13,10 @@ use tokio::sync::Mutex;
 use crate::http_caching::CachingHttpExecutor;
 use crate::server::commands::handle;
 use crate::utils::{find_extension_path, find_project_root};
+
+pub use crate::utils::Executor;
 use quelle_engine::ExtensionEngine;
+use quelle_engine::http::{FlaregunExecutor, HeadlessChromeExecutor, ReqwestExecutor};
 
 mod commands;
 
@@ -34,7 +37,7 @@ impl DevServer {
     pub async fn new(
         extension_name: String,
         extension_path: PathBuf,
-        use_chrome: bool,
+        executor: Executor,
     ) -> Result<Self> {
         // Create cache directory for this extension
         let cache_dir = std::env::temp_dir()
@@ -42,7 +45,7 @@ impl DevServer {
             .join(&extension_name);
 
         let (engine, caching_executor) =
-            create_extension_engine_with_cache_ref(Some(cache_dir), use_chrome)?;
+            create_extension_engine_with_cache_ref(Some(cache_dir), executor)?;
 
         Ok(Self {
             extension_name,
@@ -170,12 +173,12 @@ impl DevServer {
 }
 
 /// Start the development server
-pub async fn start(extension_name: String, watch: bool, use_chrome: bool) -> Result<()> {
+pub async fn start(extension_name: String, watch: bool, executor: Executor) -> Result<()> {
     println!("Starting dev server for '{}'", extension_name);
 
     let extension_path = find_extension_path(&extension_name)?;
     let mut dev_server =
-        DevServer::new(extension_name.clone(), extension_path.clone(), use_chrome).await?;
+        DevServer::new(extension_name.clone(), extension_path.clone(), executor).await?;
 
     println!("Building...");
     dev_server.build_extension().await?;
@@ -306,12 +309,12 @@ async fn start_interactive_shell_with_server(dev_server: Arc<Mutex<DevServer>>) 
 /// Create extension engine with caching HTTP executor
 fn create_extension_engine_with_cache_ref(
     cache_dir: Option<PathBuf>,
-    use_chrome: bool,
+    executor: Executor,
 ) -> Result<(ExtensionEngine, Option<Arc<CachingHttpExecutor>>)> {
-    let base_executor: std::sync::Arc<dyn quelle_engine::http::HttpExecutor> = if use_chrome {
-        std::sync::Arc::new(quelle_engine::http::HeadlessChromeExecutor::new())
-    } else {
-        std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new())
+    let base_executor: Arc<dyn quelle_engine::http::HttpExecutor> = match executor {
+        Executor::Flaregun => Arc::new(FlaregunExecutor::new()),
+        Executor::Chrome => Arc::new(HeadlessChromeExecutor::new()),
+        Executor::Reqwest => Arc::new(ReqwestExecutor::new()),
     };
 
     let caching_executor = if let Some(_cache_dir) = cache_dir {

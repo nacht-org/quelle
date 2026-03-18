@@ -22,7 +22,7 @@ quelle_export = { path = "../export" }
 clap = { version = "4.5.48", features = ["derive"] }
 directories = "5.0"
 uuid = { version = "1.0", features = ["v4"] }
-reqwest = { version = "0.13", features = ["stream"] }
+reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }

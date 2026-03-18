@@ -7,7 +7,7 @@ edition = "2024"
 
 [dependencies]
 wasmtime.workspace = true
-reqwest = { version = "0.13", features = ["multipart"] }
+reqwest = { workspace = true }
 headless_chrome = "1.0.21"
 flaregun.workspace = true
 async-trait = "0.1.80"

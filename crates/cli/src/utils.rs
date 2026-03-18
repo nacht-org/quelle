@@ -1,7 +1,10 @@
 //! Utility functions for CLI operations and common functionality.
 
 use eyre::Result;
-use quelle_engine::ExtensionEngine;
+use quelle_engine::{
+    ExtensionEngine,
+    http::{FlaregunExecutor, HeadlessChromeExecutor, ReqwestExecutor},
+};
 use quelle_storage::{
     traits::BookStorage,
     types::{NovelFilter, NovelId},
@@ -27,42 +30,53 @@ pub async fn create_store_manager_with_path(storage_path: PathBuf) -> Result<Sto
         .map_err(eyre::Report::from)
 }
 
-/// Create an extension engine with Chrome executor (fallback to Reqwest if Chrome fails)
+/// The HTTP executor backend to use for extension requests.
+#[derive(Debug, Clone, Default, clap::ValueEnum)]
+pub enum Executor {
+    /// Flaregun cloud-scraper — bypasses Cloudflare and other bot protections (default)
+    #[default]
+    Flaregun,
+    /// Headless Chrome — handles JavaScript-heavy sites; falls back to Flaregun on failure
+    Chrome,
+    /// Plain reqwest — fast and lightweight, no JS support
+    Reqwest,
+}
+
+/// Create an extension engine using the default executor (Flaregun).
 pub fn create_extension_engine() -> Result<ExtensionEngine> {
-    create_extension_engine_with_executor_choice(true)
+    create_extension_engine_with_executor(Executor::default())
 }
 
-/// Create an extension engine with Reqwest executor
-#[allow(dead_code)]
-pub fn create_extension_engine_reqwest() -> Result<ExtensionEngine> {
-    create_extension_engine_with_executor_choice(false)
-}
-
-/// Create an extension engine with choice of executor
-pub fn create_extension_engine_with_executor_choice(
-    prefer_chrome: bool,
-) -> Result<ExtensionEngine> {
-    if prefer_chrome {
-        try_create_chrome_engine().or_else(|e| {
-            tracing::warn!("Failed to create Chrome executor, falling back to Reqwest: {e}");
-            create_reqwest_engine()
-        })
-    } else {
-        create_reqwest_engine()
+/// Create an extension engine with the given executor choice.
+pub fn create_extension_engine_with_executor(executor: Executor) -> Result<ExtensionEngine> {
+    match executor {
+        Executor::Flaregun => create_flaregun_engine(),
+        Executor::Chrome => try_create_chrome_engine().or_else(|e| {
+            tracing::warn!("Failed to create Chrome executor, falling back to Flaregun: {e}");
+            create_flaregun_engine()
+        }),
+        Executor::Reqwest => create_reqwest_engine(),
     }
 }
 
-/// Try to create engine with Chrome executor
-fn try_create_chrome_engine() -> Result<ExtensionEngine> {
-    tracing::info!("Using HeadlessChrome executor for extensions");
-    let executor = std::sync::Arc::new(quelle_engine::http::HeadlessChromeExecutor::new());
+/// Create engine with Flaregun executor.
+fn create_flaregun_engine() -> Result<ExtensionEngine> {
+    tracing::info!("Using Flaregun executor for extensions");
+    let executor = std::sync::Arc::new(FlaregunExecutor::new());
     ExtensionEngine::new(executor).map_err(eyre::Report::from)
 }
 
-/// Create engine with Reqwest executor
+/// Try to create engine with HeadlessChrome executor.
+fn try_create_chrome_engine() -> Result<ExtensionEngine> {
+    tracing::info!("Using HeadlessChrome executor for extensions");
+    let executor = std::sync::Arc::new(HeadlessChromeExecutor::new());
+    ExtensionEngine::new(executor).map_err(eyre::Report::from)
+}
+
+/// Create engine with Reqwest executor.
 fn create_reqwest_engine() -> Result<ExtensionEngine> {
     tracing::info!("Using Reqwest executor for extensions");
-    let executor = std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new());
+    let executor = std::sync::Arc::new(ReqwestExecutor::new());
     ExtensionEngine::new(executor).map_err(eyre::Report::from)
 }
 

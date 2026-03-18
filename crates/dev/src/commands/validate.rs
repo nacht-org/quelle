@@ -3,7 +3,7 @@
 use eyre::{Result, eyre};
 use std::path::Path;
 
-use crate::server::DevServer;
+use crate::server::{DevServer, Executor};
 use crate::utils::{find_extension_path, fs};
 
 /// Handle extension validation command
@@ -179,7 +179,7 @@ async fn validate_extension_runtime(extension_name: &str, extension_path: &Path)
     let mut dev_server = DevServer::new(
         extension_name.to_string(),
         extension_path.to_path_buf(),
-        false, // Don't use Chrome for validation
+        Executor::Reqwest,
     )
     .await?;
 
