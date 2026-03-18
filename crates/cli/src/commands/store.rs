@@ -920,8 +920,8 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
             print!("Refreshing {}...", source.name);
             io::stdout().flush()?;
 
-            match source.as_cacheable() {
-                Ok(Some(cacheable_store)) => match cacheable_store.refresh_cache().await {
+            match source.as_syncable() {
+                Ok(syncable_store) => match syncable_store.force_sync().await {
                     Ok(_) => {
                         println!(" Refreshed");
                         updated_count += 1;
@@ -931,10 +931,6 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
                         failed_count += 1;
                     }
                 },
-                Ok(None) => {
-                    println!(" No caching support");
-                    updated_count += 1;
-                }
                 Err(e) => {
                     println!(" Failed to create store: {}", e);
                     failed_count += 1;
@@ -953,8 +949,8 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
             .find(|s| s.name == name && s.enabled);
 
         match source {
-            Some(source) => match source.as_cacheable() {
-                Ok(Some(cacheable_store)) => match cacheable_store.refresh_cache().await {
+            Some(source) => match source.as_syncable() {
+                Ok(syncable_store) => match syncable_store.force_sync().await {
                     Ok(_) => {
                         println!("Store '{}' refreshed", name);
                     }
@@ -962,9 +958,6 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
                         println!("Failed to refresh store '{}': {}", name, e);
                     }
                 },
-                Ok(None) => {
-                    println!("Store '{}' has no caching support", name);
-                }
                 Err(e) => {
                     println!("Failed to create store '{}': {}", name, e);
                 }

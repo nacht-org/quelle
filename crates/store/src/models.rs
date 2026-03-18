@@ -349,7 +349,7 @@ impl InstalledExtension {
     /// Calculate the total size by reading actual files
     pub async fn calculate_actual_size(
         &self,
-        registry: &dyn crate::registry::RegistryStore,
+        registry: &dyn crate::registry::InstallRegistry,
     ) -> crate::error::Result<u64> {
         let mut total_size = 0u64;
 
@@ -373,7 +373,7 @@ impl InstalledExtension {
     }
 
     /// Verify the integrity by checking checksum
-    pub async fn verify_integrity(&self, registry: &dyn crate::registry::RegistryStore) -> bool {
+    pub async fn verify_integrity(&self, registry: &dyn crate::registry::InstallRegistry) -> bool {
         if let Some(ref checksum) = self.checksum {
             // Get WASM component bytes from disk
             if let Ok(wasm_bytes) = registry.get_extension_wasm_bytes(&self.id).await {
@@ -389,7 +389,7 @@ impl InstalledExtension {
     /// Update the size field by calculating actual size
     pub async fn update_size(
         &mut self,
-        registry: &dyn crate::registry::RegistryStore,
+        registry: &dyn crate::registry::InstallRegistry,
     ) -> crate::error::Result<()> {
         self.size = self.calculate_actual_size(registry).await?;
         self.last_updated = Some(Utc::now());
@@ -689,7 +689,7 @@ impl Default for UpdateOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::LocalRegistryStore;
+    use crate::registry::LocalInstallRegistry;
     use tempfile::TempDir;
     use tokio;
 
@@ -731,7 +731,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let registry_dir = temp_dir.path().join("registry");
 
-        let registry = LocalRegistryStore::new(registry_dir).await.unwrap();
+        let registry: LocalInstallRegistry = LocalInstallRegistry::new(registry_dir).await.unwrap();
 
         // Create a test extension with checksum
         let wasm_data = b"test wasm content";
@@ -775,7 +775,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let registry_dir = temp_dir.path().join("registry");
 
-        let registry = LocalRegistryStore::new(registry_dir).await.unwrap();
+        let registry: LocalInstallRegistry = LocalInstallRegistry::new(registry_dir).await.unwrap();
 
         // Create a test extension
         let installed = InstalledExtension::new(

@@ -7,5 +7,5 @@ pub mod registry;
 pub mod source;
 
 // Re-export commonly used configuration types
-pub use registry::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts};
+pub use registry::{SourceConfig, SourceConfigs, SourceCounts};
 pub use source::{create_readable_store_from_source, ExtensionSource, RegistryConfig, StoreType};

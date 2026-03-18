@@ -22,7 +22,7 @@ use crate::models::{
 use crate::registry::manifest::{ExtensionManifest, LocalExtensionManifest};
 use crate::stores::file_operations::FileBasedProcessor;
 use crate::stores::impls::local::index::LocalStoreManifestIndex;
-use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
+use crate::stores::traits::{BaseStore, ReadableStore, SyncableStore, WritableStore};
 
 /// Local store manifest that extends the base StoreManifest with URL routing
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -433,34 +433,32 @@ impl ReadableStore for LocalStore {
             .collect())
     }
 
-    async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>> {
-        self.processor.get_extension_info(name).await
+    async fn get_extension_info(&self, id: &str) -> Result<Vec<ExtensionInfo>> {
+        self.processor.get_extension_info(id).await
     }
 
     async fn get_extension_version_info(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<ExtensionInfo> {
-        self.processor
-            .get_extension_version_info(name, version)
-            .await
+        self.processor.get_extension_version_info(id, version).await
     }
 
     async fn get_extension_manifest(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<ExtensionManifest> {
-        self.processor.get_extension_manifest(name, version).await
+        self.processor.get_extension_manifest(id, version).await
     }
 
     async fn get_extension_metadata(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<Option<ExtensionMetadata>> {
-        self.processor.get_extension_metadata(name, version).await
+        self.processor.get_extension_metadata(id, version).await
     }
 
     async fn get_extension_package(
@@ -757,9 +755,9 @@ impl WritableStore for LocalStore {
 }
 
 #[async_trait]
-impl CacheableStore for LocalStore {
-    async fn refresh_cache(&self) -> Result<()> {
-        // For local stores, refreshing means regenerating the store manifest
+impl SyncableStore for LocalStore {
+    async fn force_sync(&self) -> Result<()> {
+        // For local stores, syncing means regenerating the store manifest from disk
         self.save_store_manifest().await?;
         Ok(())
     }
@@ -770,7 +768,7 @@ impl CacheableStore for LocalStore {
     }
 
     async fn cache_stats(&self) -> Result<crate::stores::traits::CacheStats> {
-        // Local stores don't have cache statistics
+        // Local stores have no remote source to track statistics for
         Ok(crate::stores::traits::CacheStats {
             entries: 0,
             size_bytes: 0,

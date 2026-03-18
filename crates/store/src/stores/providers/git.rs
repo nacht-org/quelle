@@ -239,7 +239,7 @@ pub struct GitProvider {
     /// Whether to use shallow clone (faster but limited history)
     shallow: bool,
     /// Write configuration (None = read-only)
-    pub write_config: Option<GitWriteConfig>,
+    write_config: Option<GitWriteConfig>,
 }
 
 impl GitProvider {
@@ -313,6 +313,30 @@ impl GitProvider {
     /// Check if this provider supports writing
     pub fn is_writable(&self) -> bool {
         self.write_config.is_some()
+    }
+
+    /// Returns `true` if a write configuration exists.
+    /// Equivalent to [`is_writable`][Self::is_writable]; provided for
+    /// diagnostic / reporting contexts that prefer the more explicit name.
+    pub fn has_write_config(&self) -> bool {
+        self.write_config.is_some()
+    }
+
+    /// Returns `true` if the write configuration has auto-push enabled.
+    /// Returns `false` when no write configuration is present.
+    pub fn is_auto_push_enabled(&self) -> bool {
+        self.write_config
+            .as_ref()
+            .map(|c| c.auto_push)
+            .unwrap_or(false)
+    }
+
+    /// Returns the configured auto-push setting as `Some(bool)`, or `None`
+    /// when no write configuration is present (i.e. the store is read-only).
+    /// Useful for diagnostic / reporting code that needs to distinguish
+    /// "push disabled" from "no write config at all".
+    pub fn auto_push_config(&self) -> Option<bool> {
+        self.write_config.as_ref().map(|c| c.auto_push)
     }
 
     /// Get the repository URL

@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     error::{Result, StoreError},
-    stores::{impls::LocalStore, traits::CacheableStore, ReadableStore, WritableStore},
+    stores::{
+        impls::AnyStore, impls::LocalStore, traits::SyncableStore, ReadableStore, WritableStore,
+    },
 };
 
 #[cfg(feature = "git")]
@@ -155,18 +157,17 @@ impl RegistryConfig {
 
     /// Apply configuration to an existing StoreManager
     pub async fn apply(&self, store_manager: &mut crate::StoreManager) -> Result<()> {
-        // Add all configured extension sources
         for source in &self.extension_sources {
             if source.enabled {
-                match create_readable_store_from_source(source).await {
+                match source.build() {
                     Ok(store) => {
                         tracing::info!("Restored store: {} ({})", source.name, source.store_type);
-                        let registry_config = super::registry::RegistryStoreConfig::new(
+                        let source_config = super::registry::SourceConfig::new(
                             source.name.clone(),
                             source.store_type.to_string(),
                         );
                         store_manager
-                            .add_boxed_extension_store(store, registry_config)
+                            .add_boxed_extension_store(store.into_readable(), source_config)
                             .await?;
                     }
                     Err(e) => {
@@ -339,231 +340,166 @@ impl ExtensionSource {
         self.store_type.path()
     }
 
+    /// Build a concrete [`AnyStore`] from this source configuration.
+    ///
+    /// This is the single construction point for all store types.  The
+    /// returned [`AnyStore`] implements every store trait, so callers can
+    /// convert it to whichever trait-object they need without rebuilding
+    /// the underlying store.
+    ///
+    /// # Git / GitHub stores
+    ///
+    /// Both git-backed variants are constructed in **read-only** mode here.
+    /// For a writable store call [`ExtensionSource::build_writable`] instead.
+    pub fn build(&self) -> Result<AnyStore> {
+        match &self.store_type {
+            StoreType::Local { path } => {
+                let store = LocalStore::new(path).map_err(|e| StoreError::StoreCreationError {
+                    store_type: "local".to_string(),
+                    source: Box::new(e),
+                })?;
+                Ok(AnyStore::Local(store))
+            }
+            #[cfg(feature = "git")]
+            StoreType::Git {
+                url,
+                cache_dir,
+                reference,
+                auth,
+            } => {
+                let store = GitStore::builder(url.clone())
+                    .auth(auth.clone())
+                    .reference(reference.clone())
+                    .fetch_interval(std::time::Duration::from_secs(300))
+                    .shallow(true)
+                    .cache_dir(cache_dir.clone())
+                    .name(self.name.clone())
+                    .build()
+                    .map_err(|e| StoreError::StoreCreationError {
+                        store_type: "git".to_string(),
+                        source: Box::new(e),
+                    })?;
+                Ok(AnyStore::Git(store))
+            }
+            #[cfg(feature = "github")]
+            StoreType::GitHub {
+                owner,
+                repo,
+                cache_dir,
+                reference,
+                auth,
+            } => {
+                let store = GitHubStore::builder(owner.clone(), repo.clone())
+                    .auth(auth.clone())
+                    .reference(reference.clone())
+                    .cache_dir(cache_dir.clone())
+                    .name(self.name.clone())
+                    .build()
+                    .map_err(|e| StoreError::StoreCreationError {
+                        store_type: "github".to_string(),
+                        source: Box::new(e),
+                    })?;
+                Ok(AnyStore::GitHub(store))
+            }
+        }
+    }
+
+    /// Build a writable [`AnyStore`] from this source configuration.
+    ///
+    /// Returns `None` when the store type does not support writing (e.g. a
+    /// read-only `Local` store).  For git-backed stores the builder is
+    /// configured with `.writable()` so publishing is permitted.
+    pub fn build_writable(&self) -> Result<Option<AnyStore>> {
+        match &self.store_type {
+            StoreType::Local { path } => {
+                let store = LocalStore::new(path).map_err(|e| StoreError::StoreCreationError {
+                    store_type: "local".to_string(),
+                    source: Box::new(e),
+                })?;
+                let any = AnyStore::Local(store);
+                if any.is_writable() {
+                    Ok(Some(any))
+                } else {
+                    Ok(None)
+                }
+            }
+            #[cfg(feature = "git")]
+            StoreType::Git {
+                url,
+                cache_dir,
+                reference,
+                auth,
+            } => {
+                let store = GitStore::builder(url.clone())
+                    .auth(auth.clone())
+                    .reference(reference.clone())
+                    .fetch_interval(std::time::Duration::from_secs(300))
+                    .shallow(true)
+                    .writable()
+                    .cache_dir(cache_dir.clone())
+                    .name(self.name.clone())
+                    .build()
+                    .map_err(|e| StoreError::StoreCreationError {
+                        store_type: "git".to_string(),
+                        source: Box::new(e),
+                    })?;
+                Ok(Some(AnyStore::Git(store)))
+            }
+            #[cfg(feature = "github")]
+            StoreType::GitHub {
+                owner,
+                repo,
+                cache_dir,
+                reference,
+                auth,
+            } => {
+                let store = GitHubStore::builder(owner.clone(), repo.clone())
+                    .auth(auth.clone())
+                    .reference(reference.clone())
+                    .cache_dir(cache_dir.clone())
+                    .name(self.name.clone())
+                    .writable()
+                    .build()
+                    .map_err(|e| StoreError::StoreCreationError {
+                        store_type: "github".to_string(),
+                        source: Box::new(e),
+                    })?;
+                Ok(Some(AnyStore::GitHub(store)))
+            }
+        }
+    }
+
+    /// Convenience: build and return a `Box<dyn ReadableStore>`.
+    ///
+    /// Equivalent to `self.build()?.into_readable()`.
     pub fn as_readable(&self) -> Result<Box<dyn ReadableStore>> {
-        match &self.store_type {
-            StoreType::Local { path } => {
-                let local_store =
-                    LocalStore::new(path).map_err(|e| StoreError::StoreCreationError {
-                        store_type: "local".to_string(),
-                        source: Box::new(e),
-                    })?;
-                Ok(Box::new(local_store))
-            }
-            #[cfg(feature = "git")]
-            StoreType::Git {
-                url,
-                cache_dir,
-                reference,
-                auth,
-            } => {
-                let git_store = GitStore::builder(url.clone())
-                    .auth(auth.clone())
-                    .reference(reference.clone())
-                    .fetch_interval(std::time::Duration::from_secs(300))
-                    .shallow(true)
-                    .cache_dir(cache_dir.clone())
-                    .name(self.name.clone())
-                    .build()
-                    .map_err(|e| StoreError::StoreCreationError {
-                        store_type: "git".to_string(),
-                        source: Box::new(e),
-                    })?;
-                Ok(Box::new(git_store))
-            }
-            #[cfg(feature = "github")]
-            StoreType::GitHub {
-                owner,
-                repo,
-                cache_dir,
-                reference,
-                auth,
-            } => {
-                let github_store = GitHubStore::builder(owner.clone(), repo.clone())
-                    .auth(auth.clone())
-                    .reference(reference.clone())
-                    .cache_dir(cache_dir.clone())
-                    .name(self.name.clone())
-                    .build()
-                    .map_err(|e| StoreError::StoreCreationError {
-                        store_type: "github".to_string(),
-                        source: Box::new(e),
-                    })?;
-                Ok(Box::new(github_store))
-            }
-        }
+        Ok(self.build()?.into_readable())
     }
 
+    /// Convenience: build a writable store and box it.
+    ///
+    /// Returns `Ok(None)` when the source is not configured for writing.
     pub fn as_writable(&self) -> Result<Option<Box<dyn WritableStore>>> {
-        match &self.store_type {
-            StoreType::Local { path } => {
-                let local_store =
-                    LocalStore::new(path).map_err(|e| StoreError::StoreCreationError {
-                        store_type: "local".to_string(),
-                        source: Box::new(e),
-                    })?;
-                Ok(Some(Box::new(local_store)))
-            }
-            #[cfg(feature = "git")]
-            StoreType::Git {
-                url,
-                cache_dir,
-                reference,
-                auth,
-            } => {
-                let git_store = GitStore::builder(url.clone())
-                    .auth(auth.clone())
-                    .reference(reference.clone())
-                    .fetch_interval(std::time::Duration::from_secs(300))
-                    .shallow(true)
-                    .writable()
-                    .cache_dir(cache_dir.clone())
-                    .name(self.name.clone())
-                    .build()
-                    .map_err(|e| StoreError::StoreCreationError {
-                        store_type: "git".to_string(),
-                        source: Box::new(e),
-                    })?;
-                // Git stores can be writable if properly configured
-                Ok(Some(Box::new(git_store)))
-            }
-            #[cfg(feature = "github")]
-            StoreType::GitHub {
-                owner,
-                repo,
-                cache_dir,
-                reference,
-                auth,
-            } => {
-                let github_store = GitHubStore::builder(owner.clone(), repo.clone())
-                    .auth(auth.clone())
-                    .reference(reference.clone())
-                    .cache_dir(cache_dir.clone())
-                    .name(self.name.clone())
-                    .writable()
-                    .build()
-                    .map_err(|e| StoreError::StoreCreationError {
-                        store_type: "github".to_string(),
-                        source: Box::new(e),
-                    })?;
-                // GitHub stores can be writable for publishing operations
-                Ok(Some(Box::new(github_store)))
-            }
-        }
+        Ok(self.build_writable()?.and_then(AnyStore::into_writable))
     }
 
-    pub fn as_cacheable(&self) -> Result<Option<Box<dyn CacheableStore>>> {
-        match &self.store_type {
-            StoreType::Local { path } => {
-                let local_store =
-                    LocalStore::new(path).map_err(|e| StoreError::StoreCreationError {
-                        store_type: "local".to_string(),
-                        source: Box::new(e),
-                    })?;
-                Ok(Some(Box::new(local_store)))
-            }
-            #[cfg(feature = "git")]
-            StoreType::Git {
-                url,
-                cache_dir,
-                reference,
-                auth,
-            } => {
-                let git_store = GitStore::builder(url.clone())
-                    .auth(auth.clone())
-                    .reference(reference.clone())
-                    .fetch_interval(std::time::Duration::from_secs(300))
-                    .shallow(true)
-                    .cache_dir(cache_dir.clone())
-                    .name(self.name.clone())
-                    .build()
-                    .map_err(|e| StoreError::StoreCreationError {
-                        store_type: "git".to_string(),
-                        source: Box::new(e),
-                    })?;
-                Ok(Some(Box::new(git_store)))
-            }
-            #[cfg(feature = "github")]
-            StoreType::GitHub {
-                owner,
-                repo,
-                cache_dir,
-                reference,
-                auth,
-            } => {
-                let github_store = GitHubStore::builder(owner.clone(), repo.clone())
-                    .auth(auth.clone())
-                    .reference(reference.clone())
-                    .cache_dir(cache_dir.clone())
-                    .name(self.name.clone())
-                    .build()
-                    .map_err(|e| StoreError::StoreCreationError {
-                        store_type: "github".to_string(),
-                        source: Box::new(e),
-                    })?;
-                Ok(Some(Box::new(github_store)))
-            }
-        }
+    /// Convenience: build and return a `Box<dyn SyncableStore>`.
+    ///
+    /// Equivalent to `self.build()?.into_syncable()`.
+    pub fn as_syncable(&self) -> Result<Box<dyn SyncableStore>> {
+        Ok(self.build()?.into_syncable())
     }
 }
 
 /// Helper function to create a store from an ExtensionSource configuration
+/// Helper function to create a readable store from an [`ExtensionSource`].
+///
+/// This is a thin wrapper around [`ExtensionSource::as_readable`] kept for
+/// backward compatibility with call-sites that imported the free function.
 pub async fn create_readable_store_from_source(
     source: &ExtensionSource,
 ) -> Result<Box<dyn ReadableStore>> {
-    match &source.store_type {
-        StoreType::Local { path } => {
-            let local_store =
-                LocalStore::new(path).map_err(|e| StoreError::StoreCreationError {
-                    store_type: "local".to_string(),
-                    source: Box::new(e),
-                })?;
-
-            Ok(Box::new(local_store))
-        }
-        #[cfg(feature = "git")]
-        StoreType::Git {
-            url,
-            cache_dir,
-            reference,
-            auth,
-        } => {
-            let git_store = GitStore::builder(url.clone())
-                .auth(auth.clone())
-                .reference(reference.clone())
-                .fetch_interval(std::time::Duration::from_secs(300))
-                .shallow(true)
-                .cache_dir(cache_dir.clone())
-                .name(source.name.clone())
-                .build()
-                .map_err(|e| StoreError::StoreCreationError {
-                    store_type: "git".to_string(),
-                    source: Box::new(e),
-                })?;
-
-            Ok(Box::new(git_store))
-        }
-        #[cfg(feature = "github")]
-        StoreType::GitHub {
-            owner,
-            repo,
-            cache_dir,
-            reference,
-            auth,
-        } => {
-            let github_store = GitHubStore::builder(owner.clone(), repo.clone())
-                .auth(auth.clone())
-                .reference(reference.clone())
-                .cache_dir(cache_dir.clone())
-                .name(source.name.clone())
-                .build()
-                .map_err(|e| StoreError::StoreCreationError {
-                    store_type: "github".to_string(),
-                    source: Box::new(e),
-                })?;
-
-            Ok(Box::new(github_store))
-        }
-    }
+    source.as_readable()
 }
 
 #[cfg(test)]

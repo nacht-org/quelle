@@ -2,6 +2,7 @@
 //!
 //! This module contains the actual store implementations for different backends.
 
+pub mod any;
 pub mod local;
 pub mod locally_cached;
 
@@ -12,6 +13,7 @@ pub mod git;
 pub mod github;
 
 // Re-export commonly used implementations
+pub use any::AnyStore;
 pub use local::{LocalStore, LocalStoreBuilder};
 pub use locally_cached::LocallyCachedStore;
 

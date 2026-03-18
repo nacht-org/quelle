@@ -592,15 +592,16 @@ mod tests {
             langs: Vec<String>,
         ) -> Self {
             let version = Version::parse(version).unwrap();
+            let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
 
             let extension_summary = ExtensionVersion {
                 id: id.to_string(),
                 name: name.to_string(),
                 version: version.clone(),
                 base_urls: vec![],
-                langs,
+                langs: langs.clone(),
                 last_updated: Utc::now(),
-                manifest_path: format!("extensions/{}/{}/manifest.json", id, version),
+                manifest_path: manifest_path.clone(),
                 manifest_checksum: {
                     use sha2::{Digest, Sha256};
                     format!(
@@ -609,6 +610,30 @@ mod tests {
                     )
                 },
             };
+
+            // Create a basic extension manifest and write it to the mock filesystem
+            // so that get_extension_metadata (and similar methods) can read it.
+            let extension_manifest = ExtensionManifest {
+                id: id.to_string(),
+                name: name.to_string(),
+                version: version.clone(),
+                author: "Test Author".to_string(),
+                langs: langs.clone(),
+                base_urls: vec!["https://example.com".to_string()],
+                rds: vec![ReadingDirection::Ltr],
+                attrs: vec![Attribute::Fanfiction],
+                signature: None,
+                wasm_file: FileReference::new("extension.wasm".to_string(), b"fake wasm"),
+                assets: vec![],
+            };
+
+            let local_manifest = LocalExtensionManifest {
+                manifest: extension_manifest,
+                path: PathBuf::from(format!("extensions/{}/{}", id, version)),
+                metadata: None,
+            };
+
+            self.mock_ops.add_json_file(&manifest_path, &local_manifest);
 
             let mut extension_versions = ExtensionVersions {
                 latest: version.clone(),

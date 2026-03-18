@@ -9,7 +9,7 @@ use quelle_storage::{
     traits::BookStorage,
     types::{NovelFilter, NovelId},
 };
-use quelle_store::{StoreManager, registry::LocalRegistryStore};
+use quelle_store::{StoreManager, registry::LocalInstallRegistry};
 use std::path::PathBuf;
 use url::Url;
 
@@ -24,8 +24,8 @@ pub async fn create_store_manager() -> Result<StoreManager> {
 /// Create a store manager with a custom storage path
 pub async fn create_store_manager_with_path(storage_path: PathBuf) -> Result<StoreManager> {
     let registry_dir = storage_path.join("extensions");
-    let registry_store = Box::new(LocalRegistryStore::new(&registry_dir).await?);
-    StoreManager::new(registry_store)
+    let registry = Box::new(LocalInstallRegistry::new(&registry_dir).await?);
+    StoreManager::new(registry)
         .await
         .map_err(eyre::Report::from)
 }

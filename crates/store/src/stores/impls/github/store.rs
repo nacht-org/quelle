@@ -23,7 +23,7 @@ use crate::registry::manifest::ExtensionManifest;
 use crate::stores::file_operations::FileBasedProcessor;
 use crate::stores::providers::git::GitReference;
 use crate::stores::providers::git::{GitAuth, GitWriteConfig};
-use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
+use crate::stores::traits::{BaseStore, ReadableStore, SyncableStore, WritableStore};
 use crate::GitStore;
 
 /// GitHub store that uses FileBasedProcessor with GitHub-specific file operations
@@ -416,34 +416,32 @@ impl ReadableStore for GitHubStore {
             .collect())
     }
 
-    async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>> {
-        self.processor.get_extension_info(name).await
+    async fn get_extension_info(&self, id: &str) -> Result<Vec<ExtensionInfo>> {
+        self.processor.get_extension_info(id).await
     }
 
     async fn get_extension_version_info(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<ExtensionInfo> {
-        self.processor
-            .get_extension_version_info(name, version)
-            .await
+        self.processor.get_extension_version_info(id, version).await
     }
 
     async fn get_extension_manifest(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<ExtensionManifest> {
-        self.processor.get_extension_manifest(name, version).await
+        self.processor.get_extension_manifest(id, version).await
     }
 
     async fn get_extension_metadata(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<Option<ExtensionMetadata>> {
-        self.processor.get_extension_metadata(name, version).await
+        self.processor.get_extension_metadata(id, version).await
     }
 
     async fn get_extension_package(
@@ -537,12 +535,13 @@ impl WritableStore for GitHubStore {
 }
 
 #[async_trait]
-impl CacheableStore for GitHubStore {
-    async fn refresh_cache(&self) -> Result<()> {
-        // Clear the cache to force fresh fetches
+impl SyncableStore for GitHubStore {
+    async fn force_sync(&self) -> Result<()> {
+        // GitHub store fetches on demand; force_sync invalidates the local cache
+        // so the next read re-fetches from the API.
         self.clear_cache().await;
         info!(
-            "Refreshed GitHub store cache for {}/{}",
+            "Force-synced GitHub store cache for {}/{}",
             self.owner, self.repo
         );
         Ok(())

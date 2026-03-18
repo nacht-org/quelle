@@ -6,7 +6,7 @@
 use clap::Parser;
 use eyre::Result;
 use quelle_storage::backends::filesystem::FilesystemStorage;
-use quelle_store::{StoreManager, registry::LocalRegistryStore};
+use quelle_store::{StoreManager, registry::LocalInstallRegistry};
 use std::path::PathBuf;
 
 mod cli;
@@ -52,8 +52,8 @@ async fn main() -> Result<()> {
 
     // Initialize store manager
     let registry_dir = config.get_registry_dir();
-    let registry_store = Box::new(LocalRegistryStore::new(&registry_dir).await?);
-    let mut store_manager = StoreManager::new(registry_store).await?;
+    let registry = Box::new(LocalInstallRegistry::new(&registry_dir).await?);
+    let mut store_manager = StoreManager::new(registry).await?;
 
     // Apply registry configuration to store manager
     // Handle store loading errors gracefully - invalid stores shouldn't prevent CLI startup

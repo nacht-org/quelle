@@ -44,26 +44,26 @@ pub trait ReadableStore: BaseStore {
     async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionListing>>;
 
     /// Get information about all versions of a specific extension
-    async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>>;
+    async fn get_extension_info(&self, id: &str) -> Result<Vec<ExtensionInfo>>;
 
     /// Get information about a specific version of an extension
     async fn get_extension_version_info(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<ExtensionInfo>;
 
     /// Get the manifest for a specific extension version
     async fn get_extension_manifest(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<ExtensionManifest>;
 
     /// Get the metadata for a specific extension version
     async fn get_extension_metadata(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<Option<ExtensionMetadata>>;
 
@@ -118,26 +118,25 @@ pub trait WritableStore: BaseStore {
     ) -> Result<ValidationReport>;
 }
 
-/// Store that supports caching for better performance
+/// Store that supports syncing from a backing source and local cache management
+///
+/// Implementing this trait signals that the store maintains a local copy of data
+/// sourced from somewhere else (a git repository, a remote HTTP endpoint, etc.)
+/// and exposes controls for driving that synchronisation and managing the cache.
 #[async_trait]
-pub trait CacheableStore: BaseStore {
-    /// Refresh the store cache
-    async fn refresh_cache(&self) -> Result<()>;
+pub trait SyncableStore: BaseStore {
+    /// Force an immediate synchronisation from the backing source, bypassing any
+    /// time-based throttle the store may apply internally.
+    async fn force_sync(&self) -> Result<()>;
 
-    /// Clear the store cache
+    /// Discard the local cache so the next read re-fetches everything from source.
     async fn clear_cache(&self) -> Result<()>;
 
-    /// Get cache statistics
+    /// Return statistics about the current local cache.
     async fn cache_stats(&self) -> Result<CacheStats>;
 }
 
-/// Combined trait for stores that support both reading and writing
-pub trait ReadWriteStore: ReadableStore + WritableStore {}
-
-/// Blanket implementation for stores that implement both traits
-impl<T> ReadWriteStore for T where T: ReadableStore + WritableStore {}
-
-/// Cache statistics for cacheable stores
+/// Cache statistics for syncable stores
 #[derive(Debug, Clone)]
 pub struct CacheStats {
     pub entries: usize,
