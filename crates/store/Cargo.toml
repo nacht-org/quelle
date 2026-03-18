@@ -21,7 +21,7 @@ url = "2.0"
 walkdir = "2.0"
 futures = "0.3"
 directories = "6.0.0"
-reqwest = { version = "0.11", features = ["json", "stream"], optional = true }
+reqwest = { version = "0.13", features = ["json", "stream"], optional = true }
 git2 = { version = "0.18", optional = true }
 
 [features]

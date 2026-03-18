@@ -1,5 +1,6 @@
 mod chrome;
 mod executor;
+mod flaregun;
 mod reqwest;
 
 use std::fmt;
@@ -11,6 +12,7 @@ use crate::state::State;
 
 pub use self::chrome::HeadlessChromeExecutor;
 pub use self::executor::HttpExecutor;
+pub use self::flaregun::FlaregunExecutor;
 pub use self::reqwest::ReqwestExecutor;
 
 impl fmt::Display for http::Method {

@@ -7,8 +7,9 @@ edition = "2024"
 
 [dependencies]
 wasmtime.workspace = true
-reqwest = { version = "0.12.20", features = ["multipart"] }
+reqwest = { version = "0.13", features = ["multipart"] }
 headless_chrome = "1.0.21"
+flaregun.workspace = true
 async-trait = "0.1.80"
 tokio = { version = "1", features = ["full"] }
 serde_json = "1.0"
@@ -22,3 +23,4 @@ chrono.workspace = true
 scraper.workspace = true
 ego-tree.workspace = true
 html5ever = "0.35.0"
+bytes = "1.11.1"

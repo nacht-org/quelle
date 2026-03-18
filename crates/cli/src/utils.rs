@@ -43,20 +43,10 @@ pub fn create_extension_engine_with_executor_choice(
     prefer_chrome: bool,
 ) -> Result<ExtensionEngine> {
     if prefer_chrome {
-        // Try Chrome first, fallback to Reqwest if it fails
-        match try_create_chrome_engine() {
-            Ok(engine) => {
-                tracing::info!("Using HeadlessChrome executor for extensions");
-                Ok(engine)
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to create Chrome executor, falling back to Reqwest: {}",
-                    e
-                );
-                create_reqwest_engine()
-            }
-        }
+        try_create_chrome_engine().or_else(|e| {
+            tracing::warn!("Failed to create Chrome executor, falling back to Reqwest: {e}");
+            create_reqwest_engine()
+        })
     } else {
         create_reqwest_engine()
     }
@@ -64,15 +54,16 @@ pub fn create_extension_engine_with_executor_choice(
 
 /// Try to create engine with Chrome executor
 fn try_create_chrome_engine() -> Result<ExtensionEngine> {
-    let http_executor = std::sync::Arc::new(quelle_engine::http::HeadlessChromeExecutor::new());
-    ExtensionEngine::new(http_executor).map_err(eyre::Report::from)
+    tracing::info!("Using HeadlessChrome executor for extensions");
+    let executor = std::sync::Arc::new(quelle_engine::http::HeadlessChromeExecutor::new());
+    ExtensionEngine::new(executor).map_err(eyre::Report::from)
 }
 
 /// Create engine with Reqwest executor
 fn create_reqwest_engine() -> Result<ExtensionEngine> {
     tracing::info!("Using Reqwest executor for extensions");
-    let http_executor = std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new());
-    ExtensionEngine::new(http_executor).map_err(eyre::Report::from)
+    let executor = std::sync::Arc::new(quelle_engine::http::ReqwestExecutor::new());
+    ExtensionEngine::new(executor).map_err(eyre::Report::from)
 }
 
 #[cfg(test)]
