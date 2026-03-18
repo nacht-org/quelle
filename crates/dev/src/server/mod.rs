@@ -312,7 +312,7 @@ fn create_extension_engine_with_cache_ref(
     executor: Executor,
 ) -> Result<(ExtensionEngine, Option<Arc<CachingHttpExecutor>>)> {
     let base_executor: Arc<dyn quelle_engine::http::HttpExecutor> = match executor {
-        Executor::Flaregun => Arc::new(FlaregunExecutor::new()),
+        Executor::Flaregun => Arc::new(FlaregunExecutor::new()?),
         Executor::Chrome => Arc::new(HeadlessChromeExecutor::new()),
         Executor::Reqwest => Arc::new(ReqwestExecutor::new()),
     };

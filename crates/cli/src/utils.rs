@@ -62,7 +62,7 @@ pub fn create_extension_engine_with_executor(executor: Executor) -> Result<Exten
 /// Create engine with Flaregun executor.
 fn create_flaregun_engine() -> Result<ExtensionEngine> {
     tracing::info!("Using Flaregun executor for extensions");
-    let executor = std::sync::Arc::new(FlaregunExecutor::new());
+    let executor = std::sync::Arc::new(FlaregunExecutor::new().map_err(eyre::Report::from)?);
     ExtensionEngine::new(executor).map_err(eyre::Report::from)
 }
 

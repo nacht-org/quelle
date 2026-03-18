@@ -11,17 +11,11 @@ pub struct FlaregunExecutor {
     client: Arc<Mutex<CloudScraper>>,
 }
 
-impl Default for FlaregunExecutor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl FlaregunExecutor {
-    pub fn new() -> Self {
-        Self {
-            client: Arc::new(Mutex::new(CloudScraper::builder().build().unwrap())),
-        }
+    pub fn new() -> Result<Self, flaregun::CloudscraperError> {
+        Ok(Self {
+            client: Arc::new(Mutex::new(CloudScraper::builder().build()?)),
+        })
     }
 }
 
