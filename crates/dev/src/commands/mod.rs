@@ -6,8 +6,6 @@ use url::Url;
 
 use crate::server::Executor;
 
-pub mod generate;
-pub mod server;
 pub mod test;
 pub mod validate;
 
@@ -79,7 +77,7 @@ pub async fn handle_command(cmd: DevCommands) -> Result<()> {
             extension,
             watch,
             executor,
-        } => server::handle(extension, watch, executor).await,
+        } => crate::server::start(extension, watch, executor).await,
         DevCommands::Test {
             extension,
             url,
@@ -95,7 +93,7 @@ pub async fn handle_command(cmd: DevCommands) -> Result<()> {
             reading_direction,
             force,
         } => {
-            generate::handle(
+            crate::generator::handle(
                 name,
                 display_name,
                 base_url,

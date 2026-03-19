@@ -9,9 +9,9 @@ pub mod publish;
 pub mod store_manifest;
 
 // Re-export commonly used types from this module
-pub use core::{ManagedStore, StoreManager};
+pub use core::{ManagedSource, StoreManager};
 pub use publish::{
     ExtensionVisibility, PublishError, PublishOptions, PublishRequirements, PublishResult,
     UnpublishOptions, UnpublishResult, ValidationReport,
 };
-pub use store_manifest::{ExtensionVersion, StoreManifest};
+pub use store_manifest::{ExtensionRecord, StoreManifest};

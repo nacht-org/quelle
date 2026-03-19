@@ -63,7 +63,7 @@ pub async fn handle(server: &mut DevServer, cmd: DevServerCommand) -> Result<()>
 }
 
 /// Test novel info fetching from a URL
-async fn test_novel_info(server: &DevServer, url: &str) -> Result<()> {
+pub(crate) async fn test_novel_info(server: &DevServer, url: &str) -> Result<()> {
     println!("Testing novel info for: {}", url);
 
     // Validate URL format
@@ -156,7 +156,7 @@ async fn test_novel_info(server: &DevServer, url: &str) -> Result<()> {
 }
 
 /// Test search functionality
-async fn test_search(server: &DevServer, query_parts: &[String]) -> Result<()> {
+pub(crate) async fn test_search(server: &DevServer, query_parts: &[String]) -> Result<()> {
     if query_parts.is_empty() {
         return Err(eyre!("Search query cannot be empty"));
     }
@@ -238,7 +238,7 @@ async fn test_search(server: &DevServer, query_parts: &[String]) -> Result<()> {
 }
 
 /// Test chapter content fetching
-async fn test_chapter_content(server: &DevServer, url: &str) -> Result<()> {
+pub(crate) async fn test_chapter_content(server: &DevServer, url: &str) -> Result<()> {
     println!("Testing chapter content for: {}", url);
 
     // Validate URL format
@@ -310,7 +310,7 @@ async fn test_chapter_content(server: &DevServer, url: &str) -> Result<()> {
 }
 
 /// Show extension metadata
-async fn show_extension_meta(server: &DevServer) -> Result<()> {
+pub(crate) async fn show_extension_meta(server: &DevServer) -> Result<()> {
     println!("Extension Metadata:");
 
     // Get WASM path and create runner

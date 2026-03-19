@@ -6,7 +6,6 @@
 
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -86,12 +85,6 @@ pub struct PublishResult {
     pub extension_id: String,
     /// The version that was published
     pub version: Version,
-    /// When the extension was published
-    pub published_at: DateTime<Utc>,
-    /// Unique identifier for this publication
-    pub publication_id: String,
-    /// Size of the published package in bytes
-    pub package_size: u64,
     /// Content hash of the published package
     pub content_hash: String,
     /// Any warnings generated during publishing
@@ -100,19 +93,10 @@ pub struct PublishResult {
 
 impl PublishResult {
     /// Create a successful result
-    pub fn success(
-        extension_id: String,
-        version: Version,
-        publication_id: String,
-        package_size: u64,
-        content_hash: String,
-    ) -> Self {
+    pub fn success(extension_id: String, version: Version, content_hash: String) -> Self {
         Self {
             extension_id,
             version,
-            published_at: Utc::now(),
-            publication_id,
-            package_size,
             content_hash,
             warnings: Vec::new(),
         }
@@ -132,15 +116,6 @@ pub struct UnpublishResult {
     pub extension_id: String,
     /// The version that was unpublished
     pub version: String,
-
-    /// When the unpublishing occurred
-    pub unpublished_at: DateTime<Utc>,
-
-    /// Whether a tombstone record was kept
-    pub tombstone_created: bool,
-
-    /// Number of users notified (if applicable)
-    pub users_notified: Option<u32>,
 }
 
 /// Validation report for a publish operation
@@ -154,9 +129,6 @@ pub struct ValidationReport {
 
     /// Time taken to perform validation
     pub validation_duration: Duration,
-
-    /// Validator version used
-    pub validator_version: String,
 }
 
 impl ValidationReport {
@@ -166,7 +138,6 @@ impl ValidationReport {
             passed: true,
             issues: Vec::new(),
             validation_duration: Duration::from_secs(0),
-            validator_version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
 
@@ -176,7 +147,6 @@ impl ValidationReport {
             passed: false,
             issues,
             validation_duration: Duration::from_secs(0),
-            validator_version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
 
@@ -203,20 +173,8 @@ pub struct PublishRequirements {
     /// Maximum package size allowed (in bytes)
     pub max_package_size: Option<u64>,
 
-    /// Allowed file extensions in packages
-    pub allowed_file_extensions: Vec<String>,
-
-    /// Forbidden file patterns
-    pub forbidden_patterns: Vec<String>,
-
     /// Supported visibility levels
     pub supported_visibility: Vec<ExtensionVisibility>,
-
-    /// Whether versioning is enforced
-    pub enforces_versioning: bool,
-
-    /// Validation rules that will be applied
-    pub validation_rules: Vec<String>,
 }
 
 impl Default for PublishRequirements {
@@ -225,21 +183,7 @@ impl Default for PublishRequirements {
             requires_authentication: false,
             requires_signing: false,
             max_package_size: None,
-            allowed_file_extensions: vec![
-                "wasm".to_string(),
-                "json".to_string(),
-                "md".to_string(),
-                "txt".to_string(),
-            ],
-            forbidden_patterns: vec![
-                "*.exe".to_string(),
-                "*.dll".to_string(),
-                "*.so".to_string(),
-                "*.dylib".to_string(),
-            ],
             supported_visibility: vec![ExtensionVisibility::Public, ExtensionVisibility::Unlisted],
-            enforces_versioning: true,
-            validation_rules: Vec::new(),
         }
     }
 }

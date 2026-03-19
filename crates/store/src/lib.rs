@@ -28,24 +28,23 @@ pub mod stores;
 pub use error::{Result, StoreError};
 
 // Manager module re-exports
-pub use manager::{ExtensionVersion, ManagedStore, StoreManager, StoreManifest};
+pub use manager::{ExtensionRecord, ManagedSource, StoreManager, StoreManifest};
 
 // Models (shared across modules)
 pub use models::{
-    CompatibilityInfo, ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions,
-    InstalledExtension, SearchQuery, SearchSortBy, StoreConfig, StoreHealth, StoreInfo, UpdateInfo,
-    UpdateOptions,
+    ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions, InstalledExtension,
+    SearchQuery, SearchSortBy, StoreConfig, StoreHealth, UpdateInfo, UpdateOptions, UpdateStatus,
 };
 
 // Registry module re-exports
-pub use registry::{ExtensionManifest, LocalRegistryStore, RegistryStore};
+pub use registry::{ExtensionManifest, InstallRegistry, LocalInstallRegistry};
 
 // Stores module re-exports
-pub use stores::traits::{BaseStore, ReadableStore, WritableStore};
+pub use stores::traits::{BaseStore, ReadableStore, SyncableStore, WritableStore};
 pub use stores::LocalStoreBuilder;
 pub use stores::{
-    create_readable_store_from_source, ExtensionSource, LocallyCachedStore, RegistryConfig,
-    RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts, StoreProvider, StoreType,
+    create_readable_store_from_source, AnyStore, ExtensionSource, LocallyCachedStore,
+    RegistryConfig, SourceConfig, SourceConfigs, SourceCounts, StoreProvider, StoreType,
     SyncResult,
 };
 
@@ -75,8 +74,8 @@ pub const NAME: &str = env!("CARGO_PKG_NAME");
 ///
 /// Returns an error if the system directories cannot be determined for the current OS/user.
 pub async fn init_default() -> Result<StoreManager> {
-    let registry_store = Box::new(LocalRegistryStore::new_with_defaults().await?);
-    StoreManager::new(registry_store).await
+    let registry = Box::new(LocalInstallRegistry::new_with_defaults().await?);
+    StoreManager::new(registry).await
 }
 
 /// Initialize the store system with a custom install directory
@@ -84,16 +83,16 @@ pub async fn init_default() -> Result<StoreManager> {
 /// This function allows you to specify a custom installation directory
 /// while using sensible defaults for everything else.
 pub async fn init_with_custom_dir(install_dir: std::path::PathBuf) -> Result<StoreManager> {
-    let registry_store = Box::new(LocalRegistryStore::new(install_dir).await?);
-    StoreManager::new(registry_store).await
+    let registry = Box::new(LocalInstallRegistry::new(install_dir).await?);
+    StoreManager::new(registry).await
 }
 
 /// Create a store manager with custom configuration
 pub async fn init_with_config(
-    registry_store: Box<dyn RegistryStore>,
+    registry: Box<dyn InstallRegistry>,
     config: StoreConfig,
 ) -> Result<StoreManager> {
-    StoreManager::with_config(registry_store, config).await
+    StoreManager::with_config(registry, config).await
 }
 
 #[cfg(test)]

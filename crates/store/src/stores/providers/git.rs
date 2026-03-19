@@ -4,7 +4,7 @@
 //! to local storage for use by LocalStore.
 
 use async_trait::async_trait;
-use git2::{CredentialType, FetchOptions, RemoteCallbacks, Repository, RepositoryInitOptions};
+use git2::{CredentialType, FetchOptions, RemoteCallbacks, Repository};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
@@ -17,8 +17,10 @@ use crate::stores::providers::traits::{Capability, LifecycleEvent, StoreProvider
 
 /// Git authentication configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum GitAuth {
     /// No authentication - uses system credentials (SSH agent, git credential manager, etc.)
+    #[default]
     None,
     /// Token-based authentication (GitHub/GitLab personal access tokens)
     Token { token: String },
@@ -32,11 +34,6 @@ pub enum GitAuth {
     UserPassword { username: String, password: String },
 }
 
-impl Default for GitAuth {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl GitAuth {
     /// Check if this is using system credentials
@@ -47,8 +44,10 @@ impl GitAuth {
 
 /// Git reference type for specifying what to checkout
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum GitReference {
     /// Use the default branch (usually main/master)
+    #[default]
     Default,
     /// Use a specific branch
     Branch(String),
@@ -70,11 +69,6 @@ impl GitReference {
     }
 }
 
-impl Default for GitReference {
-    fn default() -> Self {
-        Self::Default
-    }
-}
 
 /// Git author information for commits
 #[derive(Debug, Clone)]
@@ -138,8 +132,10 @@ impl GitAuthor {
 
 /// Commit message style for git operations
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub enum CommitStyle {
     /// Default style: "Publish ext_id v1.0.0"
+    #[default]
     Default,
     /// Detailed style: "Publish extension ext_id version 1.0.0"
     Detailed,
@@ -149,11 +145,6 @@ pub enum CommitStyle {
     Custom(fn(action: &str, extension_id: &str, version: &str) -> String),
 }
 
-impl Default for CommitStyle {
-    fn default() -> Self {
-        Self::Default
-    }
-}
 
 impl CommitStyle {
     /// Generate a commit message for the given action
@@ -239,7 +230,7 @@ pub struct GitProvider {
     /// Whether to use shallow clone (faster but limited history)
     shallow: bool,
     /// Write configuration (None = read-only)
-    pub write_config: Option<GitWriteConfig>,
+    write_config: Option<GitWriteConfig>,
 }
 
 impl GitProvider {
@@ -313,6 +304,30 @@ impl GitProvider {
     /// Check if this provider supports writing
     pub fn is_writable(&self) -> bool {
         self.write_config.is_some()
+    }
+
+    /// Returns `true` if a write configuration exists.
+    /// Equivalent to [`is_writable`][Self::is_writable]; provided for
+    /// diagnostic / reporting contexts that prefer the more explicit name.
+    pub fn has_write_config(&self) -> bool {
+        self.write_config.is_some()
+    }
+
+    /// Returns `true` if the write configuration has auto-push enabled.
+    /// Returns `false` when no write configuration is present.
+    pub fn is_auto_push_enabled(&self) -> bool {
+        self.write_config
+            .as_ref()
+            .map(|c| c.auto_push)
+            .unwrap_or(false)
+    }
+
+    /// Returns the configured auto-push setting as `Some(bool)`, or `None`
+    /// when no write configuration is present (i.e. the store is read-only).
+    /// Useful for diagnostic / reporting code that needs to distinguish
+    /// "push disabled" from "no write config at all".
+    pub fn auto_push_config(&self) -> Option<bool> {
+        self.write_config.as_ref().map(|c| c.auto_push)
     }
 
     /// Get the repository URL

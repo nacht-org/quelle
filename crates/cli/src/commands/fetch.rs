@@ -402,7 +402,7 @@ pub async fn find_and_install_extension_for_url(
 /// Fetch novel information using an installed extension
 pub async fn fetch_novel_with_extension(
     installed: &quelle_store::models::InstalledExtension,
-    registry: &dyn quelle_store::registry::RegistryStore,
+    registry: &dyn quelle_store::registry::InstallRegistry,
     url: &str,
 ) -> Result<quelle_storage::Novel> {
     let engine = crate::utils::create_extension_engine()?;
@@ -427,7 +427,7 @@ pub async fn fetch_novel_with_extension(
 /// Fetch chapter content using an installed extension
 pub async fn fetch_chapter_with_extension(
     installed: &quelle_store::models::InstalledExtension,
-    registry: &dyn quelle_store::registry::RegistryStore,
+    registry: &dyn quelle_store::registry::InstallRegistry,
     url: &str,
 ) -> Result<ChapterContent> {
     let engine = crate::utils::create_extension_engine()?;

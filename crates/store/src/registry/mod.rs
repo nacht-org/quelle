@@ -9,7 +9,7 @@ pub mod manifest;
 pub mod validation;
 
 // Re-export commonly used types from this module
-pub use core::{LocalRegistryStore, RegistryStore, ValidationIssue};
+pub use core::{InstallRegistry, LocalInstallRegistry, ValidationIssue};
 pub use manifest::ExtensionManifest;
 pub use validation::{
     create_default_validator, ManifestValidationRule, SecurityValidationRule, ValidationEngine,

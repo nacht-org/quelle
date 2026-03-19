@@ -135,7 +135,7 @@ impl QuelleExtension for Extension {
     fn simple_search(&self, query: SimpleSearchQuery) -> Result<SearchResult, eyre::Report> {
         let current_page = query.page();
 
-        let doc = Request::get(&format!("{BASE_URL}/search"))
+        let doc = Request::get(format!("{BASE_URL}/search"))
             .param("keyword", &query.query)
             .html(&self.client)
             .map_err(|e| eyre!(e))

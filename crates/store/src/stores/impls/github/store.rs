@@ -23,7 +23,7 @@ use crate::registry::manifest::ExtensionManifest;
 use crate::stores::file_operations::FileBasedProcessor;
 use crate::stores::providers::git::GitReference;
 use crate::stores::providers::git::{GitAuth, GitWriteConfig};
-use crate::stores::traits::{BaseStore, CacheableStore, ReadableStore, WritableStore};
+use crate::stores::traits::{BaseStore, ReadableStore, SyncableStore, WritableStore};
 use crate::GitStore;
 
 /// GitHub store that uses FileBasedProcessor with GitHub-specific file operations
@@ -82,7 +82,7 @@ impl GitHubStoreBuilder {
             }
         }
 
-        Err(StoreError::InvalidConfiguration(format!(
+        Err(StoreError::ConfigError(format!(
             "Invalid GitHub URL: {}. Expected format: https://github.com/owner/repo",
             url
         )))
@@ -348,7 +348,7 @@ impl GitHubStore {
         description: Option<String>,
     ) -> Result<()> {
         self.as_git_store()?
-            .intiialize_store_with_type(store_name, description, "github")
+            .initialize_store_with_type(store_name, description, "github")
             .await
     }
 }
@@ -416,34 +416,32 @@ impl ReadableStore for GitHubStore {
             .collect())
     }
 
-    async fn get_extension_info(&self, name: &str) -> Result<Vec<ExtensionInfo>> {
-        self.processor.get_extension_info(name).await
+    async fn get_extension_info(&self, id: &str) -> Result<Vec<ExtensionInfo>> {
+        self.processor.get_extension_info(id).await
     }
 
     async fn get_extension_version_info(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<ExtensionInfo> {
-        self.processor
-            .get_extension_version_info(name, version)
-            .await
+        self.processor.get_extension_version_info(id, version).await
     }
 
     async fn get_extension_manifest(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<ExtensionManifest> {
-        self.processor.get_extension_manifest(name, version).await
+        self.processor.get_extension_manifest(id, version).await
     }
 
     async fn get_extension_metadata(
         &self,
-        name: &str,
+        id: &str,
         version: Option<&Version>,
     ) -> Result<Option<ExtensionMetadata>> {
-        self.processor.get_extension_metadata(name, version).await
+        self.processor.get_extension_metadata(id, version).await
     }
 
     async fn get_extension_package(
@@ -487,25 +485,7 @@ impl WritableStore for GitHubStore {
             requires_authentication: true,
             requires_signing: false,
             max_package_size: Some(25 * 1024 * 1024), // 25MB - GitHub has file size limits
-            allowed_file_extensions: vec![
-                "wasm".to_string(),
-                "json".to_string(),
-                "md".to_string(),
-                "txt".to_string(),
-                "png".to_string(),
-                "jpg".to_string(),
-                "jpeg".to_string(),
-                "svg".to_string(),
-            ],
-            forbidden_patterns: vec![
-                "*.exe".to_string(),
-                "*.dll".to_string(),
-                "*.so".to_string(),
-                "*.dylib".to_string(),
-            ],
             supported_visibility: vec![crate::manager::publish::ExtensionVisibility::Public],
-            enforces_versioning: true,
-            validation_rules: Vec::new(),
         }
     }
 
@@ -537,12 +517,13 @@ impl WritableStore for GitHubStore {
 }
 
 #[async_trait]
-impl CacheableStore for GitHubStore {
-    async fn refresh_cache(&self) -> Result<()> {
-        // Clear the cache to force fresh fetches
+impl SyncableStore for GitHubStore {
+    async fn force_sync(&self) -> Result<()> {
+        // GitHub store fetches on demand; force_sync invalidates the local cache
+        // so the next read re-fetches from the API.
         self.clear_cache().await;
         info!(
-            "Refreshed GitHub store cache for {}/{}",
+            "Force-synced GitHub store cache for {}/{}",
             self.owner, self.repo
         );
         Ok(())

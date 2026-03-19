@@ -18,7 +18,7 @@ pub use crate::utils::Executor;
 use quelle_engine::ExtensionEngine;
 use quelle_engine::http::{FlaregunExecutor, HeadlessChromeExecutor, ReqwestExecutor};
 
-mod commands;
+pub(crate) mod commands;
 
 pub use commands::{DevServerCli, DevServerCommand};
 

@@ -13,12 +13,9 @@ use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
 use crate::error::{Result, StoreError};
-use crate::manager::store_manifest::ExtensionVersion;
+use crate::manager::store_manifest::ExtensionRecord;
 use crate::manager::store_manifest::StoreManifest;
-use crate::models::{
-    ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQuery, UpdateAvailableInfo,
-    UpdateCheckFailedInfo, UpdateNotNeededInfo,
-};
+use crate::models::{ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQuery};
 use crate::registry::manifest::{ExtensionManifest, FileReference, LocalExtensionManifest};
 use crate::stores::impls::local::store::LocalStoreManifest;
 use crate::{InstalledExtension, UpdateInfo};
@@ -206,7 +203,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// List all extensions in the store
-    pub async fn list_extensions(&self) -> Result<Vec<ExtensionVersion>> {
+    pub async fn list_extensions(&self) -> Result<Vec<ExtensionRecord>> {
         let local_manifest = self.get_local_store_manifest().await?;
         Ok(local_manifest.get_latest_versions())
     }
@@ -264,24 +261,18 @@ impl<F: FileOperations> FileBasedProcessor<F> {
             id: manifest.id.clone(),
             name: manifest.name.clone(),
             version: manifest.version.clone(),
-            description: None, // ExtensionManifest doesn't have description field
             author: manifest.author.clone(),
-            tags: Vec::new(), // We could extract from metadata if available
+            tags: Vec::new(),
             last_updated: None,
-            download_count: None,
-            size: None,
-            homepage: None, // ExtensionManifest doesn't have homepage field
-            repository: None,
-            license: None,
             store_source: self.store_name.clone(),
         })
     }
 
     /// Search extensions matching the given query
-    pub async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionVersion>> {
+    pub async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionRecord>> {
         let all_extensions = self.list_extensions().await?;
 
-        let filtered: Vec<ExtensionVersion> = all_extensions
+        let filtered: Vec<ExtensionRecord> = all_extensions
             .into_iter()
             .filter(|ext| {
                 // Text search in name and id
@@ -400,33 +391,32 @@ impl<F: FileOperations> FileBasedProcessor<F> {
             let result = match self.get_extension_latest_version(&installed_ext.id).await {
                 Ok(Some(latest_version)) => {
                     if latest_version > installed_ext.version {
-                        UpdateInfo::UpdateAvailable(UpdateAvailableInfo {
-                            extension_id: installed_ext.id.clone(),
-                            current_version: installed_ext.version.clone(),
+                        UpdateInfo::available(
+                            installed_ext.id.clone(),
+                            installed_ext.version.clone(),
                             latest_version,
-                            update_size: None,
-                            store_source: store_source.to_string(),
-                        })
+                            store_source.to_string(),
+                        )
                     } else {
-                        UpdateInfo::NoUpdateNeeded(UpdateNotNeededInfo {
-                            extension_id: installed_ext.id.clone(),
-                            current_version: installed_ext.version.clone(),
-                            store_source: store_source.to_string(),
-                        })
+                        UpdateInfo::up_to_date(
+                            installed_ext.id.clone(),
+                            installed_ext.version.clone(),
+                            store_source.to_string(),
+                        )
                     }
                 }
-                Ok(None) => UpdateInfo::CheckFailed(UpdateCheckFailedInfo {
-                    extension_id: installed_ext.id.clone(),
-                    current_version: installed_ext.version.clone(),
-                    store_source: store_source.to_string(),
-                    error: "Extension not found in store".to_string(),
-                }),
-                Err(e) => UpdateInfo::CheckFailed(UpdateCheckFailedInfo {
-                    extension_id: installed_ext.id.clone(),
-                    current_version: installed_ext.version.clone(),
-                    store_source: store_source.to_string(),
-                    error: e.to_string(),
-                }),
+                Ok(None) => UpdateInfo::check_failed(
+                    installed_ext.id.clone(),
+                    installed_ext.version.clone(),
+                    store_source.to_string(),
+                    "Extension not found in store".to_string(),
+                ),
+                Err(e) => UpdateInfo::check_failed(
+                    installed_ext.id.clone(),
+                    installed_ext.version.clone(),
+                    store_source.to_string(),
+                    e.to_string(),
+                ),
             };
 
             results.push(result);
@@ -466,7 +456,6 @@ mod tests {
     use chrono::Utc;
     use semver::Version;
 
-    use crate::models::CompatibilityInfo;
     use crate::registry::manifest::{
         Attribute, ExtensionManifest, FileReference, ReadingDirection,
     };
@@ -596,15 +585,16 @@ mod tests {
             langs: Vec<String>,
         ) -> Self {
             let version = Version::parse(version).unwrap();
+            let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
 
-            let extension_summary = ExtensionVersion {
+            let extension_summary = ExtensionRecord {
                 id: id.to_string(),
                 name: name.to_string(),
                 version: version.clone(),
                 base_urls: vec![],
-                langs,
+                langs: langs.clone(),
                 last_updated: Utc::now(),
-                manifest_path: format!("extensions/{}/{}/manifest.json", id, version),
+                manifest_path: manifest_path.clone(),
                 manifest_checksum: {
                     use sha2::{Digest, Sha256};
                     format!(
@@ -613,6 +603,30 @@ mod tests {
                     )
                 },
             };
+
+            // Create a basic extension manifest and write it to the mock filesystem
+            // so that get_extension_metadata (and similar methods) can read it.
+            let extension_manifest = ExtensionManifest {
+                id: id.to_string(),
+                name: name.to_string(),
+                version: version.clone(),
+                author: "Test Author".to_string(),
+                langs: langs.clone(),
+                base_urls: vec!["https://example.com".to_string()],
+                rds: vec![ReadingDirection::Ltr],
+                attrs: vec![Attribute::Fanfiction],
+                signature: None,
+                wasm_file: FileReference::new("extension.wasm".to_string(), b"fake wasm"),
+                assets: vec![],
+            };
+
+            let local_manifest = LocalExtensionManifest {
+                manifest: extension_manifest,
+                path: PathBuf::from(format!("extensions/{}/{}", id, version)),
+                metadata: None,
+            };
+
+            self.mock_ops.add_json_file(&manifest_path, &local_manifest);
 
             let mut extension_versions = ExtensionVersions {
                 latest: version.clone(),
@@ -653,7 +667,7 @@ mod tests {
             for version in parsed_versions {
                 let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
 
-                let extension_summary = ExtensionVersion {
+                let extension_summary = ExtensionRecord {
                     id: id.to_string(),
                     name: name.to_string(),
                     version: version.clone(),
@@ -725,7 +739,7 @@ mod tests {
             let version = Version::parse(version).unwrap();
             let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
 
-            let extension_summary = ExtensionVersion {
+            let extension_summary = ExtensionRecord {
                 id: id.to_string(),
                 name: name.to_string(),
                 version: version.clone(),
@@ -839,7 +853,7 @@ mod tests {
             };
 
             // Add to extensions map
-            let extension_summary = ExtensionVersion {
+            let extension_summary = ExtensionRecord {
                 id: id.to_string(),
                 name: name.to_string(),
                 version: version_parsed.clone(),
@@ -1085,12 +1099,9 @@ mod tests {
             tags: vec![],
             categories: vec![],
             author: None,
-            min_version: None,
-            max_version: None,
             sort_by: crate::models::SearchSortBy::default(),
             limit: None,
             offset: None,
-            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -1102,12 +1113,9 @@ mod tests {
             tags: vec![],
             categories: vec![],
             author: None,
-            min_version: None,
-            max_version: None,
             sort_by: crate::models::SearchSortBy::default(),
             limit: None,
             offset: None,
-            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -1136,12 +1144,9 @@ mod tests {
             tags: vec!["fr".to_string()],
             categories: vec![],
             author: None,
-            min_version: None,
-            max_version: None,
             sort_by: crate::models::SearchSortBy::default(),
             limit: None,
             offset: None,
-            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -1166,12 +1171,9 @@ mod tests {
             tags: vec!["fr".to_string()],
             categories: vec![],
             author: None,
-            min_version: None,
-            max_version: None,
             sort_by: crate::models::SearchSortBy::default(),
             limit: None,
             offset: None,
-            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -1194,12 +1196,9 @@ mod tests {
             tags: vec![],
             categories: vec![],
             author: None,
-            min_version: None,
-            max_version: None,
             sort_by: crate::models::SearchSortBy::default(),
             limit: None,
             offset: None,
-            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert!(results.is_empty());
@@ -1376,22 +1375,23 @@ mod tests {
         assert_eq!(updates.len(), 2);
 
         // Check ext-1 has update available
-        match &updates[0] {
-            UpdateInfo::UpdateAvailable(info) => {
-                assert_eq!(info.extension_id, "ext-1");
-                assert_eq!(info.current_version, Version::parse("1.0.0").unwrap());
-                assert_eq!(info.latest_version, Version::parse("2.0.0").unwrap());
+        let update0 = &updates[0];
+        assert_eq!(update0.extension_id, "ext-1");
+        assert_eq!(update0.current_version, Version::parse("1.0.0").unwrap());
+        match &update0.status {
+            crate::models::UpdateStatus::Available { latest_version, .. } => {
+                assert_eq!(*latest_version, Version::parse("2.0.0").unwrap());
             }
-            _ => panic!("Expected UpdateAvailable for ext-1"),
+            _ => panic!("Expected Available status for ext-1"),
         }
 
         // Check ext-2 has no update
-        match &updates[1] {
-            UpdateInfo::NoUpdateNeeded(info) => {
-                assert_eq!(info.extension_id, "ext-2");
-            }
-            _ => panic!("Expected NoUpdateNeeded for ext-2"),
-        }
+        let update1 = &updates[1];
+        assert_eq!(update1.extension_id, "ext-2");
+        assert!(
+            matches!(update1.status, crate::models::UpdateStatus::UpToDate),
+            "Expected UpToDate status for ext-2"
+        );
     }
 
     #[tokio::test]
@@ -1434,12 +1434,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(updates.len(), 1);
-        match &updates[0] {
-            UpdateInfo::CheckFailed(info) => {
-                assert_eq!(info.extension_id, "missing-ext");
-                assert!(info.error.contains("not found"));
+        let update = &updates[0];
+        assert_eq!(update.extension_id, "missing-ext");
+        match &update.status {
+            crate::models::UpdateStatus::CheckFailed(error) => {
+                assert!(error.contains("not found"));
             }
-            _ => panic!("Expected CheckFailed for missing extension"),
+            _ => panic!("Expected CheckFailed status for missing extension"),
         }
     }
 
@@ -1447,20 +1448,11 @@ mod tests {
     async fn test_get_extension_metadata() {
         let metadata = ExtensionMetadata {
             description: "Test extension description".to_string(),
-            long_description: Some("Long description of the test extension".to_string()),
             keywords: vec!["parser".to_string(), "utility".to_string()],
             categories: vec!["tools".to_string()],
             homepage: Some("https://example.com".to_string()),
             repository: Some("https://github.com/test/repo".to_string()),
-            documentation: None,
-            changelog: None,
             license: Some("MIT".to_string()),
-            compatibility: CompatibilityInfo {
-                min_engine_version: None,
-                max_engine_version: None,
-                platforms: None,
-                required_features: vec![],
-            },
         };
 
         let processor = TestFixture::new()
@@ -1587,7 +1579,7 @@ mod tests {
         assert_eq!(info.version, Version::parse("1.5.0").unwrap());
         assert_eq!(info.author, "Test Author");
         assert_eq!(info.store_source, "test-store");
-        assert!(info.description.is_none()); // ExtensionManifest doesn't have description
+
         assert!(info.tags.is_empty()); // No tags extracted from manifest
     }
 

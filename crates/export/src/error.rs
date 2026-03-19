@@ -36,3 +36,11 @@ pub enum ExportError {
     #[error("Export error: {0}")]
     Other(#[from] eyre::Report),
 }
+
+impl From<epub_builder::Error> for ExportError {
+    fn from(e: epub_builder::Error) -> Self {
+        ExportError::FormatError {
+            message: e.to_string(),
+        }
+    }
+}

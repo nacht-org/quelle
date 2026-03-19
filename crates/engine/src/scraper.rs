@@ -39,6 +39,12 @@ pub struct Scraper {
     table: ResourceTable,
 }
 
+impl Default for Scraper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Scraper {
     pub fn new() -> Self {
         Self {
@@ -248,14 +254,13 @@ impl wit::HostNode for Scraper {
         // Safety: all tree mutations are serialised through the wasmtime store lock.
         let tree_ptr = Arc::as_ptr(&node.tree) as *mut HtmlTree;
         unsafe {
-            if let Some(mut n) = (*tree_ptr).0.tree.get_mut(node_id) {
-                if let scraper::node::Node::Element(el) = n.value() {
+            if let Some(mut n) = (*tree_ptr).0.tree.get_mut(node_id)
+                && let scraper::node::Node::Element(el) = n.value() {
                     let qualname = QualName::new(None, ns!(), LocalName::from(name.as_str()));
                     if let Ok(idx) = el.attrs.binary_search_by(|a| a.0.cmp(&qualname)) {
                         el.attrs.remove(idx);
                     }
                 }
-            }
         }
     }
 
@@ -372,11 +377,10 @@ impl wit::HostTextNode for Scraper {
         // Safety: all tree mutations are serialised through the wasmtime store lock.
         let tree_ptr = Arc::as_ptr(&node.tree) as *mut HtmlTree;
         unsafe {
-            if let Some(mut n) = (*tree_ptr).0.tree.get_mut(node_id) {
-                if let scraper::node::Node::Text(t) = n.value() {
+            if let Some(mut n) = (*tree_ptr).0.tree.get_mut(node_id)
+                && let scraper::node::Node::Text(t) = n.value() {
                     t.text = content.into();
                 }
-            }
         }
     }
 

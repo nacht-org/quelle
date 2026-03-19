@@ -17,12 +17,10 @@ pub mod providers;
 pub mod config;
 
 // Re-export commonly used traits
-pub use traits::{
-    BaseStore, CacheStats, CacheableStore, ReadWriteStore, ReadableStore, WritableStore,
-};
+pub use traits::{BaseStore, CacheStats, ReadableStore, SyncableStore, WritableStore};
 
 // Re-export store implementations and provider types
-pub use impls::{LocalStore, LocalStoreBuilder, LocallyCachedStore};
+pub use impls::{AnyStore, LocalStore, LocalStoreBuilder, LocallyCachedStore};
 pub use providers::{StoreProvider, SyncResult};
 
 #[cfg(feature = "git")]
@@ -33,7 +31,7 @@ pub use impls::{GitHubStore, GitHubStoreBuilder};
 
 // Re-export store configuration and source types
 pub use config::{create_readable_store_from_source, ExtensionSource, RegistryConfig, StoreType};
-pub use config::{RegistryStoreConfig, RegistryStoreConfigs, StoreConfigCounts};
+pub use config::{SourceConfig, SourceConfigs, SourceCounts};
 
 #[cfg(feature = "git")]
 pub use providers::{GitAuth, GitProvider, GitReference};

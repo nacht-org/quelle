@@ -40,7 +40,7 @@ pub async fn handle_store_command(
 pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
     #[cfg(feature = "github")]
     use quelle_store::GitHubStore;
-    use quelle_store::{GitAuth, GitReference, GitStore};
+    use quelle_store::GitStore;
 
     // Look up the store in the registry
     let source = config
@@ -64,7 +64,7 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
             // Create the directory if it doesn't exist
             if !path.exists() {
                 println!("Creating store directory: {}", path.display());
-                std::fs::create_dir_all(&path).map_err(|e| {
+                std::fs::create_dir_all(path).map_err(|e| {
                     eyre::eyre!(
                         "Failed to create store directory '{}': {}",
                         path.display(),
@@ -120,7 +120,7 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
                     "Creating git store cache directory: {}",
                     cache_dir.display()
                 );
-                std::fs::create_dir_all(&cache_dir).map_err(|e| {
+                std::fs::create_dir_all(cache_dir).map_err(|e| {
                     eyre::eyre!(
                         "Failed to create cache directory '{}': {}",
                         cache_dir.display(),
@@ -184,7 +184,7 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
                     "Creating GitHub store cache directory: {}",
                     cache_dir.display()
                 );
-                std::fs::create_dir_all(&cache_dir).map_err(|e| {
+                std::fs::create_dir_all(cache_dir).map_err(|e| {
                     eyre::eyre!(
                         "Failed to create cache directory '{}': {}",
                         cache_dir.display(),
@@ -342,7 +342,7 @@ async fn handle_add_store(
 
     // Try to apply the updated registry config to store manager
     // If it fails (e.g., store doesn't have proper manifest), warn but don't fail
-    store_manager.clear_extension_stores().await?;
+    store_manager.clear_extension_stores();
     if let Err(e) = config.registry.apply(store_manager).await {
         println!("Warning: Store added but could not be loaded: {}", e);
     }
@@ -798,7 +798,7 @@ async fn handle_remove_store(
 
     // Try to apply the updated registry config to store manager
     // If it fails, warn but don't fail the removal operation
-    store_manager.clear_extension_stores().await?;
+    store_manager.clear_extension_stores();
     if let Err(e) = config.registry.apply(store_manager).await {
         println!("Warning: Error reloading remaining stores: {}", e);
     }
@@ -920,8 +920,8 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
             print!("Refreshing {}...", source.name);
             io::stdout().flush()?;
 
-            match source.as_cacheable() {
-                Ok(Some(cacheable_store)) => match cacheable_store.refresh_cache().await {
+            match source.as_syncable() {
+                Ok(syncable_store) => match syncable_store.force_sync().await {
                     Ok(_) => {
                         println!(" Refreshed");
                         updated_count += 1;
@@ -931,10 +931,6 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
                         failed_count += 1;
                     }
                 },
-                Ok(None) => {
-                    println!(" No caching support");
-                    updated_count += 1;
-                }
                 Err(e) => {
                     println!(" Failed to create store: {}", e);
                     failed_count += 1;
@@ -953,8 +949,8 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
             .find(|s| s.name == name && s.enabled);
 
         match source {
-            Some(source) => match source.as_cacheable() {
-                Ok(Some(cacheable_store)) => match cacheable_store.refresh_cache().await {
+            Some(source) => match source.as_syncable() {
+                Ok(syncable_store) => match syncable_store.force_sync().await {
                     Ok(_) => {
                         println!("Store '{}' refreshed", name);
                     }
@@ -962,9 +958,6 @@ async fn handle_update_store(name: String, registry_config: &RegistryConfig) -> 
                         println!("Failed to refresh store '{}': {}", name, e);
                     }
                 },
-                Ok(None) => {
-                    println!("Store '{}' has no caching support", name);
-                }
                 Err(e) => {
                     println!("Failed to create store '{}': {}", name, e);
                 }

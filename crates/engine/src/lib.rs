@@ -31,7 +31,7 @@ impl ExtensionEngine {
         config.wasm_component_model(true);
         config.async_support(true);
 
-        let engine = Engine::new(&mut config)?;
+        let engine = Engine::new(&config)?;
         let mut linker = Linker::<State>::new(&engine);
         crate::bindings::quelle::extension::source::add_to_linker::<_, HasSelf<_>>(
             &mut linker,

@@ -2,12 +2,12 @@
 //!
 //! Minimal validation system for extension packages before installation.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 
 use super::core::{IssueSeverity, ValidationIssue, ValidationIssueType};
+use crate::manager::publish::ValidationReport;
 use crate::models::ExtensionPackage;
 use crate::Result;
 
@@ -32,14 +32,6 @@ pub trait ValidationRule: Send + Sync {
 /// Simple validation engine
 pub struct ValidationEngine {
     rules: Vec<Box<dyn ValidationRule>>,
-}
-
-/// Validation report
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidationReport {
-    pub passed: bool,
-    pub issues: Vec<ValidationIssue>,
-    pub validation_duration: Duration,
 }
 
 impl ValidationEngine {
