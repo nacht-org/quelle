@@ -4,14 +4,14 @@ resolver = "3"
 
 [workspace.dependencies]
 reqwest = { version = "0.13", features = ["multipart", "stream", "json"] }
-scraper = "0.24.0"
+scraper = "0.26.0"
 once_cell = "1.20.1"
 wasmtime = { version = "42.0", features = ["component-model"] }
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 eyre = "0.6.12"
-thiserror = "2.0.12"
-ego-tree = "0.10.0"
+thiserror = "2.0.18"
+ego-tree = "0.11.0"
 url = "2.5.7"
 regex = "1.11.3"
 semver = "1.0.27"
