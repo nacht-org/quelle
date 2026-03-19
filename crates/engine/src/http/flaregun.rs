@@ -2,7 +2,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use flaregun::{CloudScraper, RequestOptions};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use crate::bindings::quelle::extension::http;
 use crate::http::HttpExecutor;
@@ -129,65 +130,31 @@ impl HttpExecutor for FlaregunExecutor {
             follow_redirects: None,
         };
 
-        // flaregun's CloudScraper::request produces a !Send future because it
-        // holds a ThreadRng (backed by a non-Send Rc) across await points.
-        //
-        // We isolate it in spawn_blocking with its own single-threaded Tokio
-        // runtime so the !Send future never crosses thread boundaries and the
-        // two different reqwest versions (ours vs. flaregun's) never meet in
-        // the same type signature.
-        let client = Arc::clone(&self.client);
-        let result = tokio::task::spawn_blocking(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| http::ResponseError {
-                    kind: http::ResponseErrorKind::BadResponse,
-                    status: None,
-                    response: None,
-                    message: e.to_string(),
-                })?;
+        let mut client = self.client.lock().await;
 
-            #[allow(clippy::await_holding_lock)]
-            rt.block_on(async move {
-                let mut client = client.lock().unwrap();
+        let response = client
+            .request(method, &url, opts)
+            .await
+            .map_err(http::ResponseError::from)?;
 
-                let response = client
-                    .request(method, &url, opts)
-                    .await
-                    .map_err(http::ResponseError::from)?;
+        let status = response.status().as_u16();
 
-                let status = response.status().as_u16();
+        let headers: Vec<(String, String)> = response
+            .headers()
+            .iter()
+            .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string())))
+            .collect();
 
-                let headers: Vec<(String, String)> = response
-                    .headers()
-                    .iter()
-                    .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string())))
-                    .collect();
-
-                let data = response
-                    .bytes()
-                    .await
-                    .map_err(|e| http::ResponseError {
-                        kind: http::ResponseErrorKind::BadResponse,
-                        status: Some(status),
-                        response: None,
-                        message: e.to_string(),
-                    })?
-                    .to_vec();
-
-                Ok::<_, http::ResponseError>((status, headers, data))
-            })
-        })
-        .await
-        .map_err(|e| http::ResponseError {
-            kind: http::ResponseErrorKind::BadResponse,
-            status: None,
-            response: None,
-            message: e.to_string(),
-        })??;
-
-        let (status, headers, data) = result;
+        let data = response
+            .bytes()
+            .await
+            .map_err(|e| http::ResponseError {
+                kind: http::ResponseErrorKind::BadResponse,
+                status: Some(status),
+                response: None,
+                message: e.to_string(),
+            })?
+            .to_vec();
 
         Ok(http::Response {
             status,
