@@ -11,7 +11,7 @@ use quelle_storage::{
 };
 use quelle_store::StoreManager;
 use std::io::Cursor;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 use url::Url;
 
 use crate::cli::FetchCommands;
@@ -89,47 +89,10 @@ async fn handle_fetch_novel(
         return Ok(());
     }
 
-    let (extension_id, _store_name) =
-        match find_extension_for_url(url.as_ref(), store_manager).await? {
-            Some(ext) => ext,
-            None => {
-                eprintln!("Error: No compatible extension found for: {}", url);
-                return Ok(());
-            }
-        };
-
-    if store_manager.get_installed(&extension_id).await?.is_none() {
-        println!("Installing extension {}...", extension_id);
-        match store_manager.install(&extension_id, None, None).await {
-            Ok(installed) => {
-                println!("Installed {} v{}.", installed.name, installed.version);
-            }
-            Err(e) => {
-                eprintln!("Error: Failed to install {}: {}", extension_id, e);
-                return Err(e.into());
-            }
-        }
-    }
-
-    let installed = match store_manager.get_installed(&extension_id).await? {
-        Some(ext) => ext,
-        None => {
-            eprintln!("Error: Extension {} not found after install.", extension_id);
-            return Ok(());
-        }
-    };
-
     let engine = create_extension_engine()?;
 
     println!("Fetching novel...");
-    match fetch_novel_with_extension(
-        &installed,
-        store_manager.registry_store(),
-        url.as_ref(),
-        &engine,
-    )
-    .await
-    {
+    match store_manager.fetch_novel(&engine, url.as_ref()).await {
         Ok(novel) => {
             println!("title: {}", novel.title);
             println!("authors: {}", novel.authors.join(", "));
@@ -155,7 +118,7 @@ async fn handle_fetch_novel(
         }
         Err(e) => {
             eprintln!("Error: Failed to fetch novel: {}", e);
-            return Err(e);
+            return Err(e.into());
         }
     }
 
@@ -173,49 +136,12 @@ async fn handle_fetch_chapter(
         return Ok(());
     }
 
-    let (extension_id, _store_name) =
-        match find_extension_for_url(url.as_ref(), store_manager).await? {
-            Some(ext) => ext,
-            None => {
-                eprintln!("Error: No compatible extension found for: {}", url);
-                return Ok(());
-            }
-        };
-
-    if store_manager.get_installed(&extension_id).await?.is_none() {
-        println!("Installing extension {}...", extension_id);
-        match store_manager.install(&extension_id, None, None).await {
-            Ok(installed) => {
-                println!("Installed {} v{}.", installed.name, installed.version);
-            }
-            Err(e) => {
-                eprintln!("Error: Failed to install {}: {}", extension_id, e);
-                return Err(e.into());
-            }
-        }
-    }
-
-    let installed = match store_manager.get_installed(&extension_id).await? {
-        Some(ext) => ext,
-        None => {
-            eprintln!("Error: Extension {} not found after install.", extension_id);
-            return Ok(());
-        }
-    };
-
     let engine = create_extension_engine()?;
-    let chapter = match fetch_chapter_with_extension(
-        &installed,
-        store_manager.registry_store(),
-        url.as_ref(),
-        &engine,
-    )
-    .await
-    {
+    let chapter = match store_manager.fetch_chapter(&engine, url.as_ref()).await {
         Ok(ch) => ch,
         Err(e) => {
             eprintln!("Error: Failed to fetch chapter: {}", e);
-            return Err(e);
+            return Err(e.into());
         }
     };
 
@@ -241,8 +167,11 @@ async fn handle_fetch_chapter(
                 }
             };
             if let Some(novel_summary) = novels.iter().find(|n| n.title == novel.title) {
+                let content = ChapterContent {
+                    data: chapter.data.clone(),
+                };
                 match storage
-                    .store_chapter_content(&novel_summary.id, volume.index, url.as_ref(), &chapter)
+                    .store_chapter_content(&novel_summary.id, volume.index, url.as_ref(), &content)
                     .await
                 {
                     Ok(_) => {
@@ -283,7 +212,7 @@ pub async fn handle_fetch_chapters(
     }
 
     // Resolve novel + its storage ID from either a URL or a direct novel ID.
-    let (novel, novel_storage_id) = if novel_id.starts_with("http") {
+    let (_novel, novel_storage_id) = if novel_id.starts_with("http") {
         let novel = match storage.find_novel_by_url(&novel_id).await? {
             Some(novel) => novel,
             None => {
@@ -311,14 +240,6 @@ pub async fn handle_fetch_chapters(
         (novel, id)
     };
 
-    let installed = match find_and_install_extension_for_url(&novel.url, store_manager).await {
-        Ok(ext) => ext,
-        Err(e) => {
-            error!("Failed to find/install extension: {}", e);
-            return Err(e);
-        }
-    };
-
     let mut chapters = storage.list_chapters(&novel_storage_id).await?;
     let original_count = chapters.len();
 
@@ -343,13 +264,9 @@ pub async fn handle_fetch_chapters(
             continue;
         }
 
-        let chapter_content = match fetch_chapter_with_extension(
-            &installed,
-            store_manager.registry_store(),
-            &chapter_info.chapter_url,
-            engine,
-        )
-        .await
+        let chapter_content = match store_manager
+            .fetch_chapter(engine, &chapter_info.chapter_url)
+            .await
         {
             Ok(content) => content,
             Err(e) => {
@@ -418,97 +335,6 @@ async fn handle_fetch_all(
 
     println!("Done.");
     Ok(())
-}
-
-/// Find an extension that can handle the given URL.
-pub async fn find_extension_for_url(
-    url: &str,
-    store_manager: &StoreManager,
-) -> Result<Option<(String, String)>> {
-    store_manager
-        .find_extension_for_url(url)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to find extension for URL: {}", e))
-}
-
-/// Find and, if necessary, install an extension that can handle the given URL.
-pub async fn find_and_install_extension_for_url(
-    url: &str,
-    store_manager: &mut StoreManager,
-) -> Result<quelle_store::models::InstalledExtension> {
-    match find_extension_for_url(url, store_manager).await? {
-        Some((extension_id, _store_name)) => {
-            if let Some(installed) = store_manager.get_installed(&extension_id).await? {
-                return Ok(installed);
-            }
-
-            println!("Installing extension {}...", extension_id);
-            match store_manager.install(&extension_id, None, None).await {
-                Ok(installed) => {
-                    info!("Installed {} v{}.", installed.name, installed.version);
-                    Ok(installed)
-                }
-                Err(e) => {
-                    error!("Failed to install {}: {}", extension_id, e);
-                    Err(e.into())
-                }
-            }
-        }
-        None => Err(eyre::eyre!(
-            "No extension found for URL: {}\nTry adding more extension stores with: quelle store add",
-            url
-        )),
-    }
-}
-
-/// Fetch novel information using an installed extension and the provided engine.
-pub async fn fetch_novel_with_extension(
-    installed: &quelle_store::models::InstalledExtension,
-    registry: &dyn quelle_store::registry::InstallRegistry,
-    url: &str,
-    engine: &ExtensionEngine,
-) -> Result<quelle_storage::Novel> {
-    let wasm_bytes = registry.get_extension_wasm_bytes(&installed.id).await?;
-    let runner = engine.new_runner_from_bytes(&wasm_bytes).await?;
-    let (_, result) = runner.fetch_novel_info(url).await?;
-
-    match result {
-        Ok(novel) => Ok(novel),
-        Err(wit_error) => {
-            let chain = wit_error
-                .frames
-                .iter()
-                .map(|f| f.message.as_str())
-                .collect::<Vec<_>>()
-                .join(": ");
-            Err(eyre::eyre!("Extension error: {}", chain))
-        }
-    }
-}
-
-/// Fetch chapter content using an installed extension and the provided engine.
-pub async fn fetch_chapter_with_extension(
-    installed: &quelle_store::models::InstalledExtension,
-    registry: &dyn quelle_store::registry::InstallRegistry,
-    url: &str,
-    engine: &ExtensionEngine,
-) -> Result<ChapterContent> {
-    let wasm_bytes = registry.get_extension_wasm_bytes(&installed.id).await?;
-    let runner = engine.new_runner_from_bytes(&wasm_bytes).await?;
-    let (_, result) = runner.fetch_chapter(url).await?;
-
-    match result {
-        Ok(chapter) => Ok(chapter),
-        Err(wit_error) => {
-            let chain = wit_error
-                .frames
-                .iter()
-                .map(|f| f.message.as_str())
-                .collect::<Vec<_>>()
-                .join(": ");
-            Err(eyre::eyre!("Extension error: {}", chain))
-        }
-    }
 }
 
 async fn fetch_and_store_asset(

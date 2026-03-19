@@ -14,7 +14,7 @@ github = ["quelle_store/github"]
 pdf = ["quelle_export/pdf"]
 
 [dependencies]
-quelle_engine = { path = "../engine" }
+quelle_engine = { path = "../engine", features = ["cli"] }
 quelle_store = { path = "../store", features = ["git", "github"] }
 quelle_storage = { path = "../storage" }
 quelle_export = { path = "../export" }

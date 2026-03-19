@@ -415,16 +415,10 @@ async fn sync_single_novel(
         .await?
         .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_id.as_str()))?;
 
-    let extension = find_and_install_extension_for_url(&stored_novel.url, store_manager).await?;
-
     let engine = create_extension_engine()?;
-    let fresh_novel = fetch_novel_with_extension(
-        &extension,
-        store_manager.registry_store(),
-        &stored_novel.url,
-        &engine,
-    )
-    .await?;
+    let fresh_novel = store_manager
+        .fetch_novel(&engine, &stored_novel.url)
+        .await?;
 
     let stored_chapters = storage.list_chapters(novel_id).await?;
     let stored_chapter_urls: std::collections::HashSet<_> =
@@ -452,13 +446,6 @@ async fn update_single_novel(
     store_manager: &mut StoreManager,
     engine: &ExtensionEngine,
 ) -> Result<u32> {
-    let stored_novel = storage
-        .get_novel(novel_id)
-        .await?
-        .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_id.as_str()))?;
-
-    let extension = find_and_install_extension_for_url(&stored_novel.url, store_manager).await?;
-
     let chapters = storage.list_chapters(novel_id).await?;
     let mut downloaded_count = 0u32;
     let mut failed_count = 0u32;
@@ -466,13 +453,9 @@ async fn update_single_novel(
     for chapter_info in chapters {
         if !chapter_info.has_content() {
             tracing::info!("Downloading chapter: {}", chapter_info.chapter_title);
-            match fetch_chapter_with_extension(
-                &extension,
-                store_manager.registry_store(),
-                &chapter_info.chapter_url,
-                engine,
-            )
-            .await
+            match store_manager
+                .fetch_chapter(engine, &chapter_info.chapter_url)
+                .await
             {
                 Ok(chapter_content) => {
                     let content = ChapterContent {
@@ -593,8 +576,3 @@ async fn handle_library_stats(storage: &FilesystemStorage) -> Result<()> {
     }
     Ok(())
 }
-
-// Re-export helpers from fetch.rs that library.rs uses internally.
-use crate::commands::fetch::{
-    fetch_chapter_with_extension, fetch_novel_with_extension, find_and_install_extension_for_url,
-};

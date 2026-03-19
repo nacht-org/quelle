@@ -6,7 +6,8 @@ use eyre::Result;
 use std::sync::Arc;
 
 /// The HTTP executor backend to use for extension requests.
-#[derive(Debug, Clone, Default, clap::ValueEnum)]
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 pub enum Executor {
     /// Ghostwire cloud-scraper — bypasses Cloudflare and other bot protections (default)
     #[default]
