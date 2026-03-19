@@ -48,30 +48,6 @@ impl FilterId {
             FilterId::GenreMode => "genre_mode",
         }
     }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "title_contains" => Some(FilterId::TitleContains),
-            "fandom" => Some(FilterId::Fandom),
-            "chapters" => Some(FilterId::Chapters),
-            "releases_perweek" => Some(FilterId::ReleasesPerweek),
-            "favorites" => Some(FilterId::Favorites),
-            "ratings" => Some(FilterId::Ratings),
-            "num_ratings" => Some(FilterId::NumRatings),
-            "readers" => Some(FilterId::Readers),
-            "reviews" => Some(FilterId::Reviews),
-            "pages" => Some(FilterId::Pages),
-            "pageviews" => Some(FilterId::Pageviews),
-            "total_words" => Some(FilterId::TotalWords),
-            "last_update" => Some(FilterId::LastUpdate),
-            "story_status" => Some(FilterId::StoryStatus),
-            "genres" => Some(FilterId::Genres),
-            "tags" => Some(FilterId::Tags),
-            "content_warnings" => Some(FilterId::ContentWarnings),
-            "genre_mode" => Some(FilterId::GenreMode),
-            _ => None,
-        }
-    }
 }
 
 impl From<FilterId> for String {
@@ -90,7 +66,27 @@ impl FromStr for FilterId {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str(s).ok_or(())
+        match s {
+            "title_contains" => Ok(FilterId::TitleContains),
+            "fandom" => Ok(FilterId::Fandom),
+            "chapters" => Ok(FilterId::Chapters),
+            "releases_perweek" => Ok(FilterId::ReleasesPerweek),
+            "favorites" => Ok(FilterId::Favorites),
+            "ratings" => Ok(FilterId::Ratings),
+            "num_ratings" => Ok(FilterId::NumRatings),
+            "readers" => Ok(FilterId::Readers),
+            "reviews" => Ok(FilterId::Reviews),
+            "pages" => Ok(FilterId::Pages),
+            "pageviews" => Ok(FilterId::Pageviews),
+            "total_words" => Ok(FilterId::TotalWords),
+            "last_update" => Ok(FilterId::LastUpdate),
+            "story_status" => Ok(FilterId::StoryStatus),
+            "genres" => Ok(FilterId::Genres),
+            "tags" => Ok(FilterId::Tags),
+            "content_warnings" => Ok(FilterId::ContentWarnings),
+            "genre_mode" => Ok(FilterId::GenreMode),
+            _ => Err(()),
+        }
     }
 }
 

@@ -27,6 +27,7 @@ impl LocalFileOperations {
     }
 
     /// Get the root path
+    #[allow(dead_code)]
     pub fn root_path(&self) -> &Path {
         &self.root_path
     }

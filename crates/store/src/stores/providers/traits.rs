@@ -108,7 +108,7 @@ impl Capability {
     }
 
     /// Parse a capability from a string identifier
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "write" => Some(Self::Write),
             "incremental_sync" => Some(Self::IncrementalSync),

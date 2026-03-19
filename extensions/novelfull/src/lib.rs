@@ -6,7 +6,7 @@ register_extension!(Extension);
 
 const BASE_URL: &str = "https://novelfull.net";
 
-const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
+static META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     id: String::from("en.novelfull"),
     name: String::from("NovelFull"),
     langs: vec![String::from("en")],
@@ -87,7 +87,7 @@ impl QuelleExtension for Extension {
         let status = doc
             .select_first_opt("a[href*='/status']")?
             .and_then(|s| s.text_opt())
-            .map(|s| NovelStatus::from_str(&s))
+            .and_then(|s| s.parse().ok())
             .unwrap_or(NovelStatus::Unknown);
 
         let metadata = extract_metadata(&doc)?;

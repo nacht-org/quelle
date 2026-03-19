@@ -5,6 +5,7 @@ use quelle_engine::bindings::quelle::extension::novel::BasicNovel;
 use quelle_store::{SearchQuery, StoreManager};
 use tracing::warn;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_search_command(
     store_manager: &StoreManager,
     query: String,

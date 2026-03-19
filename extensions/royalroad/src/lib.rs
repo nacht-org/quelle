@@ -7,7 +7,7 @@ register_extension!(Extension);
 
 const BASE_URL: &str = "https://www.royalroad.com";
 
-const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
+static META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     id: String::from("en.royalroad"),
     name: String::from("Royal Road"),
     langs: vec![String::from("en")],

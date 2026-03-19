@@ -58,6 +58,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// Get the store name
+    #[allow(dead_code)]
     pub fn store_name(&self) -> &str {
         &self.store_name
     }
@@ -437,6 +438,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// List extension assets by type
+    #[allow(dead_code)]
     pub async fn list_extension_assets(
         &self,
         extension_id: &str,

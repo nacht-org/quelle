@@ -29,7 +29,6 @@ impl ExtensionEngine {
     pub fn new(executor: Arc<dyn HttpExecutor>) -> error::Result<Self> {
         let mut config = Config::new();
         config.wasm_component_model(true);
-        config.async_support(true);
 
         let engine = Engine::new(&config)?;
         let mut linker = Linker::<State>::new(&engine);

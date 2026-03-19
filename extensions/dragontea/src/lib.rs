@@ -5,7 +5,7 @@ use quelle_extension::prelude::*;
 
 register_extension!(Extension);
 
-const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
+static META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     id: String::from("en.dragontea"),
     name: String::from("Dragon Tea"),
     langs: vec![String::from("en")],
