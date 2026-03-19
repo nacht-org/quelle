@@ -46,20 +46,9 @@ pub struct NovelSummary {
     pub id: NovelId,
     pub title: String,
     pub authors: Vec<String>,
-    pub status: NovelStatus,
+    pub status: quelle_types::NovelStatus,
     pub total_chapters: u32,
     pub stored_chapters: u32,
-}
-
-/// Status of a novel (from WIT definitions).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum NovelStatus {
-    Ongoing,
-    Hiatus,
-    Completed,
-    Stub,
-    Dropped,
-    Unknown,
 }
 
 /// Filter criteria for querying novels.
@@ -268,17 +257,6 @@ impl From<&str> for AssetId {
 /// Asset metadata without binary data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Asset {
-    pub id: AssetId,
-    pub novel_id: NovelId,
-    pub original_url: String,
-    pub mime_type: String,
-    pub size: u64,
-    pub filename: String,
-}
-
-/// Summary information about an asset (without binary data)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AssetSummary {
     pub id: AssetId,
     pub novel_id: NovelId,
     pub original_url: String,

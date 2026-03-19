@@ -14,7 +14,7 @@ use crate::http_caching::CachingHttpExecutor;
 use crate::server::commands::handle;
 use crate::utils::{find_extension_path, find_project_root};
 
-pub use crate::utils::Executor;
+pub use quelle_engine::Executor;
 use quelle_engine::ExtensionEngine;
 use quelle_engine::http::{GhostwireExecutor, HeadlessChromeExecutor, ReqwestExecutor};
 

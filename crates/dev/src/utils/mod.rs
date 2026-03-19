@@ -6,17 +6,8 @@ use std::path::PathBuf;
 pub mod fs;
 pub mod validation;
 
-/// The HTTP executor backend to use for extension requests.
-#[derive(Debug, Clone, Default, clap::ValueEnum)]
-pub enum Executor {
-    /// Ghostwire cloud-scraper — bypasses Cloudflare and other bot protections (default)
-    #[default]
-    Ghostwire,
-    /// Headless Chrome — handles JavaScript-heavy sites; falls back to Ghostwire on failure
-    Chrome,
-    /// Plain reqwest — fast and lightweight, no JS support
-    Reqwest,
-}
+// Re-export the executor type from quelle_engine so dev tooling uses the same definition.
+pub use quelle_engine::Executor;
 
 /// Find the extension directory for a given extension name
 pub fn find_extension_path(extension_name: &str) -> Result<PathBuf> {

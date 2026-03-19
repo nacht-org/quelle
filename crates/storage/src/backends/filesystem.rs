@@ -5,16 +5,16 @@ use chrono::{DateTime, Utc};
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::fs;
 
 use crate::error::{BookStorageError, Result};
 use crate::models::{
-    chapter_content_from_json, chapter_content_to_json, novel_from_json, novel_to_json,
-    ContentIndex,
+    chapter_content_from_json, chapter_content_to_json, ContentIndex,
 };
 use crate::traits::BookStorage;
 use crate::types::{
-    Asset, AssetId, AssetSummary, ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary,
+    Asset, AssetId, ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary,
 };
 use crate::{ChapterContent, Novel};
 
@@ -40,6 +40,7 @@ use crate::{ChapterContent, Novel};
 #[derive(Debug, Clone)]
 pub struct FilesystemStorage {
     root_path: PathBuf,
+    index_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,7 +70,7 @@ struct IndexedNovel {
     id: NovelId,
     title: String,
     authors: Vec<String>,
-    status: crate::types::NovelStatus,
+    status: quelle_types::NovelStatus,
     total_chapters: u32,
     stored_chapters: u32,
     created_at: DateTime<Utc>,
@@ -95,6 +96,7 @@ impl FilesystemStorage {
     pub fn new<P: AsRef<Path>>(root_path: P) -> Self {
         Self {
             root_path: root_path.as_ref().to_path_buf(),
+            index_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -118,6 +120,7 @@ impl FilesystemStorage {
         // Initialize index if it doesn't exist
         let index_path = self.get_index_path();
         if !index_path.exists() {
+            let _guard = self.index_lock.lock().await;
             self.save_index(&StorageIndex::default()).await?;
         }
 
@@ -385,6 +388,7 @@ impl FilesystemStorage {
     }
 
     async fn update_index_for_novel(&self, novel_id: &NovelId, novel: &Novel) -> Result<()> {
+        let _guard = self.index_lock.lock().await;
         let mut index = self.load_index().await?;
         let now = Utc::now();
 
@@ -399,7 +403,7 @@ impl FilesystemStorage {
             id: novel_id.clone(),
             title: novel.title.clone(),
             authors: novel.authors.clone(),
-            status: novel.status.into(),
+            status: novel.status.clone(),
             total_chapters: self.count_total_chapters(novel),
             stored_chapters,
             created_at: now,
@@ -413,6 +417,7 @@ impl FilesystemStorage {
     }
 
     async fn remove_from_index(&self, novel_id: &NovelId) -> Result<()> {
+        let _guard = self.index_lock.lock().await;
         let mut index = self.load_index().await?;
         index.novels.retain(|n| n.id != *novel_id);
         index.last_updated = Utc::now();
@@ -469,6 +474,7 @@ impl FilesystemStorage {
     }
 
     async fn update_index_stored_chapters(&self, novel_id: &NovelId) -> Result<()> {
+        let _guard = self.index_lock.lock().await;
         let mut index = self.load_index().await?;
 
         // Find the novel in the index and update its stored chapter count
@@ -481,6 +487,7 @@ impl FilesystemStorage {
     }
 
     async fn add_asset_to_index(&self, asset: &Asset, data_size: u64) -> Result<()> {
+        let _guard = self.index_lock.lock().await;
         let mut index = self.load_index().await?;
 
         let indexed_asset = IndexedAsset {
@@ -502,6 +509,7 @@ impl FilesystemStorage {
     }
 
     async fn remove_asset_from_index(&self, asset_id: &AssetId) -> Result<()> {
+        let _guard = self.index_lock.lock().await;
         let mut index = self.load_index().await?;
         index.assets.retain(|a| a.id != *asset_id);
         self.save_index(&index).await?;
@@ -518,11 +526,9 @@ impl FilesystemStorage {
 
     /// Normalize all URLs in a novel (including chapter URLs)
     fn normalize_novel_urls(&self, novel: &Novel) -> Novel {
-        use quelle_engine::bindings::quelle::extension::novel::{
-            Chapter, Novel as WitNovel, Volume,
-        };
+        use quelle_types::{Chapter, Novel, Volume};
 
-        WitNovel {
+        Novel {
             url: self.normalize_url(&novel.url),
             authors: novel.authors.clone(),
             title: novel.title.clone(),
@@ -547,7 +553,7 @@ impl FilesystemStorage {
                 })
                 .collect(),
             metadata: novel.metadata.clone(),
-            status: novel.status,
+            status: novel.status.clone(),
             langs: novel.langs.clone(),
         }
     }
@@ -996,6 +1002,22 @@ impl BookStorage for FilesystemStorage {
         Ok(None)
     }
 
+    async fn find_novel_id_by_url(&self, url: &str) -> Result<Option<NovelId>> {
+        let normalized_url = self.normalize_url(url);
+        let index = self.load_index().await?;
+
+        for indexed_novel in &index.novels {
+            let parts: Vec<&str> = indexed_novel.id.as_str().splitn(2, "::").collect();
+            if let Some(novel_url) = parts.get(1) {
+                if *novel_url == normalized_url {
+                    return Ok(Some(indexed_novel.id.clone()));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
     async fn list_chapters(&self, novel_id: &NovelId) -> Result<Vec<ChapterInfo>> {
         // Read the novel structure and metadata
         let (novel, metadata) = self.read_novel_file_combined(novel_id).await?;
@@ -1247,14 +1269,14 @@ impl BookStorage for FilesystemStorage {
         Ok(None)
     }
 
-    async fn get_novel_assets(&self, novel_id: &NovelId) -> Result<Vec<AssetSummary>> {
+    async fn get_novel_assets(&self, novel_id: &NovelId) -> Result<Vec<Asset>> {
         let index = self.load_index().await?;
 
         let summaries = index
             .assets
             .iter()
             .filter(|asset| asset.novel_id == *novel_id)
-            .map(|indexed_asset| AssetSummary {
+            .map(|indexed_asset| Asset {
                 id: indexed_asset.id.clone(),
                 novel_id: indexed_asset.novel_id.clone(),
                 original_url: indexed_asset.original_url.clone(),
@@ -1292,40 +1314,24 @@ impl FilesystemStorage {
                     source: Some(eyre::eyre!("Failed to read novel file: {}", e)),
                 })?;
 
-        // Parse the combined JSON
-        let combined: serde_json::Value =
+        #[derive(serde::Deserialize)]
+        struct CombinedNovelFile {
+            novel: quelle_types::Novel,
+            metadata: NovelStorageMetadata,
+        }
+
+        let mut combined: CombinedNovelFile =
             serde_json::from_str(&content).map_err(|e| BookStorageError::DataConversionError {
                 message: "Failed to parse novel file".to_string(),
                 source: Some(eyre::eyre!("JSON error: {}", e)),
             })?;
 
-        // Extract and convert the novel part
-        let novel_value = combined["novel"].clone();
-        let novel_json = serde_json::to_string(&novel_value).map_err(|e| {
-            BookStorageError::DataConversionError {
-                message: "Failed to extract novel data".to_string(),
-                source: Some(eyre::eyre!("JSON error: {}", e)),
-            }
-        })?;
-        let novel = novel_from_json(&novel_json)?;
-
-        // Extract and convert the metadata part
-        let metadata_value = combined["metadata"].clone();
-        let mut metadata: NovelStorageMetadata =
-            serde_json::from_value(metadata_value).map_err(|e| {
-                BookStorageError::DataConversionError {
-                    message: "Failed to extract metadata".to_string(),
-                    source: Some(eyre::eyre!("JSON error: {}", e)),
-                }
-            })?;
-
         // Handle missing content_index field for backwards compatibility
-        if metadata.content_index.chapters.is_empty() {
-            // Initialize empty content index for existing novels
-            metadata.content_index = ContentIndex::default();
+        if combined.metadata.content_index.chapters.is_empty() {
+            combined.metadata.content_index = ContentIndex::default();
         }
 
-        Ok((novel, metadata))
+        Ok((combined.novel, combined.metadata))
     }
 
     /// Write the combined novel file structure (novel + metadata) atomically
@@ -1346,16 +1352,13 @@ impl FilesystemStorage {
                 })?;
         }
 
-        // Convert novel to JSON
-        let novel_json = novel_to_json(novel)?;
-        let novel_value = serde_json::from_str::<serde_json::Value>(&novel_json).map_err(|e| {
-            BookStorageError::DataConversionError {
-                message: "Failed to parse novel JSON".to_string(),
+        // Serialize novel and metadata directly into the combined structure
+        let novel_value =
+            serde_json::to_value(novel).map_err(|e| BookStorageError::DataConversionError {
+                message: "Failed to serialize novel".to_string(),
                 source: Some(eyre::eyre!("JSON error: {}", e)),
-            }
-        })?;
+            })?;
 
-        // Convert metadata to JSON value
         let metadata_value =
             serde_json::to_value(metadata).map_err(|e| BookStorageError::DataConversionError {
                 message: "Failed to serialize metadata".to_string(),
@@ -1461,9 +1464,7 @@ impl FilesystemStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quelle_engine::bindings::quelle::extension::novel::{
-        Chapter, ChapterContent, Novel, NovelStatus, Volume,
-    };
+    use quelle_types::{Chapter, ChapterContent, Novel, NovelStatus, Volume};
     use tempfile::TempDir;
 
     fn create_test_novel() -> Novel {
@@ -2263,9 +2264,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_end_to_end_asset_workflow() {
-        use quelle_engine::bindings::quelle::extension::novel::{
-            Chapter, Novel, NovelStatus, Volume,
-        };
+        use quelle_types::{Chapter, Novel, NovelStatus, Volume};
         use std::io::Cursor;
 
         let temp_dir = tempfile::tempdir().unwrap();

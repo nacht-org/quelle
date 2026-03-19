@@ -244,7 +244,7 @@ impl StoreManager {
     pub async fn search_novels_with_installed_extensions(
         &self,
         query: &SearchQuery,
-    ) -> Result<Vec<quelle_engine::bindings::quelle::extension::novel::BasicNovel>> {
+    ) -> Result<Vec<quelle_types::BasicNovel>> {
         use quelle_engine::bindings::quelle::extension::novel::{
             AppliedFilter, ComplexSearchQuery, FilterValue, SimpleSearchQuery,
         };
@@ -553,6 +553,22 @@ impl StoreManager {
         }
 
         Ok(None)
+    }
+
+    /// Internal helper: find and, if necessary, install an extension for the given URL.
+    pub async fn find_and_install_for_url(
+        &mut self,
+        url: &str,
+    ) -> crate::error::Result<crate::models::InstalledExtension> {
+        let (extension_id, _) = self.find_extension_for_url(url).await?.ok_or_else(|| {
+            StoreError::RuntimeError(format!("No extension found for URL: {}", url))
+        })?;
+
+        if let Some(installed) = self.get_installed(&extension_id).await? {
+            return Ok(installed);
+        }
+
+        self.install(&extension_id, None, None).await
     }
 
     // Installation Operations
