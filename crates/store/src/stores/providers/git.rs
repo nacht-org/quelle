@@ -17,8 +17,10 @@ use crate::stores::providers::traits::{Capability, LifecycleEvent, StoreProvider
 
 /// Git authentication configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum GitAuth {
     /// No authentication - uses system credentials (SSH agent, git credential manager, etc.)
+    #[default]
     None,
     /// Token-based authentication (GitHub/GitLab personal access tokens)
     Token { token: String },
@@ -32,11 +34,6 @@ pub enum GitAuth {
     UserPassword { username: String, password: String },
 }
 
-impl Default for GitAuth {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl GitAuth {
     /// Check if this is using system credentials
@@ -47,8 +44,10 @@ impl GitAuth {
 
 /// Git reference type for specifying what to checkout
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum GitReference {
     /// Use the default branch (usually main/master)
+    #[default]
     Default,
     /// Use a specific branch
     Branch(String),
@@ -70,11 +69,6 @@ impl GitReference {
     }
 }
 
-impl Default for GitReference {
-    fn default() -> Self {
-        Self::Default
-    }
-}
 
 /// Git author information for commits
 #[derive(Debug, Clone)]
@@ -138,8 +132,10 @@ impl GitAuthor {
 
 /// Commit message style for git operations
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub enum CommitStyle {
     /// Default style: "Publish ext_id v1.0.0"
+    #[default]
     Default,
     /// Detailed style: "Publish extension ext_id version 1.0.0"
     Detailed,
@@ -149,11 +145,6 @@ pub enum CommitStyle {
     Custom(fn(action: &str, extension_id: &str, version: &str) -> String),
 }
 
-impl Default for CommitStyle {
-    fn default() -> Self {
-        Self::Default
-    }
-}
 
 impl CommitStyle {
     /// Generate a commit message for the given action

@@ -64,7 +64,7 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
             // Create the directory if it doesn't exist
             if !path.exists() {
                 println!("Creating store directory: {}", path.display());
-                std::fs::create_dir_all(&path).map_err(|e| {
+                std::fs::create_dir_all(path).map_err(|e| {
                     eyre::eyre!(
                         "Failed to create store directory '{}': {}",
                         path.display(),
@@ -120,7 +120,7 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
                     "Creating git store cache directory: {}",
                     cache_dir.display()
                 );
-                std::fs::create_dir_all(&cache_dir).map_err(|e| {
+                std::fs::create_dir_all(cache_dir).map_err(|e| {
                     eyre::eyre!(
                         "Failed to create cache directory '{}': {}",
                         cache_dir.display(),
@@ -184,7 +184,7 @@ pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
                     "Creating GitHub store cache directory: {}",
                     cache_dir.display()
                 );
-                std::fs::create_dir_all(&cache_dir).map_err(|e| {
+                std::fs::create_dir_all(cache_dir).map_err(|e| {
                     eyre::eyre!(
                         "Failed to create cache directory '{}': {}",
                         cache_dir.display(),
