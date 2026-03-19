@@ -12,7 +12,7 @@ static META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     name: String::from("Royal Road"),
     langs: vec![String::from("en")],
     version: String::from(env!("CARGO_PKG_VERSION")),
-    base_urls: vec![BASE_URL.to_string()],
+    base_urls: vec![BASE_URL.to_string(), "https://royalroad.com".to_string()],
     rds: vec![ReadingDirection::Ltr],
     attrs: vec![],
     capabilities: SourceCapabilities {
