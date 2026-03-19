@@ -3,7 +3,7 @@
 use eyre::Result;
 use quelle_engine::{
     ExtensionEngine,
-    http::{FlaregunExecutor, HeadlessChromeExecutor, ReqwestExecutor},
+    http::{GhostwireExecutor, HeadlessChromeExecutor, ReqwestExecutor},
 };
 use quelle_storage::{
     traits::BookStorage,
@@ -33,16 +33,16 @@ pub async fn create_store_manager_with_path(storage_path: PathBuf) -> Result<Sto
 /// The HTTP executor backend to use for extension requests.
 #[derive(Debug, Clone, Default, clap::ValueEnum)]
 pub enum Executor {
-    /// Flaregun cloud-scraper — bypasses Cloudflare and other bot protections (default)
+    /// Ghostwire cloud-scraper — bypasses Cloudflare and other bot protections (default)
     #[default]
-    Flaregun,
-    /// Headless Chrome — handles JavaScript-heavy sites; falls back to Flaregun on failure
+    Ghostwire,
+    /// Headless Chrome — handles JavaScript-heavy sites; falls back to Ghostwire on failure
     Chrome,
     /// Plain reqwest — fast and lightweight, no JS support
     Reqwest,
 }
 
-/// Create an extension engine using the default executor (Flaregun).
+/// Create an extension engine using the default executor (Ghostwire).
 pub fn create_extension_engine() -> Result<ExtensionEngine> {
     create_extension_engine_with_executor(Executor::default())
 }
@@ -50,19 +50,19 @@ pub fn create_extension_engine() -> Result<ExtensionEngine> {
 /// Create an extension engine with the given executor choice.
 pub fn create_extension_engine_with_executor(executor: Executor) -> Result<ExtensionEngine> {
     match executor {
-        Executor::Flaregun => create_flaregun_engine(),
+        Executor::Ghostwire => create_ghostwire_engine(),
         Executor::Chrome => try_create_chrome_engine().or_else(|e| {
-            tracing::warn!("Failed to create Chrome executor, falling back to Flaregun: {e}");
-            create_flaregun_engine()
+            tracing::warn!("Failed to create Chrome executor, falling back to Ghostwire: {e}");
+            create_ghostwire_engine()
         }),
         Executor::Reqwest => create_reqwest_engine(),
     }
 }
 
-/// Create engine with Flaregun executor.
-fn create_flaregun_engine() -> Result<ExtensionEngine> {
-    tracing::info!("Using Flaregun executor for extensions");
-    let executor = std::sync::Arc::new(FlaregunExecutor::new().map_err(eyre::Report::from)?);
+/// Create engine with Ghostwire executor.
+fn create_ghostwire_engine() -> Result<ExtensionEngine> {
+    tracing::info!("Using Ghostwire executor for extensions");
+    let executor = std::sync::Arc::new(GhostwireExecutor::new().map_err(eyre::Report::from)?);
     ExtensionEngine::new(executor).map_err(eyre::Report::from)
 }
 

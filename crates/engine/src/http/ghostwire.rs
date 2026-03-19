@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use bytes::Bytes;
-use flaregun::{CloudScraper, RequestOptions};
+use ghostwire::{Ghostwire, RequestOptions};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -8,20 +8,20 @@ use tokio::sync::Mutex;
 use crate::bindings::quelle::extension::http;
 use crate::http::HttpExecutor;
 
-pub struct FlaregunExecutor {
-    client: Arc<Mutex<CloudScraper>>,
+pub struct GhostwireExecutor {
+    client: Arc<Mutex<Ghostwire>>,
 }
 
-impl FlaregunExecutor {
-    pub fn new() -> Result<Self, flaregun::CloudscraperError> {
+impl GhostwireExecutor {
+    pub fn new() -> Result<Self, ghostwire::GhostwireError> {
         Ok(Self {
-            client: Arc::new(Mutex::new(CloudScraper::builder().build()?)),
+            client: Arc::new(Mutex::new(Ghostwire::builder().build()?)),
         })
     }
 }
 
-impl From<flaregun::CloudscraperError> for http::ResponseError {
-    fn from(value: flaregun::CloudscraperError) -> Self {
+impl From<ghostwire::GhostwireError> for http::ResponseError {
+    fn from(value: ghostwire::GhostwireError) -> Self {
         http::ResponseError {
             kind: http::ResponseErrorKind::BadResponse,
             status: None,
@@ -32,7 +32,7 @@ impl From<flaregun::CloudscraperError> for http::ResponseError {
 }
 
 #[async_trait]
-impl HttpExecutor for FlaregunExecutor {
+impl HttpExecutor for GhostwireExecutor {
     async fn execute(&self, request: http::Request) -> Result<http::Response, http::ResponseError> {
         let method = match request.method {
             http::Method::Get => reqwest::Method::GET,
@@ -84,8 +84,8 @@ impl HttpExecutor for FlaregunExecutor {
             None
         };
 
-        // Map the request body to flaregun's RequestOptions fields.
-        // Flaregun's `form` only supports simple key-value pairs, so binary
+        // Map the request body to ghostwire's RequestOptions fields.
+        // Ghostwire's `form` only supports simple key-value pairs, so binary
         // form parts are base64-encoded as a best-effort fallback.
         let (form, body_bytes) = match request.data {
             Some(http::RequestBody::Raw(data)) => (None, Some(Bytes::from(data))),

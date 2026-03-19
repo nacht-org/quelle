@@ -16,7 +16,7 @@ use crate::utils::{find_extension_path, find_project_root};
 
 pub use crate::utils::Executor;
 use quelle_engine::ExtensionEngine;
-use quelle_engine::http::{FlaregunExecutor, HeadlessChromeExecutor, ReqwestExecutor};
+use quelle_engine::http::{GhostwireExecutor, HeadlessChromeExecutor, ReqwestExecutor};
 
 pub(crate) mod commands;
 
@@ -312,7 +312,7 @@ fn create_extension_engine_with_cache_ref(
     executor: Executor,
 ) -> Result<(ExtensionEngine, Option<Arc<CachingHttpExecutor>>)> {
     let base_executor: Arc<dyn quelle_engine::http::HttpExecutor> = match executor {
-        Executor::Flaregun => Arc::new(FlaregunExecutor::new()?),
+        Executor::Ghostwire => Arc::new(GhostwireExecutor::new()?),
         Executor::Chrome => Arc::new(HeadlessChromeExecutor::new()),
         Executor::Reqwest => Arc::new(ReqwestExecutor::new()),
     };

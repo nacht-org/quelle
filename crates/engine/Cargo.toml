@@ -9,7 +9,7 @@ edition = "2024"
 wasmtime.workspace = true
 reqwest = { workspace = true }
 headless_chrome = "1.0.21"
-flaregun.workspace = true
+ghostwire.workspace = true
 async-trait = "0.1.80"
 tokio = { version = "1", features = ["full"] }
 serde_json = "1.0"

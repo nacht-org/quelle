@@ -9,10 +9,10 @@ pub mod validation;
 /// The HTTP executor backend to use for extension requests.
 #[derive(Debug, Clone, Default, clap::ValueEnum)]
 pub enum Executor {
-    /// Flaregun cloud-scraper — bypasses Cloudflare and other bot protections (default)
+    /// Ghostwire cloud-scraper — bypasses Cloudflare and other bot protections (default)
     #[default]
-    Flaregun,
-    /// Headless Chrome — handles JavaScript-heavy sites; falls back to Flaregun on failure
+    Ghostwire,
+    /// Headless Chrome — handles JavaScript-heavy sites; falls back to Ghostwire on failure
     Chrome,
     /// Plain reqwest — fast and lightweight, no JS support
     Reqwest,

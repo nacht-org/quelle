@@ -1451,37 +1451,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 
 [[package]]
-name = "flaregun"
-version = "1.0.0"
-source = "git+https://github.com/nacht-org/flaregun.git#bc3070f803e1e54ea82d0b4c30daa81be7942d1a"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64",
- "bytes",
- "chrono",
- "futures",
- "html-escape",
- "http",
- "once_cell",
- "rand 0.10.0",
- "regex",
- "reqwest",
- "reqwest_cookie_store",
- "rustls",
- "rustls-pemfile",
- "scraper",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "webpki-roots",
-]
-
-[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1741,6 +1710,38 @@ dependencies = [
  "rand_core 0.10.0",
  "wasip2",
  "wasip3",
+]
+
+[[package]]
+name = "ghostwire"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6544ce522216a1ecc76a37de2438b7333fc10ec69c7cdcd774084f2b4038a9a7"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "bytes",
+ "chrono",
+ "futures",
+ "html-escape",
+ "http",
+ "once_cell",
+ "rand 0.10.0",
+ "regex",
+ "reqwest",
+ "reqwest_cookie_store",
+ "rustls",
+ "rustls-pemfile",
+ "scraper",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -3565,7 +3566,7 @@ dependencies = [
  "chrono",
  "clap",
  "ego-tree",
- "flaregun",
+ "ghostwire",
  "headless_chrome",
  "html5ever",
  "reqwest",

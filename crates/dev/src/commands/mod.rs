@@ -20,7 +20,7 @@ pub enum DevCommands {
         #[arg(long, default_value = "true")]
         watch: bool,
         /// HTTP executor backend to use
-        #[arg(long, value_enum, default_value_t = Executor::Flaregun)]
+        #[arg(long, value_enum, default_value_t = Executor::Ghostwire)]
         executor: Executor,
     },
     /// Interactive testing shell for extensions
@@ -37,7 +37,7 @@ pub enum DevCommands {
         #[arg(long, short)]
         verbose: bool,
         /// HTTP executor backend to use
-        #[arg(long, value_enum, default_value_t = Executor::Flaregun)]
+        #[arg(long, value_enum, default_value_t = Executor::Ghostwire)]
         executor: Executor,
     },
     /// Generate a new extension from template
