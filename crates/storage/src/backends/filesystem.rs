@@ -272,8 +272,8 @@ impl FilesystemStorage {
             if let Some(host) = parsed_url.host_str() {
                 let host_lower = host.to_lowercase();
                 // Remove www. prefix as it's typically equivalent
-                let normalized_host = if host_lower.starts_with("www.") {
-                    &host_lower[4..]
+                let normalized_host = if let Some(stripped) = host_lower.strip_prefix("www.") {
+                    stripped
                 } else {
                     &host_lower
                 };

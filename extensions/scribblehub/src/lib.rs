@@ -11,7 +11,7 @@ register_extension!(Extension);
 
 const BASE_URL: &str = "https://www.scribblehub.com";
 
-const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
+static META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     id: String::from("en.scribblehub"),
     name: String::from("ScribbleHub"),
     langs: vec![String::from("en")],
@@ -69,7 +69,9 @@ impl QuelleExtension for Extension {
                         .map(|(status, _)| status.trim().to_string())
                         .unwrap_or(text)
                 })
-                .map(|text| NovelStatus::from_str(&text))
+                .map(|text| text.parse().ok())
+                .ok()
+                .flatten()
                 .unwrap_or(NovelStatus::Unknown),
             volumes: volumes(&self.client, id)?,
             metadata: metadata(&doc)?,

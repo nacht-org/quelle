@@ -148,6 +148,7 @@ impl HttpExecutor for FlaregunExecutor {
                     message: e.to_string(),
                 })?;
 
+            #[allow(clippy::await_holding_lock)]
             rt.block_on(async move {
                 let mut client = client.lock().unwrap();
 

@@ -19,7 +19,7 @@ register_extension!(Extension);
 const BASE_URL: &str = "https://www.wuxiaworld.com";
 const API_URL: &str = "https://api2.wuxiaworld.com/wuxiaworld.api.v2.";
 
-const META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
+static META: Lazy<SourceMeta> = Lazy::new(|| SourceMeta {
     id: String::from("en.wuxiaworld"),
     name: String::from("Wuxiaworld"),
     langs: vec![String::from("en")],

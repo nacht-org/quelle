@@ -54,6 +54,7 @@ pub async fn handle_publish_command(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_publish_extension(
     package_path: PathBuf,
     store_name: String,

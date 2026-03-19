@@ -194,7 +194,7 @@ pub enum StoreCommands {
     /// Add a new extension store
     Add {
         #[command(subcommand)]
-        store_type: AddStoreCommands,
+        store_type: Box<AddStoreCommands>,
     },
     /// Initialize a local extension store directory (creates store.json) for an already added store
     Init {

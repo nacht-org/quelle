@@ -1,6 +1,7 @@
 use crate::novel::{Metadata, Namespace, NovelStatus, Volume};
 use crate::source::{SearchCapabilities, SourceCapabilities};
 
+#[allow(clippy::derivable_impls)]
 impl Default for SourceCapabilities {
     fn default() -> Self {
         Self {
@@ -9,6 +10,7 @@ impl Default for SourceCapabilities {
     }
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for SearchCapabilities {
     fn default() -> Self {
         Self {
@@ -20,16 +22,18 @@ impl Default for SearchCapabilities {
     }
 }
 
-impl NovelStatus {
-    pub fn from_str(status: &str) -> Self {
-        match status.to_ascii_lowercase().as_str() {
+impl std::str::FromStr for NovelStatus {
+    type Err = std::convert::Infallible;
+
+    fn from_str(status: &str) -> Result<Self, Self::Err> {
+        Ok(match status.to_ascii_lowercase().as_str() {
             "ongoing" => NovelStatus::Ongoing,
             "completed" => NovelStatus::Completed,
             "hiatus" => NovelStatus::Hiatus,
             "dropped" => NovelStatus::Dropped,
             "stub" => NovelStatus::Stub,
             _ => NovelStatus::Unknown,
-        }
+        })
     }
 }
 

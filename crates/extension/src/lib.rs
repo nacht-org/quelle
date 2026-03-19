@@ -20,6 +20,7 @@ pub use register::{register_extension_internal, register_tracing};
 pub use wit::quelle::extension::{error, http, novel, source};
 
 mod wit {
+    #![allow(clippy::too_many_arguments)]
     wit_bindgen::generate!({
         skip: ["register-extension"],
         path: "../../wit"

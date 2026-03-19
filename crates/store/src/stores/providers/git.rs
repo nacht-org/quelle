@@ -16,8 +16,7 @@ use crate::error::{Result, StoreError};
 use crate::stores::providers::traits::{Capability, LifecycleEvent, StoreProvider, SyncResult};
 
 /// Git authentication configuration
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum GitAuth {
     /// No authentication - uses system credentials (SSH agent, git credential manager, etc.)
     #[default]
@@ -34,7 +33,6 @@ pub enum GitAuth {
     UserPassword { username: String, password: String },
 }
 
-
 impl GitAuth {
     /// Check if this is using system credentials
     pub fn is_system_auth(&self) -> bool {
@@ -43,8 +41,7 @@ impl GitAuth {
 }
 
 /// Git reference type for specifying what to checkout
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum GitReference {
     /// Use the default branch (usually main/master)
     #[default]
@@ -57,18 +54,16 @@ pub enum GitReference {
     Commit(String),
 }
 
-impl GitReference {
-    /// Convert to string for GitHub raw URLs
-    pub fn to_string(&self) -> String {
+impl std::fmt::Display for GitReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GitReference::Branch(branch) => branch.clone(),
-            GitReference::Tag(tag) => tag.clone(),
-            GitReference::Commit(commit) => commit.clone(),
-            GitReference::Default => "main".to_string(),
+            GitReference::Branch(branch) => write!(f, "{}", branch),
+            GitReference::Tag(tag) => write!(f, "{}", tag),
+            GitReference::Commit(commit) => write!(f, "{}", commit),
+            GitReference::Default => write!(f, "main"),
         }
     }
 }
-
 
 /// Git author information for commits
 #[derive(Debug, Clone)]
@@ -131,8 +126,7 @@ impl GitAuthor {
 }
 
 /// Commit message style for git operations
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub enum CommitStyle {
     /// Default style: "Publish ext_id v1.0.0"
     #[default]
@@ -144,7 +138,6 @@ pub enum CommitStyle {
     /// Custom function for generating commit messages
     Custom(fn(action: &str, extension_id: &str, version: &str) -> String),
 }
-
 
 impl CommitStyle {
     /// Generate a commit message for the given action

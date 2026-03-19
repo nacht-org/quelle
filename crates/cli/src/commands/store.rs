@@ -22,7 +22,7 @@ pub async fn handle_store_command(
 ) -> Result<()> {
     match cmd {
         StoreCommands::Add { store_type } => {
-            handle_add_store(store_type, config, store_manager).await
+            handle_add_store(*store_type, config, store_manager).await
         }
         StoreCommands::Init { name } => handle_init_store(name, config).await,
         StoreCommands::Remove { name, force } => {
@@ -455,6 +455,7 @@ async fn handle_add_local_store(
     Ok(ExtensionSource::local(name, absolute_path).with_priority(priority))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_add_git_store(
     name: String,
     url: String,
@@ -633,6 +634,7 @@ async fn handle_add_git_store(
 }
 
 #[cfg(feature = "github")]
+#[allow(clippy::too_many_arguments)]
 async fn handle_add_github_store(
     name: String,
     owner: String,
