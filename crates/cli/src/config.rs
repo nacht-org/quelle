@@ -2,7 +2,7 @@ use directories::ProjectDirs;
 use eyre::Result;
 use quelle_store::{RegistryConfig, StoreManager};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs::{self};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -74,12 +74,16 @@ impl Config {
 
     pub async fn load() -> Result<Self> {
         let config_path = Self::get_config_path();
+        Self::load_from(&config_path).await
+    }
 
-        if !config_path.exists() {
+    /// Load configuration from a specific path instead of the default location.
+    pub async fn load_from(path: &Path) -> Result<Self> {
+        if !path.exists() {
             return Ok(Self::default());
         }
 
-        let content = fs::read_to_string(&config_path).await?;
+        let content = fs::read_to_string(path).await?;
         let mut config: Config = serde_json::from_str(&content)?;
 
         #[cfg(feature = "git")]
@@ -225,50 +229,53 @@ impl Config {
         Ok(value)
     }
 
+    /// Return a flat `key: value` representation of all configuration fields.
     pub fn show_all(&self) -> String {
-        let registry_sources = if self.registry.extension_sources.is_empty() {
-            "(none configured)".to_string()
+        let data_dir = self
+            .data_dir
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| get_default_data_dir().display().to_string());
+
+        let storage_path = self.get_storage_path().display().to_string();
+
+        let output_dir = self
+            .export
+            .output_dir
+            .as_deref()
+            .unwrap_or("(not set)")
+            .to_string();
+
+        let extension_sources = if self.registry.extension_sources.is_empty() {
+            "(none)".to_string()
         } else {
             self.registry
                 .extension_sources
                 .iter()
-                .map(|s| format!("{} (priority: {})", s.name, s.priority))
+                .map(|s| format!("  {} (priority: {})", s.name, s.priority))
                 .collect::<Vec<_>>()
-                .join(", ")
+                .join("\n")
         };
 
-        format!(
-            "Configuration:\n\
-             Data Directory:\n\
-             ├─ data_dir: {}\n\
-             ├─ storage_path: {}\n\
-             Export:\n\
-             ├─ format: {}\n\
-             ├─ include_covers: {}\n\
-             └─ output_dir: {}\n\
-             Fetch:\n\
-             ├─ auto_fetch_covers: {}\n\
-             └─ auto_fetch_assets: {}\n\
-             Registry:\n\
-             └─ extension_sources: {}\n\
-             Official Extensions:\n\
-             └─ enabled: {}",
-            self.data_dir
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "(default)".to_string()),
-            self.get_storage_path().display(),
-            self.export.format,
-            self.export.include_covers,
-            self.export
-                .output_dir
-                .as_ref()
-                .unwrap_or(&"(not set)".to_string()),
-            self.fetch.auto_fetch_covers,
-            self.fetch.auto_fetch_assets,
-            registry_sources,
-            self.official.enabled
-        )
+        let mut lines = vec![
+            format!("data_dir: {}", data_dir),
+            format!("storage_path: {}", storage_path),
+            format!("export.format: {}", self.export.format),
+            format!("export.include_covers: {}", self.export.include_covers),
+            format!("export.output_dir: {}", output_dir),
+            format!("fetch.auto_fetch_covers: {}", self.fetch.auto_fetch_covers),
+            format!("fetch.auto_fetch_assets: {}", self.fetch.auto_fetch_assets),
+            format!("official.enabled: {}", self.official.enabled),
+        ];
+
+        if self.registry.extension_sources.is_empty() {
+            lines.push("extension_sources: (none)".to_string());
+        } else {
+            lines.push("extension_sources:".to_string());
+            lines.push(extension_sources);
+        }
+
+        lines.join("\n")
     }
 
     pub async fn reset() -> Result<Self> {
@@ -283,7 +290,6 @@ fn get_default_config_dir() -> PathBuf {
     if let Some(proj_dirs) = ProjectDirs::from("org", "quelle", "quelle") {
         proj_dirs.config_dir().to_path_buf()
     } else {
-        // Fallback to current directory if we can't determine project dirs
         PathBuf::from(".quelle").join("config")
     }
 }
@@ -293,7 +299,6 @@ pub fn get_default_data_dir() -> PathBuf {
     if let Some(proj_dirs) = ProjectDirs::from("org", "quelle", "quelle") {
         proj_dirs.data_dir().to_path_buf()
     } else {
-        // Fallback to current directory if we can't determine project dirs
         PathBuf::from(".quelle").join("data")
     }
 }
@@ -306,5 +311,36 @@ pub struct OfficialConfig {
 impl Default for OfficialConfig {
     fn default() -> Self {
         Self { enabled: true }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_storage_path() {
+        let config = Config::default();
+        let storage_path = config.get_storage_path();
+        // Storage path should end with "library"
+        assert_eq!(storage_path.file_name().unwrap(), "library");
+    }
+
+    #[test]
+    fn test_show_all_flat_format() {
+        let config = Config::default();
+        let output = config.show_all();
+        // Should not contain box-drawing characters
+        assert!(!output.contains('├'));
+        assert!(!output.contains('└'));
+        assert!(!output.contains('─'));
+        // Should contain flat key: value lines
+        assert!(output.contains("data_dir: "));
+        assert!(output.contains("storage_path: "));
+        assert!(output.contains("export.format: epub"));
+        assert!(output.contains("export.include_covers: true"));
+        assert!(output.contains("fetch.auto_fetch_covers: true"));
+        assert!(output.contains("official.enabled: true"));
+        assert!(output.contains("extension_sources: (none)"));
     }
 }

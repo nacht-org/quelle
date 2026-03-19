@@ -813,26 +813,23 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
         return Ok(());
     }
 
-    println!(
-        "Configured extension stores ({}):",
-        registry_config.extension_sources.len()
-    );
+    println!("stores: {}", registry_config.extension_sources.len());
     for source in &registry_config.extension_sources {
-        println!("  {} (priority: {})", source.name, source.priority);
-        println!("     Type: {:?}", source.store_type);
+        println!("  {}", source.name);
+        println!("    type: {:?}", source.store_type);
         match &source.store_type {
             StoreType::Local { path } => {
-                println!("     Path: {}", path.display());
+                println!("    path: {}", path.display());
                 println!(
-                    "     Status: {}",
+                    "    status: {}",
                     if source.enabled {
-                        "Enabled"
+                        "enabled"
                     } else {
-                        "Disabled"
+                        "disabled"
                     }
                 );
                 if source.trusted {
-                    println!("     Trusted: Yes");
+                    println!("    trusted: yes");
                 }
             }
             StoreType::Git {
@@ -841,29 +838,29 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
                 reference,
                 auth,
             } => {
-                println!("     URL: {}", url);
-                println!("     Cache Dir: {}", cache_dir.display());
-                println!("     Reference: {:?}", reference);
+                println!("    url: {}", url);
+                println!("    cache_dir: {}", cache_dir.display());
+                println!("    reference: {:?}", reference);
                 println!(
-                    "     Auth: {}",
+                    "    auth: {}",
                     match auth {
-                        GitAuth::None => "None".to_string(),
-                        GitAuth::Token { .. } => "Token".to_string(),
-                        GitAuth::SshKey { .. } => "SSH Key".to_string(),
+                        GitAuth::None => "none".to_string(),
+                        GitAuth::Token { .. } => "token".to_string(),
+                        GitAuth::SshKey { .. } => "ssh key".to_string(),
                         GitAuth::UserPassword { username, .. } =>
-                            format!("Username ({})", username),
+                            format!("username ({})", username),
                     }
                 );
                 println!(
-                    "     Status: {}",
+                    "    status: {}",
                     if source.enabled {
-                        "Enabled"
+                        "enabled"
                     } else {
-                        "Disabled"
+                        "disabled"
                     }
                 );
                 if source.trusted {
-                    println!("     Trusted: Yes");
+                    println!("    trusted: yes");
                 }
             }
             StoreType::GitHub {
@@ -873,29 +870,29 @@ async fn handle_list_stores(registry_config: &RegistryConfig) -> Result<()> {
                 reference,
                 auth,
             } => {
-                println!("     GitHub: {}/{}", owner, repo);
-                println!("     Cache Dir: {}", cache_dir.display());
-                println!("     Reference: {:?}", reference);
+                println!("    github: {}/{}", owner, repo);
+                println!("    cache_dir: {}", cache_dir.display());
+                println!("    reference: {:?}", reference);
                 println!(
-                    "     Auth: {}",
+                    "    auth: {}",
                     match auth {
-                        GitAuth::None => "None".to_string(),
-                        GitAuth::Token { .. } => "Token".to_string(),
-                        GitAuth::SshKey { .. } => "SSH Key".to_string(),
+                        GitAuth::None => "none".to_string(),
+                        GitAuth::Token { .. } => "token".to_string(),
+                        GitAuth::SshKey { .. } => "ssh key".to_string(),
                         GitAuth::UserPassword { username, .. } =>
-                            format!("Username ({})", username),
+                            format!("username ({})", username),
                     }
                 );
                 println!(
-                    "     Status: {}",
+                    "    status: {}",
                     if source.enabled {
-                        "Enabled"
+                        "enabled"
                     } else {
-                        "Disabled"
+                        "disabled"
                     }
                 );
                 if source.trusted {
-                    println!("     Trusted: Yes");
+                    println!("    trusted: yes");
                 }
             }
         }

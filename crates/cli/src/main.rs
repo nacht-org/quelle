@@ -1,8 +1,3 @@
-//! Quelle CLI - A novel scraper and library manager.
-//!
-//! This is the main entry point for the Quelle command-line interface,
-//! which provides novel fetching, library management, and export functionality.
-
 use clap::Parser;
 use eyre::Result;
 use quelle_storage::backends::filesystem::FilesystemStorage;
@@ -12,7 +7,8 @@ use std::path::PathBuf;
 mod cli;
 mod commands;
 mod config;
-mod utils;
+mod engine;
+mod resolve;
 
 use cli::{Cli, Commands};
 use commands::{
@@ -23,11 +19,17 @@ use commands::{
 };
 use config::Config;
 
+struct AppContext {
+    storage: FilesystemStorage,
+    store_manager: StoreManager,
+    config: Config,
+    dry_run: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize tracing
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(if cli.verbose {
             tracing::Level::DEBUG
@@ -39,10 +41,12 @@ async fn main() -> Result<()> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    // Load configuration
-    let mut config = Config::load().await?;
+    let config = if let Some(ref config_path) = cli.config {
+        Config::load_from(std::path::Path::new(config_path)).await?
+    } else {
+        Config::load().await?
+    };
 
-    // Initialize storage for local library
     let storage_path = match cli.storage_path.as_ref() {
         Some(path) => PathBuf::from(path),
         None => config.get_storage_path(),
@@ -50,20 +54,23 @@ async fn main() -> Result<()> {
     let storage = FilesystemStorage::new(&storage_path);
     storage.initialize().await?;
 
-    // Initialize store manager
     let registry_dir = config.get_registry_dir();
     let registry = Box::new(LocalInstallRegistry::new(&registry_dir).await?);
     let mut store_manager = StoreManager::new(registry).await?;
 
-    // Apply registry configuration to store manager
-    // Handle store loading errors gracefully - invalid stores shouldn't prevent CLI startup
     if let Err(e) = config.apply(&mut store_manager).await
         && !cli.quiet
     {
         eprintln!("Warning: Some extension stores could not be loaded: {}", e);
     }
 
-    // Handle commands
+    let mut ctx = AppContext {
+        storage,
+        store_manager,
+        config,
+        dry_run: cli.dry_run,
+    };
+
     match cli.command {
         Commands::Add {
             url,
@@ -74,15 +81,21 @@ async fn main() -> Result<()> {
                 url,
                 no_chapters,
                 max_chapters,
-                &mut store_manager,
-                &storage,
-                cli.dry_run,
+                &mut ctx.store_manager,
+                &ctx.storage,
+                ctx.dry_run,
             )
             .await
         }
         Commands::Update { novel, check_only } => {
-            handle_update_command(novel, check_only, &storage, &mut store_manager, cli.dry_run)
-                .await
+            handle_update_command(
+                novel,
+                check_only,
+                &ctx.storage,
+                &mut ctx.store_manager,
+                ctx.dry_run,
+            )
+            .await
         }
         Commands::Read {
             novel,
@@ -93,14 +106,21 @@ async fn main() -> Result<()> {
                 novel,
                 chapter,
                 list,
-                &storage,
-                &mut store_manager,
-                cli.dry_run,
+                &ctx.storage,
+                &mut ctx.store_manager,
+                ctx.dry_run,
             )
             .await
         }
         Commands::Remove { novel, force } => {
-            handle_remove_command(novel, force, &storage, &mut store_manager, cli.dry_run).await
+            handle_remove_command(
+                novel,
+                force,
+                &ctx.storage,
+                &mut ctx.store_manager,
+                ctx.dry_run,
+            )
+            .await
         }
         Commands::Search {
             query,
@@ -113,7 +133,7 @@ async fn main() -> Result<()> {
             simple,
         } => {
             handle_search_command(
-                &store_manager,
+                &ctx.store_manager,
                 query,
                 author,
                 tags,
@@ -122,15 +142,15 @@ async fn main() -> Result<()> {
                 page,
                 advanced,
                 simple,
-                cli.dry_run,
+                ctx.dry_run,
             )
             .await
         }
         Commands::Library { command } => {
-            handle_library_command(command, &storage, &mut store_manager, cli.dry_run).await
+            handle_library_command(command, &ctx.storage, &mut ctx.store_manager, ctx.dry_run).await
         }
         Commands::Extensions { command } => {
-            handle_extension_command(command, &mut store_manager, cli.dry_run).await
+            handle_extension_command(command, &mut ctx.store_manager, ctx.dry_run).await
         }
         Commands::Export {
             novel,
@@ -138,19 +158,26 @@ async fn main() -> Result<()> {
             output,
             include_images,
         } => {
-            handle_export_command(novel, format, output, include_images, &storage, cli.dry_run)
-                .await
+            handle_export_command(
+                novel,
+                format,
+                output,
+                include_images,
+                &ctx.storage,
+                ctx.dry_run,
+            )
+            .await
         }
-        Commands::Config { command } => handle_config_command(command, cli.dry_run).await,
+        Commands::Config { command } => handle_config_command(command, ctx.dry_run).await,
         Commands::Store { command } => {
-            handle_store_command(command, &mut config, &mut store_manager).await
+            handle_store_command(command, &mut ctx.config, &mut ctx.store_manager).await
         }
         Commands::Publish { command } => {
-            handle_publish_command(command, &config.registry, &mut store_manager).await
+            handle_publish_command(command, &ctx.config.registry, &mut ctx.store_manager).await
         }
-        Commands::Status => handle_status_command(&store_manager).await,
+        Commands::Status => handle_status_command(&ctx.store_manager).await,
         Commands::Fetch { command } => {
-            handle_fetch_command(command, &mut store_manager, &storage, cli.dry_run).await
+            handle_fetch_command(command, &mut ctx.store_manager, &ctx.storage, ctx.dry_run).await
         }
     }
 }

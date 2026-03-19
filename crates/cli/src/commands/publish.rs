@@ -97,27 +97,24 @@ async fn handle_publish_extension(
     options.skip_validation = skip_validation;
     options.timeout = Some(Duration::from_secs(timeout));
 
-    // Display publishing configuration
-    println!("Publishing configuration:");
-    println!("  Package: {}", package.manifest.name);
-    println!("  Version: {}", package.manifest.version);
-    println!("  Store: {}", store_name);
-    println!("  Visibility: {:?}", visibility);
-    println!("  Overwrite: {}", overwrite);
-    println!("  Skip validation: {}", skip_validation);
+    println!("package: {}", package.manifest.name);
+    println!("version: {}", package.manifest.version);
+    println!("store: {}", store_name);
+    println!("visibility: {:?}", visibility);
+    println!("overwrite: {}", overwrite);
+    println!("skip_validation: {}", skip_validation);
+    println!("Publishing...");
 
     // Store package name before moving package to publish
     let package_name = package.manifest.name.clone();
 
-    // Actually publish the extension
     match store.publish(package, options).await {
         Ok(publish_result) => {
-            println!("Published {} v{}", package_name, publish_result.version);
-            println!("  Content hash: {}", publish_result.content_hash);
+            println!("Published {} v{}.", package_name, publish_result.version);
+            println!("content_hash: {}", publish_result.content_hash);
             if !publish_result.warnings.is_empty() {
-                println!("  Warnings:");
                 for warning in &publish_result.warnings {
-                    println!("    - {}", warning);
+                    eprintln!("Warning: {}", warning);
                 }
             }
         }
@@ -150,22 +147,19 @@ async fn handle_unpublish_extension(
         id, version, store_name
     );
 
-    println!("Unpublish configuration:");
-    println!("  Extension: {}", id);
-    println!("  Version: {}", version);
-    println!("  Store: {}", store_name);
-
-    warn!("Are you sure you want to unpublish this extension version?");
-    warn!("This action may break installations that depend on this version.");
+    println!("extension: {}", id);
+    println!("version: {}", version);
+    println!("store: {}", store_name);
+    println!("Unpublishing...");
+    eprintln!("Warning: Unpublishing may break installations that depend on this version.");
 
     let unpublish_options = UnpublishOptions {
         version: Some(version.clone()),
     };
 
-    // Actually unpublish the extension
     match store.unpublish(&id, unpublish_options).await {
         Ok(unpublish_result) => {
-            println!("Unpublished {} v{}", id, unpublish_result.version);
+            println!("Unpublished {} v{}.", id, unpublish_result.version);
         }
         Err(e) => {
             error!("Failed to unpublish extension: {}", e);
@@ -189,11 +183,10 @@ async fn handle_validate_extension(
 
     let validator = create_default_validator();
 
-    println!("Validating extension package:");
-    println!("  Name: {}", package.manifest.name);
-    println!("  Version: {}", package.manifest.version);
+    println!("name: {}", package.manifest.name);
+    println!("version: {}", package.manifest.version);
     println!(
-        "  Package has {} files",
+        "files: {}",
         package.assets.len()
             + if !package.wasm_component.is_empty() {
                 1
@@ -202,32 +195,33 @@ async fn handle_validate_extension(
             }
     );
     println!(
-        "  Validation mode: {}",
-        if strict { "Strict" } else { "Standard" }
+        "validation_mode: {}",
+        if strict { "strict" } else { "standard" }
     );
 
     if let Some(store) = &store_name {
-        println!("  Target store: {}", store);
+        println!("target_store: {}", store);
     }
 
-    // Run validation
+    println!("Validating...");
+
     match validator.validate(&package).await {
         Ok(report) => {
             if report.passed {
-                println!("Validation passed");
+                println!("Validation passed.");
                 if !report.issues.is_empty() {
-                    println!("Warnings: {}", report.issues.len());
+                    eprintln!("Warning: {} issue(s) found.", report.issues.len());
                     if verbose {
                         for issue in &report.issues {
-                            println!("  {:?}: {}", issue.severity, issue.description);
+                            eprintln!("  {:?}: {}", issue.severity, issue.description);
                         }
                     }
                 }
             } else {
-                error!("Validation failed!");
-                println!("  Duration: {:?}", report.validation_duration);
-                println!(
-                    "  Critical issues: {}",
+                eprintln!("Error: Validation failed.");
+                eprintln!("duration: {:?}", report.validation_duration);
+                eprintln!(
+                    "critical_issues: {}",
                     report
                         .issues
                         .iter()
@@ -240,24 +234,19 @@ async fn handle_validate_extension(
                         issue.severity,
                         quelle_store::IssueSeverity::Critical | quelle_store::IssueSeverity::Error
                     ) {
-                        let icon = match issue.severity {
-                            quelle_store::IssueSeverity::Critical => "[CRITICAL]",
-                            quelle_store::IssueSeverity::Warning => "[WARNING]",
-                            quelle_store::IssueSeverity::Info => "[INFO]",
-                            quelle_store::IssueSeverity::Error => "[ERROR]",
+                        let severity_label = match issue.severity {
+                            quelle_store::IssueSeverity::Critical => "CRITICAL",
+                            quelle_store::IssueSeverity::Warning => "WARNING",
+                            quelle_store::IssueSeverity::Info => "INFO",
+                            quelle_store::IssueSeverity::Error => "ERROR",
                         };
-                        println!("  {} {:?}: {}", icon, issue.severity, issue.description);
+                        eprintln!("  [{}] {}", severity_label, issue.description);
                     }
                 }
             }
 
             if verbose {
-                println!("\nValidation completed in {:?}", report.validation_duration);
-                if report.passed {
-                    println!("All validation rules passed ✓");
-                } else {
-                    println!("Validation failed ✗");
-                }
+                println!("duration: {:?}", report.validation_duration);
             }
         }
         Err(e) => {
@@ -287,25 +276,25 @@ async fn handle_requirements(store_name: Option<String>, config: &RegistryConfig
             ));
         };
 
-        println!("Publishing requirements for store '{}':", store_name);
+        println!("store: {}", store_name);
         if let Ok(manifest) = store.get_store_manifest().await {
-            println!("  Store type: {}", manifest.store_type);
+            println!("store_type: {}", manifest.store_type);
             println!(
-                "  Description: {}",
-                manifest.description.as_deref().unwrap_or("None")
+                "description: {}",
+                manifest.description.as_deref().unwrap_or("(none)")
             );
         }
 
         let requirements = store.publish_requirements();
 
-        println!("  Publishing supported: Yes");
+        println!("publishing_supported: yes");
         println!(
-            "  Authentication required: {}",
+            "requires_authentication: {}",
             requirements.requires_authentication
         );
-        println!("  Signing required: {}", requirements.requires_signing);
+        println!("requires_signing: {}", requirements.requires_signing);
         if let Some(max_size) = requirements.max_package_size {
-            println!("  Max package size: {} MB", max_size / (1024 * 1024));
+            println!("max_package_size: {} MB", max_size / (1024 * 1024));
         }
         if !requirements.supported_visibility.is_empty() {
             let visibility_options: Vec<String> = requirements
@@ -313,15 +302,13 @@ async fn handle_requirements(store_name: Option<String>, config: &RegistryConfig
                 .iter()
                 .map(|v| format!("{:?}", v))
                 .collect();
-            println!("  Supported visibility: {}", visibility_options.join(", "));
+            println!("supported_visibility: {}", visibility_options.join(", "));
         }
     } else {
-        println!("Publishing requirements for all stores:");
         for store in config.list_writable_sources()? {
             let info = store.get_store_manifest().await?;
-            println!("\nStore: {}", info.name);
-            println!("  Type: {}", info.store_type);
-            println!("  Status: Check individual store capabilities");
+            println!("store: {}", info.name);
+            println!("  store_type: {}", info.store_type);
         }
     }
     Ok(())

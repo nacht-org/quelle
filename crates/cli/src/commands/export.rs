@@ -7,22 +7,47 @@ use quelle_storage::{
 };
 use std::path::PathBuf;
 
-use crate::utils::resolve_novel_id;
+use crate::resolve::resolve_novel_id;
 
-pub async fn handle_export(
+/// Handle the `export` command — validate format then export a novel (or all novels).
+pub async fn handle_export_command(
     novel_input: String,
     format: String,
     output: Option<String>,
     include_images: bool,
     storage: &FilesystemStorage,
-    _dry_run: bool,
+    dry_run: bool,
 ) -> Result<()> {
+    // Validate format up front.
+    match format.as_str() {
+        "epub" => {}
+        #[cfg(feature = "pdf")]
+        "pdf" => {}
+        _ => {
+            eprintln!("Error: Unsupported format: {}", format);
+            #[cfg(feature = "pdf")]
+            eprintln!("Supported formats: epub, pdf");
+            #[cfg(not(feature = "pdf"))]
+            eprintln!("Supported formats: epub");
+            return Ok(());
+        }
+    }
+
+    if dry_run {
+        println!("Would export novel '{}' in {} format.", novel_input, format);
+        if let Some(ref output_dir) = output {
+            println!("output: {}", output_dir);
+        }
+        println!("include_images: {}", include_images);
+        return Ok(());
+    }
+
     let export_manager = default_export_manager()?;
     if !export_manager.supports_format(&format) {
-        println!("Unsupported format: {}", format);
         let available_formats = export_manager.available_formats();
-        println!(
-            "Supported: {}",
+        eprintln!("Error: Unsupported format: {}", format);
+        eprintln!(
+            "Supported formats: {}",
             available_formats
                 .iter()
                 .map(|f| f.id.as_str())
@@ -36,11 +61,10 @@ pub async fn handle_export(
         return export_all_novels(&format, output, include_images, storage, &export_manager).await;
     }
 
-    // Resolve novel input (ID, URL, or title)
     let novel_id = match resolve_novel_id(&novel_input, storage).await? {
         Some(id) => id,
         None => {
-            println!("Novel not found: {}", novel_input);
+            eprintln!("Not found: '{}'", novel_input);
             return Ok(());
         }
     };
@@ -48,28 +72,22 @@ pub async fn handle_export(
     let novel = match storage.get_novel(&novel_id).await? {
         Some(novel) => novel,
         None => {
-            println!("Novel not found: {}", novel_id.as_str());
+            eprintln!("Not found: '{}'", novel_id.as_str());
             return Ok(());
         }
     };
 
-    println!("Exporting: {}", novel.title);
-
-    // List chapters to export
     let chapter_list = storage.list_chapters(&novel_id).await?;
     let available_chapters: Vec<_> = chapter_list.iter().filter(|c| c.has_content()).collect();
 
     if available_chapters.is_empty() {
-        println!("No content available for export");
+        println!("No downloaded chapters available to export.");
         return Ok(());
     }
 
-    println!(
-        "  Chapters: {} available for export",
-        available_chapters.len()
-    );
+    println!("Exporting: {}", novel.title);
+    println!("chapters available: {}", available_chapters.len());
 
-    // Determine output path
     let filename = format!("{}.{}", sanitize_filename(&novel.title), format);
     let output_path = if let Some(output_dir) = &output {
         PathBuf::from(output_dir).join(filename)
@@ -77,19 +95,20 @@ pub async fn handle_export(
         PathBuf::from(filename)
     };
 
-    println!("Output: {}", output_path.display());
+    println!("output: {}", output_path.display());
+    println!("Exporting...");
+
+    if let Some(parent) = output_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
 
     let export_options = if include_images {
         ExportOptions::new()
     } else {
         ExportOptions::new().without_images()
     };
-
-    println!("Exporting to {}...", format);
-
-    if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
 
     let file = tokio::fs::File::create(&output_path).await?;
     let writer = Box::new(file);
@@ -100,13 +119,13 @@ pub async fn handle_export(
     {
         Ok(result) => {
             println!(
-                "Exported {} chapters to {}",
+                "Exported {} chapter(s) to {}",
                 result.chapters_processed,
                 output_path.display()
             );
         }
         Err(e) => {
-            eprintln!("Export failed: {}", e);
+            eprintln!("Error: Export failed: {}", e);
             return Err(e.into());
         }
     }
@@ -123,26 +142,23 @@ async fn export_all_novels(
 ) -> Result<()> {
     let novels = storage.list_novels(&NovelFilter::default()).await?;
     if novels.is_empty() {
-        println!("No novels in library");
+        println!("No novels in library.");
         return Ok(());
     }
 
-    println!(
-        "Exporting {} novels to {}",
-        novels.len(),
-        format.to_uppercase()
-    );
-
-    // Determine output directory
     let output_dir = output.unwrap_or_else(|| "./exports".to_string());
     let output_path = PathBuf::from(&output_dir);
-
     std::fs::create_dir_all(&output_path)?;
-    println!("Output directory: {}", output_path.display());
 
-    let mut exported_count = 0;
-    let mut failed_count = 0;
-    let mut skipped_count = 0;
+    println!(
+        "Exporting {} novel(s) to {}...",
+        novels.len(),
+        output_path.display()
+    );
+
+    let mut exported_count = 0usize;
+    let mut failed_count = 0usize;
+    let mut skipped_count = 0usize;
 
     for novel in &novels {
         let chapter_list = storage.list_chapters(&novel.id).await?;
@@ -153,13 +169,8 @@ async fn export_all_novels(
             continue;
         }
 
-        let filename = format!("{}.epub", sanitize_filename(&novel.title));
+        let filename = format!("{}.{}", sanitize_filename(&novel.title), format);
         let novel_output_path = output_path.join(filename);
-
-        println!(
-            "  📖 Exporting {} ({} chapters)...",
-            novel.title, available_chapters
-        );
 
         let export_options = if include_images {
             ExportOptions::new()
@@ -170,7 +181,10 @@ async fn export_all_novels(
         let file = match tokio::fs::File::create(&novel_output_path).await {
             Ok(f) => f,
             Err(e) => {
-                eprintln!("Failed to create file: {}", e);
+                eprintln!(
+                    "Error: Failed to create output file for '{}': {}",
+                    novel.title, e
+                );
                 failed_count += 1;
                 continue;
             }
@@ -183,45 +197,24 @@ async fn export_all_novels(
         {
             Ok(result) => {
                 println!(
-                    "    Exported {} chapters to: {}",
-                    result.chapters_processed,
-                    novel_output_path.display()
+                    "  {} — {} chapter(s) exported.",
+                    novel.title, result.chapters_processed
                 );
                 exported_count += 1;
             }
             Err(e) => {
-                eprintln!("Failed: {}", e);
+                eprintln!("Error: Failed to export '{}': {}", novel.title, e);
                 failed_count += 1;
             }
         }
     }
 
     println!(
-        "Export complete: {} exported, {} skipped, {} failed",
+        "exported: {}, skipped: {}, failed: {}",
         exported_count, skipped_count, failed_count
     );
 
     Ok(())
-}
-
-// Backward compatibility function for EPUB export
-#[allow(dead_code)]
-pub async fn handle_export_epub(
-    novel_input: String,
-    output: Option<String>,
-    include_images: bool,
-    storage: &FilesystemStorage,
-    dry_run: bool,
-) -> Result<()> {
-    handle_export(
-        novel_input,
-        "epub".to_string(),
-        output,
-        include_images,
-        storage,
-        dry_run,
-    )
-    .await
 }
 
 fn sanitize_filename(name: &str) -> String {
