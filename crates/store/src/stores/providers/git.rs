@@ -4,7 +4,7 @@
 //! to local storage for use by LocalStore.
 
 use async_trait::async_trait;
-use git2::{CredentialType, FetchOptions, RemoteCallbacks, Repository, RepositoryInitOptions};
+use git2::{CredentialType, FetchOptions, RemoteCallbacks, Repository};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;

@@ -23,7 +23,7 @@
 use async_trait::async_trait;
 use semver::Version;
 
-use crate::error::{Result, StoreError};
+use crate::error::Result;
 use crate::manager::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
     ValidationReport,

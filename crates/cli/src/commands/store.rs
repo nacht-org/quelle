@@ -40,7 +40,7 @@ pub async fn handle_store_command(
 pub async fn handle_init_store(name: String, config: &Config) -> Result<()> {
     #[cfg(feature = "github")]
     use quelle_store::GitHubStore;
-    use quelle_store::{GitAuth, GitReference, GitStore};
+    use quelle_store::GitStore;
 
     // Look up the store in the registry
     let source = config
