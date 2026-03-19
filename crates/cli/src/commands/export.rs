@@ -87,6 +87,10 @@ pub async fn handle_export(
 
     println!("Exporting to {}...", format);
 
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
     let file = tokio::fs::File::create(&output_path).await?;
     let writer = Box::new(file);
 
