@@ -17,5 +17,5 @@ url = "2.5"
 uuid = { version = "1.0", features = ["v4"] }
 tracing.workspace = true
 
-# Import WIT types from engine crate
-quelle_engine = { path = "../engine" }
+# Import domain types from types crate (no Wasmtime dependency)
+quelle_types = { path = "../types" }

@@ -9,7 +9,8 @@ use crate::error::{ExportError, Result};
 use crate::traits::Exporter;
 use crate::types::{ExportOptions, ExportResult, FormatInfo};
 
-use quelle_storage::{BookStorage, ChapterContent, Novel, NovelId, WitNovelStatus};
+use quelle_storage::{BookStorage, ChapterContent, Novel, NovelId};
+use quelle_types::NovelStatus;
 
 /// EPUB format exporter.
 pub struct EpubExporter;
@@ -193,7 +194,7 @@ fn build_title_page(novel: &Novel) -> String {
     // Add publication info
     html.push_str("\n    <h2>Publication Info</h2>\n");
 
-    let status = format_novel_status(novel.status);
+    let status = format_novel_status(&novel.status);
     html.push_str(&format!("    <p>Status: {}</p>\n", status));
 
     let total_chapters: usize = novel.volumes.iter().map(|v| v.chapters.len()).sum();
@@ -361,14 +362,14 @@ fn extract_rating(novel: &Novel) -> Option<String> {
 }
 
 /// Format novel status for display.
-fn format_novel_status(status: WitNovelStatus) -> &'static str {
+fn format_novel_status(status: &NovelStatus) -> &'static str {
     match status {
-        WitNovelStatus::Ongoing => "Ongoing",
-        WitNovelStatus::Completed => "Completed",
-        WitNovelStatus::Hiatus => "On Hiatus",
-        WitNovelStatus::Dropped => "Dropped",
-        WitNovelStatus::Stub => "Stub",
-        WitNovelStatus::Unknown => "Unknown",
+        NovelStatus::Ongoing => "Ongoing",
+        NovelStatus::Completed => "Completed",
+        NovelStatus::Hiatus => "On Hiatus",
+        NovelStatus::Dropped => "Dropped",
+        NovelStatus::Stub => "Stub",
+        NovelStatus::Unknown => "Unknown",
     }
 }
 
@@ -395,8 +396,7 @@ fn sanitize_html(html: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quelle_engine::bindings::quelle::extension::novel::{Chapter, Volume};
-    use quelle_storage::{ChapterContent, Novel, WitNovelStatus};
+    use quelle_types::{Chapter, ChapterContent, Metadata, Namespace, Novel, NovelStatus, Volume};
 
     fn create_test_novel() -> Novel {
         Novel {
@@ -409,30 +409,30 @@ mod tests {
             ],
             cover: None,
             langs: vec!["en".to_string()],
-            status: WitNovelStatus::Ongoing,
+            status: NovelStatus::Ongoing,
             metadata: vec![
-                quelle_engine::bindings::quelle::extension::novel::Metadata {
+                Metadata {
                     name: "subject".to_string(),
                     value: "Fantasy".to_string(),
-                    ns: quelle_engine::bindings::quelle::extension::novel::Namespace::Dc,
+                    ns: Namespace::Dc,
                     others: vec![],
                 },
-                quelle_engine::bindings::quelle::extension::novel::Metadata {
+                Metadata {
                     name: "subject".to_string(),
                     value: "Adventure".to_string(),
-                    ns: quelle_engine::bindings::quelle::extension::novel::Namespace::Dc,
+                    ns: Namespace::Dc,
                     others: vec![],
                 },
-                quelle_engine::bindings::quelle::extension::novel::Metadata {
+                Metadata {
                     name: "tag".to_string(),
                     value: "Magic System".to_string(),
-                    ns: quelle_engine::bindings::quelle::extension::novel::Namespace::Opf,
+                    ns: Namespace::Opf,
                     others: vec![],
                 },
-                quelle_engine::bindings::quelle::extension::novel::Metadata {
+                Metadata {
                     name: "rating".to_string(),
                     value: "4.5 (123 ratings)".to_string(),
-                    ns: quelle_engine::bindings::quelle::extension::novel::Namespace::Opf,
+                    ns: Namespace::Opf,
                     others: vec![],
                 },
             ],
@@ -547,7 +547,7 @@ mod tests {
             description: vec![],
             cover: None,
             langs: vec![],
-            status: WitNovelStatus::Unknown,
+            status: NovelStatus::Unknown,
             metadata: vec![],
             volumes: vec![],
         };
@@ -569,7 +569,7 @@ mod tests {
             description: vec![],
             cover: None,
             langs: vec![],
-            status: WitNovelStatus::Unknown,
+            status: NovelStatus::Unknown,
             metadata: vec![],
             volumes: vec![],
         };
@@ -579,11 +579,11 @@ mod tests {
 
     #[test]
     fn test_format_novel_status() {
-        assert_eq!(format_novel_status(WitNovelStatus::Ongoing), "Ongoing");
-        assert_eq!(format_novel_status(WitNovelStatus::Completed), "Completed");
-        assert_eq!(format_novel_status(WitNovelStatus::Hiatus), "On Hiatus");
-        assert_eq!(format_novel_status(WitNovelStatus::Dropped), "Dropped");
-        assert_eq!(format_novel_status(WitNovelStatus::Stub), "Stub");
-        assert_eq!(format_novel_status(WitNovelStatus::Unknown), "Unknown");
+        assert_eq!(format_novel_status(&NovelStatus::Ongoing), "Ongoing");
+        assert_eq!(format_novel_status(&NovelStatus::Completed), "Completed");
+        assert_eq!(format_novel_status(&NovelStatus::Hiatus), "On Hiatus");
+        assert_eq!(format_novel_status(&NovelStatus::Dropped), "Dropped");
+        assert_eq!(format_novel_status(&NovelStatus::Stub), "Stub");
+        assert_eq!(format_novel_status(&NovelStatus::Unknown), "Unknown");
     }
 }

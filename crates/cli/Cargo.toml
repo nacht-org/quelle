@@ -18,6 +18,7 @@ quelle_engine = { path = "../engine" }
 quelle_store = { path = "../store", features = ["git", "github"] }
 quelle_storage = { path = "../storage" }
 quelle_export = { path = "../export" }
+quelle_types = { path = "../types" }
 
 clap = { version = "4.5.48", features = ["derive"] }
 directories = "6.0"

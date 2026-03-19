@@ -1,7 +1,9 @@
 //! Storage model types and conversion utilities.
 //!
-//! Since WIT-generated types don't implement Serde traits, we define storage-specific
-//! models that can be serialized and provide conversion utilities between WIT and storage types.
+//! Since the domain types now live in `quelle_types`, this module provides
+//! storage-specific models that can be serialized/deserialized and conversion
+//! utilities between the `quelle_types` domain types and the compact storage
+//! representation.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -9,10 +11,7 @@ use std::collections::HashMap;
 
 use crate::error::{BookStorageError, Result};
 use crate::{ChapterContent, Novel};
-use quelle_engine::bindings::quelle::extension::novel::{
-    Chapter, ChapterContent as WitChapterContent, Metadata, Namespace, Novel as WitNovel,
-    NovelStatus, Volume,
-};
+use quelle_types::{Chapter, Metadata, Namespace, NovelStatus, Volume};
 
 /// Content metadata for a single chapter
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,8 +95,8 @@ pub struct StorageChapterContent {
 }
 
 impl StorageNovel {
-    /// Convert from WIT Novel type to storage type
-    pub fn from_wit_novel(novel: &Novel) -> Self {
+    /// Convert from a `quelle_types::Novel` to the storage representation.
+    pub fn from_novel(novel: &Novel) -> Self {
         Self {
             url: novel.url.clone(),
             authors: novel.authors.clone(),
@@ -107,12 +106,12 @@ impl StorageNovel {
             volumes: novel
                 .volumes
                 .iter()
-                .map(StorageVolume::from_wit_volume)
+                .map(StorageVolume::from_volume)
                 .collect(),
             metadata: novel
                 .metadata
                 .iter()
-                .map(StorageMetadata::from_wit_metadata)
+                .map(StorageMetadata::from_metadata)
                 .collect(),
             status: match novel.status {
                 NovelStatus::Ongoing => "Ongoing".to_string(),
@@ -126,9 +125,8 @@ impl StorageNovel {
         }
     }
 
-    /// Convert to WIT Novel type from storage type
-    pub fn to_wit_novel(&self) -> Result<Novel> {
-        // Convert status string back to enum
+    /// Convert from the storage representation back to a `quelle_types::Novel`.
+    pub fn to_novel(&self) -> Result<Novel> {
         let status = match self.status.as_str() {
             "Ongoing" => NovelStatus::Ongoing,
             "Hiatus" => NovelStatus::Hiatus,
@@ -138,12 +136,12 @@ impl StorageNovel {
             _ => NovelStatus::Unknown,
         };
 
-        let volumes: Result<Vec<Volume>> = self.volumes.iter().map(|v| v.to_wit_volume()).collect();
+        let volumes: Result<Vec<Volume>> = self.volumes.iter().map(|v| v.to_volume()).collect();
 
         let metadata: Result<Vec<Metadata>> =
-            self.metadata.iter().map(|m| m.to_wit_metadata()).collect();
+            self.metadata.iter().map(|m| m.to_metadata()).collect();
 
-        Ok(WitNovel {
+        Ok(Novel {
             url: self.url.clone(),
             authors: self.authors.clone(),
             title: self.title.clone(),
@@ -158,20 +156,20 @@ impl StorageNovel {
 }
 
 impl StorageVolume {
-    fn from_wit_volume(volume: &Volume) -> Self {
+    fn from_volume(volume: &Volume) -> Self {
         Self {
             name: volume.name.clone(),
             index: volume.index,
             chapters: volume
                 .chapters
                 .iter()
-                .map(StorageChapter::from_wit_chapter)
+                .map(StorageChapter::from_chapter)
                 .collect(),
         }
     }
 
-    fn to_wit_volume(&self) -> Result<Volume> {
-        let chapters: Result<Vec<_>> = self.chapters.iter().map(|c| c.to_wit_chapter()).collect();
+    fn to_volume(&self) -> Result<Volume> {
+        let chapters: Result<Vec<_>> = self.chapters.iter().map(|c| c.to_chapter()).collect();
 
         Ok(Volume {
             name: self.name.clone(),
@@ -182,7 +180,7 @@ impl StorageVolume {
 }
 
 impl StorageChapter {
-    fn from_wit_chapter(chapter: &Chapter) -> Self {
+    fn from_chapter(chapter: &Chapter) -> Self {
         Self {
             title: chapter.title.clone(),
             index: chapter.index,
@@ -191,7 +189,7 @@ impl StorageChapter {
         }
     }
 
-    fn to_wit_chapter(&self) -> Result<Chapter> {
+    fn to_chapter(&self) -> Result<Chapter> {
         Ok(Chapter {
             title: self.title.clone(),
             index: self.index,
@@ -202,7 +200,7 @@ impl StorageChapter {
 }
 
 impl StorageMetadata {
-    fn from_wit_metadata(metadata: &Metadata) -> Self {
+    fn from_metadata(metadata: &Metadata) -> Self {
         Self {
             name: metadata.name.clone(),
             value: metadata.value.clone(),
@@ -214,8 +212,7 @@ impl StorageMetadata {
         }
     }
 
-    fn to_wit_metadata(&self) -> Result<Metadata> {
-        // Convert namespace string back to enum
+    fn to_metadata(&self) -> Result<Metadata> {
         let ns = match self.ns.as_str() {
             "Dc" => Namespace::Dc,
             "Opf" => Namespace::Opf,
@@ -237,16 +234,16 @@ impl StorageMetadata {
 }
 
 impl StorageChapterContent {
-    /// Convert from WIT ChapterContent type to storage type
-    pub fn from_wit_chapter_content(content: &ChapterContent) -> Self {
+    /// Convert from a `quelle_types::ChapterContent` to the storage representation.
+    pub fn from_chapter_content(content: &ChapterContent) -> Self {
         Self {
             data: content.data.clone(),
         }
     }
 
-    /// Convert to WIT ChapterContent type from storage type
-    pub fn to_wit_chapter_content(&self) -> ChapterContent {
-        WitChapterContent {
+    /// Convert from the storage representation back to a `quelle_types::ChapterContent`.
+    pub fn to_chapter_content(&self) -> ChapterContent {
+        ChapterContent {
             data: self.data.clone(),
         }
     }
@@ -254,7 +251,7 @@ impl StorageChapterContent {
 
 /// Helper functions for easy conversion
 pub fn novel_to_json(novel: &Novel) -> Result<String> {
-    let storage_novel = StorageNovel::from_wit_novel(novel);
+    let storage_novel = StorageNovel::from_novel(novel);
     serde_json::to_string_pretty(&storage_novel).map_err(|e| {
         BookStorageError::DataConversionError {
             message: "Failed to serialize novel to JSON".to_string(),
@@ -270,11 +267,11 @@ pub fn novel_from_json(json: &str) -> Result<Novel> {
             source: Some(eyre::eyre!("JSON error: {}", e)),
         })?;
 
-    storage_novel.to_wit_novel()
+    storage_novel.to_novel()
 }
 
 pub fn chapter_content_to_json(content: &ChapterContent) -> Result<String> {
-    let storage_content = StorageChapterContent::from_wit_chapter_content(content);
+    let storage_content = StorageChapterContent::from_chapter_content(content);
     serde_json::to_string_pretty(&storage_content).map_err(|e| {
         BookStorageError::DataConversionError {
             message: "Failed to serialize chapter content to JSON".to_string(),
@@ -290,5 +287,5 @@ pub fn chapter_content_from_json(json: &str) -> Result<ChapterContent> {
             source: Some(eyre::eyre!("JSON error: {}", e)),
         })?;
 
-    Ok(storage_content.to_wit_chapter_content())
+    Ok(storage_content.to_chapter_content())
 }

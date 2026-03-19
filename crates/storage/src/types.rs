@@ -46,20 +46,9 @@ pub struct NovelSummary {
     pub id: NovelId,
     pub title: String,
     pub authors: Vec<String>,
-    pub status: NovelStatus,
+    pub status: quelle_types::NovelStatus,
     pub total_chapters: u32,
     pub stored_chapters: u32,
-}
-
-/// Status of a novel (from WIT definitions).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum NovelStatus {
-    Ongoing,
-    Hiatus,
-    Completed,
-    Stub,
-    Dropped,
-    Unknown,
 }
 
 /// Filter criteria for querying novels.

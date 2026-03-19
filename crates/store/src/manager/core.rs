@@ -244,7 +244,7 @@ impl StoreManager {
     pub async fn search_novels_with_installed_extensions(
         &self,
         query: &SearchQuery,
-    ) -> Result<Vec<quelle_engine::bindings::quelle::extension::novel::BasicNovel>> {
+    ) -> Result<Vec<quelle_types::BasicNovel>> {
         use quelle_engine::bindings::quelle::extension::novel::{
             AppliedFilter, ComplexSearchQuery, FilterValue, SimpleSearchQuery,
         };

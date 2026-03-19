@@ -3522,6 +3522,7 @@ dependencies = [
  "quelle_export",
  "quelle_storage",
  "quelle_store",
+ "quelle_types",
  "reqwest",
  "semver",
  "serde",
@@ -3566,9 +3567,11 @@ dependencies = [
  "chrono",
  "clap",
  "ego-tree",
+ "eyre",
  "ghostwire",
  "headless_chrome",
  "html5ever",
+ "quelle_types",
  "reqwest",
  "scraper",
  "serde_json",
@@ -3591,6 +3594,7 @@ dependencies = [
  "eyre",
  "quelle_engine",
  "quelle_storage",
+ "quelle_types",
  "regex",
  "scraper",
  "tempfile",
@@ -3624,7 +3628,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "eyre",
- "quelle_engine",
+ "quelle_types",
  "serde",
  "serde_json",
  "sha2",
@@ -3647,6 +3651,7 @@ dependencies = [
  "futures",
  "git2",
  "quelle_engine",
+ "quelle_types",
  "reqwest",
  "semver",
  "serde",
@@ -3659,6 +3664,13 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "walkdir",
+]
+
+[[package]]
+name = "quelle_types"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

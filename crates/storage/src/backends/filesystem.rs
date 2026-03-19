@@ -69,7 +69,7 @@ struct IndexedNovel {
     id: NovelId,
     title: String,
     authors: Vec<String>,
-    status: crate::types::NovelStatus,
+    status: quelle_types::NovelStatus,
     total_chapters: u32,
     stored_chapters: u32,
     created_at: DateTime<Utc>,
@@ -399,7 +399,7 @@ impl FilesystemStorage {
             id: novel_id.clone(),
             title: novel.title.clone(),
             authors: novel.authors.clone(),
-            status: novel.status.into(),
+            status: novel.status.clone(),
             total_chapters: self.count_total_chapters(novel),
             stored_chapters,
             created_at: now,
@@ -518,11 +518,9 @@ impl FilesystemStorage {
 
     /// Normalize all URLs in a novel (including chapter URLs)
     fn normalize_novel_urls(&self, novel: &Novel) -> Novel {
-        use quelle_engine::bindings::quelle::extension::novel::{
-            Chapter, Novel as WitNovel, Volume,
-        };
+        use quelle_types::{Chapter, Novel, Volume};
 
-        WitNovel {
+        Novel {
             url: self.normalize_url(&novel.url),
             authors: novel.authors.clone(),
             title: novel.title.clone(),
@@ -547,7 +545,7 @@ impl FilesystemStorage {
                 })
                 .collect(),
             metadata: novel.metadata.clone(),
-            status: novel.status,
+            status: novel.status.clone(),
             langs: novel.langs.clone(),
         }
     }
@@ -1461,9 +1459,7 @@ impl FilesystemStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quelle_engine::bindings::quelle::extension::novel::{
-        Chapter, ChapterContent, Novel, NovelStatus, Volume,
-    };
+    use quelle_types::{Chapter, ChapterContent, Novel, NovelStatus, Volume};
     use tempfile::TempDir;
 
     fn create_test_novel() -> Novel {
@@ -2263,9 +2259,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_end_to_end_asset_workflow() {
-        use quelle_engine::bindings::quelle::extension::novel::{
-            Chapter, Novel, NovelStatus, Volume,
-        };
+        use quelle_types::{Chapter, Novel, NovelStatus, Volume};
         use std::io::Cursor;
 
         let temp_dir = tempfile::tempdir().unwrap();

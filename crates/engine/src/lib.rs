@@ -5,6 +5,7 @@
 
 pub mod bindings;
 pub mod error;
+pub mod executor;
 pub mod http;
 pub mod scraper;
 mod state;
@@ -14,10 +15,12 @@ use std::sync::Arc;
 use wasmtime::component::*;
 use wasmtime::{Config, Engine, Store};
 
-use crate::bindings::quelle::extension::{error as wit_error, novel, source};
-use crate::bindings::{ComplexSearchQuery, Extension, SearchResult, SimpleSearchQuery};
+use crate::bindings::quelle::extension::{error as wit_error, source};
+use crate::bindings::{ComplexSearchQuery, Extension, SimpleSearchQuery};
 use crate::http::HttpExecutor;
 use crate::state::State;
+
+pub use executor::{Executor, create_engine};
 
 pub struct ExtensionEngine {
     engine: Engine,
@@ -150,31 +153,126 @@ impl<'a> ExtensionRunner<'a> {
     pub async fn fetch_novel_info(
         mut self,
         url: &str,
-    ) -> error::Result<(Self, Result<novel::Novel, wit_error::Error>)> {
-        wrap_extension_method!(self, call_fetch_novel_info, url)
+    ) -> error::Result<(Self, Result<quelle_types::Novel, wit_error::Error>)> {
+        let (runner, result) = wrap_extension_method!(self, call_fetch_novel_info, url)?;
+        Ok((runner, result.map(novel_from_wit)))
     }
 
     /// Safe wrapper around [`Extension::fetch_chapter`].
     pub async fn fetch_chapter(
         mut self,
         url: &str,
-    ) -> error::Result<(Self, Result<novel::ChapterContent, wit_error::Error>)> {
-        wrap_extension_method!(self, call_fetch_chapter, url)
+    ) -> error::Result<(Self, Result<quelle_types::ChapterContent, wit_error::Error>)> {
+        let (runner, result) = wrap_extension_method!(self, call_fetch_chapter, url)?;
+        Ok((runner, result.map(chapter_content_from_wit)))
     }
 
     /// Safe wrapper around [`Extension::simple_search`].
     pub async fn simple_search(
         mut self,
         query: &SimpleSearchQuery,
-    ) -> error::Result<(Self, Result<SearchResult, wit_error::Error>)> {
-        wrap_extension_method!(self, call_simple_search, query)
+    ) -> error::Result<(Self, Result<quelle_types::SearchResult, wit_error::Error>)> {
+        let (runner, result) = wrap_extension_method!(self, call_simple_search, query)?;
+        Ok((runner, result.map(search_result_from_wit)))
     }
 
     /// Safe wrapper around [`Extension::complex_search`].
     pub async fn complex_search(
         mut self,
         query: &ComplexSearchQuery,
-    ) -> error::Result<(Self, Result<SearchResult, wit_error::Error>)> {
-        wrap_extension_method!(self, call_complex_search, query)
+    ) -> error::Result<(Self, Result<quelle_types::SearchResult, wit_error::Error>)> {
+        let (runner, result) = wrap_extension_method!(self, call_complex_search, query)?;
+        Ok((runner, result.map(search_result_from_wit)))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Private WIT → quelle_types conversion functions
+// ---------------------------------------------------------------------------
+
+fn novel_from_wit(w: bindings::quelle::extension::novel::Novel) -> quelle_types::Novel {
+    quelle_types::Novel {
+        url: w.url,
+        authors: w.authors,
+        title: w.title,
+        cover: w.cover,
+        description: w.description,
+        volumes: w.volumes.into_iter().map(volume_from_wit).collect(),
+        metadata: w.metadata.into_iter().map(metadata_from_wit).collect(),
+        status: novel_status_from_wit(w.status),
+        langs: w.langs,
+    }
+}
+
+fn volume_from_wit(w: bindings::quelle::extension::novel::Volume) -> quelle_types::Volume {
+    quelle_types::Volume {
+        name: w.name,
+        index: w.index,
+        chapters: w.chapters.into_iter().map(chapter_from_wit).collect(),
+    }
+}
+
+fn chapter_from_wit(w: bindings::quelle::extension::novel::Chapter) -> quelle_types::Chapter {
+    quelle_types::Chapter {
+        title: w.title,
+        index: w.index,
+        url: w.url,
+        updated_at: w.updated_at,
+    }
+}
+
+fn metadata_from_wit(w: bindings::quelle::extension::novel::Metadata) -> quelle_types::Metadata {
+    use bindings::quelle::extension::novel::Namespace as WitNs;
+    quelle_types::Metadata {
+        name: w.name,
+        value: w.value,
+        ns: match w.ns {
+            WitNs::Dc => quelle_types::Namespace::Dc,
+            WitNs::Opf => quelle_types::Namespace::Opf,
+        },
+        others: w.others,
+    }
+}
+
+fn novel_status_from_wit(
+    w: bindings::quelle::extension::novel::NovelStatus,
+) -> quelle_types::NovelStatus {
+    use bindings::quelle::extension::novel::NovelStatus as WitStatus;
+    match w {
+        WitStatus::Ongoing => quelle_types::NovelStatus::Ongoing,
+        WitStatus::Hiatus => quelle_types::NovelStatus::Hiatus,
+        WitStatus::Completed => quelle_types::NovelStatus::Completed,
+        WitStatus::Stub => quelle_types::NovelStatus::Stub,
+        WitStatus::Dropped => quelle_types::NovelStatus::Dropped,
+        WitStatus::Unknown => quelle_types::NovelStatus::Unknown,
+    }
+}
+
+fn chapter_content_from_wit(
+    w: bindings::quelle::extension::novel::ChapterContent,
+) -> quelle_types::ChapterContent {
+    quelle_types::ChapterContent { data: w.data }
+}
+
+fn basic_novel_from_wit(
+    w: bindings::quelle::extension::novel::BasicNovel,
+) -> quelle_types::BasicNovel {
+    quelle_types::BasicNovel {
+        title: w.title,
+        cover: w.cover,
+        url: w.url,
+    }
+}
+
+fn search_result_from_wit(
+    w: bindings::quelle::extension::novel::SearchResult,
+) -> quelle_types::SearchResult {
+    quelle_types::SearchResult {
+        novels: w.novels.into_iter().map(basic_novel_from_wit).collect(),
+        total_count: w.total_count,
+        current_page: w.current_page,
+        total_pages: w.total_pages,
+        has_next_page: w.has_next_page,
+        has_previous_page: w.has_previous_page,
     }
 }

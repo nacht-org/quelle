@@ -7,6 +7,8 @@ edition = "2024"
 
 [dependencies]
 wasmtime.workspace = true
+quelle_types = { path = "../types" }
+eyre.workspace = true
 reqwest = { workspace = true }
 headless_chrome = "1.0.21"
 ghostwire.workspace = true

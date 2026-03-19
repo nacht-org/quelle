@@ -18,34 +18,5 @@ pub use types::{
     NovelId, NovelSummary,
 };
 
-// Import the WIT types that we'll be working with
-pub use quelle_engine::bindings::quelle::extension::novel::{
-    ChapterContent, Novel, NovelStatus as WitNovelStatus,
-};
-
-// Convert between our types and WIT types
-impl From<WitNovelStatus> for types::NovelStatus {
-    fn from(status: WitNovelStatus) -> Self {
-        match status {
-            WitNovelStatus::Ongoing => Self::Ongoing,
-            WitNovelStatus::Hiatus => Self::Hiatus,
-            WitNovelStatus::Completed => Self::Completed,
-            WitNovelStatus::Stub => Self::Stub,
-            WitNovelStatus::Dropped => Self::Dropped,
-            WitNovelStatus::Unknown => Self::Unknown,
-        }
-    }
-}
-
-impl From<types::NovelStatus> for WitNovelStatus {
-    fn from(status: types::NovelStatus) -> Self {
-        match status {
-            types::NovelStatus::Ongoing => Self::Ongoing,
-            types::NovelStatus::Hiatus => Self::Hiatus,
-            types::NovelStatus::Completed => Self::Completed,
-            types::NovelStatus::Stub => Self::Stub,
-            types::NovelStatus::Dropped => Self::Dropped,
-            types::NovelStatus::Unknown => Self::Unknown,
-        }
-    }
-}
+// Re-export domain types from quelle_types
+pub use quelle_types::{ChapterContent, Novel, NovelStatus};

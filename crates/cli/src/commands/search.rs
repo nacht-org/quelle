@@ -1,8 +1,8 @@
 //! Search command handlers for finding novels across installed extension sources.
 
 use eyre::Result;
-use quelle_engine::bindings::quelle::extension::novel::BasicNovel;
 use quelle_store::{SearchQuery, StoreManager};
+use quelle_types::BasicNovel;
 use tracing::warn;
 
 #[allow(clippy::too_many_arguments)]
