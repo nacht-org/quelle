@@ -13,7 +13,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
 use crate::error::{Result, StoreError};
-use crate::manager::store_manifest::ExtensionVersion;
+use crate::manager::store_manifest::ExtensionRecord;
 use crate::manager::store_manifest::StoreManifest;
 use crate::models::{ExtensionInfo, ExtensionMetadata, ExtensionPackage, SearchQuery};
 use crate::registry::manifest::{ExtensionManifest, FileReference, LocalExtensionManifest};
@@ -203,7 +203,7 @@ impl<F: FileOperations> FileBasedProcessor<F> {
     }
 
     /// List all extensions in the store
-    pub async fn list_extensions(&self) -> Result<Vec<ExtensionVersion>> {
+    pub async fn list_extensions(&self) -> Result<Vec<ExtensionRecord>> {
         let local_manifest = self.get_local_store_manifest().await?;
         Ok(local_manifest.get_latest_versions())
     }
@@ -261,24 +261,18 @@ impl<F: FileOperations> FileBasedProcessor<F> {
             id: manifest.id.clone(),
             name: manifest.name.clone(),
             version: manifest.version.clone(),
-            description: None, // ExtensionManifest doesn't have description field
             author: manifest.author.clone(),
-            tags: Vec::new(), // We could extract from metadata if available
+            tags: Vec::new(),
             last_updated: None,
-            download_count: None,
-            size: None,
-            homepage: None, // ExtensionManifest doesn't have homepage field
-            repository: None,
-            license: None,
             store_source: self.store_name.clone(),
         })
     }
 
     /// Search extensions matching the given query
-    pub async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionVersion>> {
+    pub async fn search_extensions(&self, query: &SearchQuery) -> Result<Vec<ExtensionRecord>> {
         let all_extensions = self.list_extensions().await?;
 
-        let filtered: Vec<ExtensionVersion> = all_extensions
+        let filtered: Vec<ExtensionRecord> = all_extensions
             .into_iter()
             .filter(|ext| {
                 // Text search in name and id
@@ -462,7 +456,6 @@ mod tests {
     use chrono::Utc;
     use semver::Version;
 
-    use crate::models::CompatibilityInfo;
     use crate::registry::manifest::{
         Attribute, ExtensionManifest, FileReference, ReadingDirection,
     };
@@ -594,7 +587,7 @@ mod tests {
             let version = Version::parse(version).unwrap();
             let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
 
-            let extension_summary = ExtensionVersion {
+            let extension_summary = ExtensionRecord {
                 id: id.to_string(),
                 name: name.to_string(),
                 version: version.clone(),
@@ -674,7 +667,7 @@ mod tests {
             for version in parsed_versions {
                 let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
 
-                let extension_summary = ExtensionVersion {
+                let extension_summary = ExtensionRecord {
                     id: id.to_string(),
                     name: name.to_string(),
                     version: version.clone(),
@@ -746,7 +739,7 @@ mod tests {
             let version = Version::parse(version).unwrap();
             let manifest_path = format!("extensions/{}/{}/manifest.json", id, version);
 
-            let extension_summary = ExtensionVersion {
+            let extension_summary = ExtensionRecord {
                 id: id.to_string(),
                 name: name.to_string(),
                 version: version.clone(),
@@ -860,7 +853,7 @@ mod tests {
             };
 
             // Add to extensions map
-            let extension_summary = ExtensionVersion {
+            let extension_summary = ExtensionRecord {
                 id: id.to_string(),
                 name: name.to_string(),
                 version: version_parsed.clone(),
@@ -1106,12 +1099,9 @@ mod tests {
             tags: vec![],
             categories: vec![],
             author: None,
-            min_version: None,
-            max_version: None,
             sort_by: crate::models::SearchSortBy::default(),
             limit: None,
             offset: None,
-            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -1123,12 +1113,9 @@ mod tests {
             tags: vec![],
             categories: vec![],
             author: None,
-            min_version: None,
-            max_version: None,
             sort_by: crate::models::SearchSortBy::default(),
             limit: None,
             offset: None,
-            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -1157,12 +1144,9 @@ mod tests {
             tags: vec!["fr".to_string()],
             categories: vec![],
             author: None,
-            min_version: None,
-            max_version: None,
             sort_by: crate::models::SearchSortBy::default(),
             limit: None,
             offset: None,
-            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -1187,12 +1171,9 @@ mod tests {
             tags: vec!["fr".to_string()],
             categories: vec![],
             author: None,
-            min_version: None,
-            max_version: None,
             sort_by: crate::models::SearchSortBy::default(),
             limit: None,
             offset: None,
-            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -1215,12 +1196,9 @@ mod tests {
             tags: vec![],
             categories: vec![],
             author: None,
-            min_version: None,
-            max_version: None,
             sort_by: crate::models::SearchSortBy::default(),
             limit: None,
             offset: None,
-            include_prerelease: false,
         };
         let results = processor.search_extensions(&query).await.unwrap();
         assert!(results.is_empty());
@@ -1470,20 +1448,11 @@ mod tests {
     async fn test_get_extension_metadata() {
         let metadata = ExtensionMetadata {
             description: "Test extension description".to_string(),
-            long_description: Some("Long description of the test extension".to_string()),
             keywords: vec!["parser".to_string(), "utility".to_string()],
             categories: vec!["tools".to_string()],
             homepage: Some("https://example.com".to_string()),
             repository: Some("https://github.com/test/repo".to_string()),
-            documentation: None,
-            changelog: None,
             license: Some("MIT".to_string()),
-            compatibility: CompatibilityInfo {
-                min_engine_version: None,
-                max_engine_version: None,
-                platforms: None,
-                required_features: vec![],
-            },
         };
 
         let processor = TestFixture::new()
@@ -1610,7 +1579,7 @@ mod tests {
         assert_eq!(info.version, Version::parse("1.5.0").unwrap());
         assert_eq!(info.author, "Test Author");
         assert_eq!(info.store_source, "test-store");
-        assert!(info.description.is_none()); // ExtensionManifest doesn't have description
+
         assert!(info.tags.is_empty()); // No tags extracted from manifest
     }
 

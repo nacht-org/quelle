@@ -187,7 +187,6 @@ async fn handle_update_extension_all(
             let update_options = UpdateOptions {
                 update_dependencies: false,
                 force_update: force,
-                backup_current: false,
             };
 
             match store_manager
@@ -269,7 +268,6 @@ async fn handle_update_extension_specific(
         let update_options = UpdateOptions {
             update_dependencies: false,
             force_update: force,
-            backup_current: false,
         };
 
         match store_manager.update(&id, Some(update_options)).await {

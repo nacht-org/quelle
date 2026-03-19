@@ -1,4 +1,3 @@
-
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +23,7 @@ pub struct StoreManifest {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ExtensionVersion {
+pub struct ExtensionRecord {
     pub id: String,
     pub name: String,
     pub version: Version,

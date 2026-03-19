@@ -14,7 +14,7 @@ use crate::manager::publish::{
     PublishOptions, PublishRequirements, PublishResult, UnpublishOptions, UnpublishResult,
     ValidationReport,
 };
-use crate::manager::store_manifest::{ExtensionVersion, StoreManifest};
+use crate::manager::store_manifest::{ExtensionRecord, StoreManifest};
 use crate::models::{
     ExtensionInfo, ExtensionListing, ExtensionMetadata, ExtensionPackage, InstalledExtension,
     SearchQuery, StoreHealth, UpdateInfo,
@@ -46,11 +46,11 @@ impl From<StoreManifest> for LocalStoreManifest {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExtensionVersions {
     pub latest: Version,
-    pub all_versions: BTreeMap<Version, ExtensionVersion>,
+    pub all_versions: BTreeMap<Version, ExtensionRecord>,
 }
 
 impl ExtensionVersions {
-    pub fn add_version(&mut self, extension_version: ExtensionVersion) {
+    pub fn add_version(&mut self, extension_version: ExtensionRecord) {
         self.all_versions
             .insert(extension_version.version.clone(), extension_version.clone());
         if extension_version.version > self.latest {
@@ -62,7 +62,7 @@ impl ExtensionVersions {
 impl LocalStoreManifest {
     /// Add extension info to the manifest
     pub(crate) fn add_extension(&mut self, manifest: &ExtensionManifest, manifest_path: String) {
-        let version = ExtensionVersion {
+        let version = ExtensionRecord {
             id: manifest.id.clone(),
             name: manifest.name.clone(),
             version: manifest.version.clone(),
@@ -123,7 +123,7 @@ impl LocalStoreManifest {
         matches
     }
 
-    pub fn get_latest_versions(&self) -> Vec<ExtensionVersion> {
+    pub fn get_latest_versions(&self) -> Vec<ExtensionRecord> {
         self.extensions
             .values()
             .flat_map(|ev| ev.all_versions.get(&ev.latest))
@@ -502,29 +502,7 @@ impl WritableStore for LocalStore {
             requires_authentication: false,
             requires_signing: false,
             max_package_size: Some(100 * 1024 * 1024), // 100MB for local stores
-            allowed_file_extensions: vec![
-                "wasm".to_string(),
-                "json".to_string(),
-                "md".to_string(),
-                "txt".to_string(),
-                "png".to_string(),
-                "jpg".to_string(),
-                "jpeg".to_string(),
-                "svg".to_string(),
-                "css".to_string(),
-                "js".to_string(),
-                "html".to_string(),
-            ],
-            forbidden_patterns: vec![
-                "*.exe".to_string(),
-                "*.dll".to_string(),
-                "*.so".to_string(),
-                "*.dylib".to_string(),
-                "../*".to_string(),
-            ],
             supported_visibility: vec![crate::manager::publish::ExtensionVisibility::Public],
-            enforces_versioning: true,
-            validation_rules: Vec::new(),
         }
     }
 
@@ -611,9 +589,6 @@ impl WritableStore for LocalStore {
         Ok(PublishResult {
             extension_id: extension_id.clone(),
             version: version.clone(),
-            published_at: chrono::Utc::now(),
-            publication_id: format!("{}@{}", extension_id, version),
-            package_size: package.calculate_total_size(),
             content_hash: format!("blake3:{}", blake3::hash(&package.wasm_component).to_hex()),
             warnings: Vec::new(),
         })
@@ -669,9 +644,6 @@ impl WritableStore for LocalStore {
         Ok(UnpublishResult {
             extension_id: extension_id.to_string(),
             version: removed_version,
-            unpublished_at: chrono::Utc::now(),
-            tombstone_created: true,
-            users_notified: Some(0),
         })
     }
 
@@ -749,7 +721,6 @@ impl WritableStore for LocalStore {
                 .all(|issue| !matches!(issue.severity, IssueSeverity::Critical)),
             issues: validation_issues,
             validation_duration: std::time::Duration::from_millis(10),
-            validator_version: env!("CARGO_PKG_VERSION").to_string(),
         })
     }
 }

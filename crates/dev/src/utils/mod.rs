@@ -3,7 +3,6 @@
 use eyre::{Result, eyre};
 use std::path::PathBuf;
 
-pub mod debug;
 pub mod fs;
 pub mod validation;
 

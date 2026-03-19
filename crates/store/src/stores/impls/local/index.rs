@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ExtensionVersion;
+use crate::ExtensionRecord;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct LocalStoreManifestIndex {
@@ -41,7 +41,7 @@ impl LocalStoreManifestIndex {
 
     pub(crate) fn regenerate<'a>(
         &mut self,
-        extension_versions: impl Iterator<Item = &'a ExtensionVersion>,
+        extension_versions: impl Iterator<Item = &'a ExtensionRecord>,
     ) {
         self.url_patterns.clear();
 

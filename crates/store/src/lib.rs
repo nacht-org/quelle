@@ -28,13 +28,12 @@ pub mod stores;
 pub use error::{Result, StoreError};
 
 // Manager module re-exports
-pub use manager::{ExtensionVersion, ManagedSource, StoreManager, StoreManifest};
+pub use manager::{ExtensionRecord, ManagedSource, StoreManager, StoreManifest};
 
 // Models (shared across modules)
 pub use models::{
-    CompatibilityInfo, ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions,
-    InstalledExtension, SearchQuery, SearchSortBy, StoreConfig, StoreHealth, StoreInfo, UpdateInfo,
-    UpdateOptions, UpdateStatus,
+    ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstallOptions, InstalledExtension,
+    SearchQuery, SearchSortBy, StoreConfig, StoreHealth, UpdateInfo, UpdateOptions, UpdateStatus,
 };
 
 // Registry module re-exports

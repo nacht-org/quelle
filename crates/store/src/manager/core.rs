@@ -798,7 +798,6 @@ impl StoreManager {
         let install_options = InstallOptions {
             auto_update: options.update_dependencies,
             force_reinstall: options.force_update,
-            skip_verification: false,
         };
 
         match managed_store

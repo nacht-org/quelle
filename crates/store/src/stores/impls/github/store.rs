@@ -485,25 +485,7 @@ impl WritableStore for GitHubStore {
             requires_authentication: true,
             requires_signing: false,
             max_package_size: Some(25 * 1024 * 1024), // 25MB - GitHub has file size limits
-            allowed_file_extensions: vec![
-                "wasm".to_string(),
-                "json".to_string(),
-                "md".to_string(),
-                "txt".to_string(),
-                "png".to_string(),
-                "jpg".to_string(),
-                "jpeg".to_string(),
-                "svg".to_string(),
-            ],
-            forbidden_patterns: vec![
-                "*.exe".to_string(),
-                "*.dll".to_string(),
-                "*.so".to_string(),
-                "*.dylib".to_string(),
-            ],
             supported_visibility: vec![crate::manager::publish::ExtensionVisibility::Public],
-            enforces_versioning: true,
-            validation_rules: Vec::new(),
         }
     }
 

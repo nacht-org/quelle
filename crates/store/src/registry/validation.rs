@@ -71,7 +71,6 @@ impl ValidationEngine {
             passed: !has_blocking_failure,
             issues: all_issues,
             validation_duration: start.elapsed(),
-            validator_version: env!("CARGO_PKG_VERSION").to_string(),
         })
     }
 }
