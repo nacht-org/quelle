@@ -556,7 +556,7 @@ impl StoreManager {
     }
 
     /// Internal helper: find and, if necessary, install an extension for the given URL.
-    async fn find_and_install_for_url(
+    pub async fn find_and_install_for_url(
         &mut self,
         url: &str,
     ) -> crate::error::Result<crate::models::InstalledExtension> {
@@ -569,70 +569,6 @@ impl StoreManager {
         }
 
         self.install(&extension_id, None, None).await
-    }
-
-    /// Find, install if needed, and use the appropriate extension to fetch novel metadata.
-    ///
-    /// Returns an error if no extension handles the URL or if the extension call fails.
-    pub async fn fetch_novel(
-        &mut self,
-        engine: &quelle_engine::ExtensionEngine,
-        url: &str,
-    ) -> crate::error::Result<quelle_types::Novel> {
-        let installed = self.find_and_install_for_url(url).await?;
-        let wasm_bytes = self
-            .registry
-            .get_extension_wasm_bytes(&installed.id)
-            .await?;
-        let runner = engine
-            .new_runner_from_bytes(&wasm_bytes)
-            .await
-            .map_err(|e| StoreError::RuntimeError(e.to_string()))?;
-        let (_, result) = runner
-            .fetch_novel_info(url)
-            .await
-            .map_err(|e| StoreError::RuntimeError(e.to_string()))?;
-        result.map_err(|wit_err| {
-            let chain = wit_err
-                .frames
-                .iter()
-                .map(|f| f.message.as_str())
-                .collect::<Vec<_>>()
-                .join(": ");
-            StoreError::RuntimeError(format!("Extension error: {}", chain))
-        })
-    }
-
-    /// Find, install if needed, and use the appropriate extension to fetch chapter content.
-    ///
-    /// Returns an error if no extension handles the URL or if the extension call fails.
-    pub async fn fetch_chapter(
-        &mut self,
-        engine: &quelle_engine::ExtensionEngine,
-        url: &str,
-    ) -> crate::error::Result<quelle_types::ChapterContent> {
-        let installed = self.find_and_install_for_url(url).await?;
-        let wasm_bytes = self
-            .registry
-            .get_extension_wasm_bytes(&installed.id)
-            .await?;
-        let runner = engine
-            .new_runner_from_bytes(&wasm_bytes)
-            .await
-            .map_err(|e| StoreError::RuntimeError(e.to_string()))?;
-        let (_, result) = runner
-            .fetch_chapter(url)
-            .await
-            .map_err(|e| StoreError::RuntimeError(e.to_string()))?;
-        result.map_err(|wit_err| {
-            let chain = wit_err
-                .frames
-                .iter()
-                .map(|f| f.message.as_str())
-                .collect::<Vec<_>>()
-                .join(": ");
-            StoreError::RuntimeError(format!("Extension error: {}", chain))
-        })
     }
 
     // Installation Operations

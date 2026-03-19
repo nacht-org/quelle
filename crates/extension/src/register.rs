@@ -1,6 +1,8 @@
+use std::sync::OnceLock;
+
 use crate::QuelleExtension;
 
-static mut EXTENSION: Option<Box<dyn QuelleExtension>> = None;
+static EXTENSION: OnceLock<Box<dyn QuelleExtension>> = OnceLock::new();
 
 /// Registers the provided type as a Quelle extension.
 ///
@@ -21,7 +23,7 @@ macro_rules! register_extension {
 
 #[doc(hidden)]
 pub fn register_extension_internal(build_extension: fn() -> Box<dyn QuelleExtension>) {
-    unsafe { EXTENSION = Some((build_extension)()) }
+    let _ = EXTENSION.set((build_extension)());
 }
 
 pub fn register_tracing() {
@@ -30,9 +32,6 @@ pub fn register_tracing() {
     tracing_subscriber::registry().with(HostLayer).init();
 }
 
-pub fn extension() -> &'static mut dyn QuelleExtension {
-    #[expect(static_mut_refs)]
-    unsafe {
-        EXTENSION.as_deref_mut().unwrap()
-    }
+pub fn extension() -> &'static dyn QuelleExtension {
+    EXTENSION.get().unwrap().as_ref()
 }

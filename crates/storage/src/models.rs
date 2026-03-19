@@ -1,9 +1,8 @@
 //! Storage model types and conversion utilities.
 //!
 //! Since the domain types now live in `quelle_types`, this module provides
-//! storage-specific models that can be serialized/deserialized and conversion
-//! utilities between the `quelle_types` domain types and the compact storage
-//! representation.
+//! storage-specific models and serialization helpers. The `quelle_types`
+//! structs are serialized directly — no intermediate `Storage*` wrappers needed.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -11,7 +10,6 @@ use std::collections::HashMap;
 
 use crate::error::{BookStorageError, Result};
 use crate::{ChapterContent, Novel};
-use quelle_types::{Chapter, Metadata, Namespace, NovelStatus, Volume};
 
 /// Content metadata for a single chapter
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,241 +49,36 @@ impl ContentIndex {
     }
 }
 
-/// Storage representation of a Novel
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageNovel {
-    pub url: String,
-    pub authors: Vec<String>,
-    pub title: String,
-    pub cover: Option<String>,
-    pub description: Vec<String>,
-    pub volumes: Vec<StorageVolume>,
-    pub metadata: Vec<StorageMetadata>,
-    pub status: String, // We'll store as string to avoid enum conversion issues
-    pub langs: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageVolume {
-    pub name: String,
-    pub index: i32,
-    pub chapters: Vec<StorageChapter>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageChapter {
-    pub title: String,
-    pub index: i32,
-    pub url: String,
-    pub updated_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageMetadata {
-    pub name: String,
-    pub value: String,
-    pub ns: String, // Store as string to avoid enum conversion
-    pub others: Vec<(String, String)>,
-}
-
-/// Storage representation of ChapterContent
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageChapterContent {
-    pub data: String,
-}
-
-impl StorageNovel {
-    /// Convert from a `quelle_types::Novel` to the storage representation.
-    pub fn from_novel(novel: &Novel) -> Self {
-        Self {
-            url: novel.url.clone(),
-            authors: novel.authors.clone(),
-            title: novel.title.clone(),
-            cover: novel.cover.clone(),
-            description: novel.description.clone(),
-            volumes: novel
-                .volumes
-                .iter()
-                .map(StorageVolume::from_volume)
-                .collect(),
-            metadata: novel
-                .metadata
-                .iter()
-                .map(StorageMetadata::from_metadata)
-                .collect(),
-            status: match novel.status {
-                NovelStatus::Ongoing => "Ongoing".to_string(),
-                NovelStatus::Hiatus => "Hiatus".to_string(),
-                NovelStatus::Completed => "Completed".to_string(),
-                NovelStatus::Stub => "Stub".to_string(),
-                NovelStatus::Dropped => "Dropped".to_string(),
-                NovelStatus::Unknown => "Unknown".to_string(),
-            },
-            langs: novel.langs.clone(),
-        }
-    }
-
-    /// Convert from the storage representation back to a `quelle_types::Novel`.
-    pub fn to_novel(&self) -> Result<Novel> {
-        let status = match self.status.as_str() {
-            "Ongoing" => NovelStatus::Ongoing,
-            "Hiatus" => NovelStatus::Hiatus,
-            "Completed" => NovelStatus::Completed,
-            "Stub" => NovelStatus::Stub,
-            "Dropped" => NovelStatus::Dropped,
-            _ => NovelStatus::Unknown,
-        };
-
-        let volumes: Result<Vec<Volume>> = self.volumes.iter().map(|v| v.to_volume()).collect();
-
-        let metadata: Result<Vec<Metadata>> =
-            self.metadata.iter().map(|m| m.to_metadata()).collect();
-
-        Ok(Novel {
-            url: self.url.clone(),
-            authors: self.authors.clone(),
-            title: self.title.clone(),
-            cover: self.cover.clone(),
-            description: self.description.clone(),
-            volumes: volumes?,
-            metadata: metadata?,
-            status,
-            langs: self.langs.clone(),
-        })
-    }
-}
-
-impl StorageVolume {
-    fn from_volume(volume: &Volume) -> Self {
-        Self {
-            name: volume.name.clone(),
-            index: volume.index,
-            chapters: volume
-                .chapters
-                .iter()
-                .map(StorageChapter::from_chapter)
-                .collect(),
-        }
-    }
-
-    fn to_volume(&self) -> Result<Volume> {
-        let chapters: Result<Vec<_>> = self.chapters.iter().map(|c| c.to_chapter()).collect();
-
-        Ok(Volume {
-            name: self.name.clone(),
-            index: self.index,
-            chapters: chapters?,
-        })
-    }
-}
-
-impl StorageChapter {
-    fn from_chapter(chapter: &Chapter) -> Self {
-        Self {
-            title: chapter.title.clone(),
-            index: chapter.index,
-            url: chapter.url.clone(),
-            updated_at: chapter.updated_at.clone(),
-        }
-    }
-
-    fn to_chapter(&self) -> Result<Chapter> {
-        Ok(Chapter {
-            title: self.title.clone(),
-            index: self.index,
-            url: self.url.clone(),
-            updated_at: self.updated_at.clone(),
-        })
-    }
-}
-
-impl StorageMetadata {
-    fn from_metadata(metadata: &Metadata) -> Self {
-        Self {
-            name: metadata.name.clone(),
-            value: metadata.value.clone(),
-            ns: match metadata.ns {
-                Namespace::Dc => "Dc".to_string(),
-                Namespace::Opf => "Opf".to_string(),
-            },
-            others: metadata.others.clone(),
-        }
-    }
-
-    fn to_metadata(&self) -> Result<Metadata> {
-        let ns = match self.ns.as_str() {
-            "Dc" => Namespace::Dc,
-            "Opf" => Namespace::Opf,
-            _ => {
-                return Err(BookStorageError::InvalidNovelData {
-                    message: format!("Invalid namespace: {}", self.ns),
-                    source: None,
-                });
-            }
-        };
-
-        Ok(Metadata {
-            name: self.name.clone(),
-            value: self.value.clone(),
-            ns,
-            others: self.others.clone(),
-        })
-    }
-}
-
-impl StorageChapterContent {
-    /// Convert from a `quelle_types::ChapterContent` to the storage representation.
-    pub fn from_chapter_content(content: &ChapterContent) -> Self {
-        Self {
-            data: content.data.clone(),
-        }
-    }
-
-    /// Convert from the storage representation back to a `quelle_types::ChapterContent`.
-    pub fn to_chapter_content(&self) -> ChapterContent {
-        ChapterContent {
-            data: self.data.clone(),
-        }
-    }
-}
-
-/// Helper functions for easy conversion
+/// Serialize a [`Novel`] to a pretty-printed JSON string.
 pub fn novel_to_json(novel: &Novel) -> Result<String> {
-    let storage_novel = StorageNovel::from_novel(novel);
-    serde_json::to_string_pretty(&storage_novel).map_err(|e| {
-        BookStorageError::DataConversionError {
-            message: "Failed to serialize novel to JSON".to_string(),
-            source: Some(eyre::eyre!("JSON error: {}", e)),
-        }
+    serde_json::to_string_pretty(novel).map_err(|e| BookStorageError::DataConversionError {
+        message: "Failed to serialize novel to JSON".to_string(),
+        source: Some(eyre::eyre!("JSON error: {}", e)),
     })
 }
 
+/// Deserialize a [`Novel`] from a JSON string.
 pub fn novel_from_json(json: &str) -> Result<Novel> {
-    let storage_novel: StorageNovel =
-        serde_json::from_str(json).map_err(|e| BookStorageError::DataConversionError {
-            message: "Failed to deserialize novel from JSON".to_string(),
-            source: Some(eyre::eyre!("JSON error: {}", e)),
-        })?;
-
-    storage_novel.to_novel()
-}
-
-pub fn chapter_content_to_json(content: &ChapterContent) -> Result<String> {
-    let storage_content = StorageChapterContent::from_chapter_content(content);
-    serde_json::to_string_pretty(&storage_content).map_err(|e| {
-        BookStorageError::DataConversionError {
-            message: "Failed to serialize chapter content to JSON".to_string(),
-            source: Some(eyre::eyre!("JSON error: {}", e)),
-        }
+    serde_json::from_str::<Novel>(json).map_err(|e| BookStorageError::DataConversionError {
+        message: "Failed to deserialize novel from JSON".to_string(),
+        source: Some(eyre::eyre!("JSON error: {}", e)),
     })
 }
 
+/// Serialize a [`ChapterContent`] to a pretty-printed JSON string.
+pub fn chapter_content_to_json(content: &ChapterContent) -> Result<String> {
+    serde_json::to_string_pretty(content).map_err(|e| BookStorageError::DataConversionError {
+        message: "Failed to serialize chapter content to JSON".to_string(),
+        source: Some(eyre::eyre!("JSON error: {}", e)),
+    })
+}
+
+/// Deserialize a [`ChapterContent`] from a JSON string.
 pub fn chapter_content_from_json(json: &str) -> Result<ChapterContent> {
-    let storage_content: StorageChapterContent =
-        serde_json::from_str(json).map_err(|e| BookStorageError::DataConversionError {
+    serde_json::from_str::<ChapterContent>(json).map_err(|e| {
+        BookStorageError::DataConversionError {
             message: "Failed to deserialize chapter content from JSON".to_string(),
             source: Some(eyre::eyre!("JSON error: {}", e)),
-        })?;
-
-    Ok(storage_content.to_chapter_content())
+        }
+    })
 }

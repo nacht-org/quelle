@@ -30,11 +30,8 @@ pub async fn resolve_novel_id(input: &str, storage: &dyn BookStorage) -> Result<
 
     // Try URL lookup.
     if let Ok(_url) = Url::parse(input) {
-        if let Ok(Some(found_novel)) = storage.find_novel_by_url(input).await {
-            let novels = storage.list_novels(&NovelFilter::default()).await?;
-            if let Some(novel_summary) = novels.iter().find(|n| n.title == found_novel.title) {
-                return Ok(Some(novel_summary.id.clone()));
-            }
+        if let Ok(Some(novel_id)) = storage.find_novel_id_by_url(input).await {
+            return Ok(Some(novel_id));
         }
     }
 

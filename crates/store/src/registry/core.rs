@@ -648,7 +648,7 @@ mod tests {
         match LocalInstallRegistry::new_with_defaults().await {
             Ok(reg) => {
                 let installed = reg.list_installed().await.unwrap();
-                assert!(installed.len() >= 0); // trivially true; proves no panic
+                let _ = installed; // proves no panic
             }
             Err(_) => {
                 // Acceptable on systems where the data directory is unavailable
@@ -683,12 +683,7 @@ mod tests {
 
     #[test]
     fn test_trait_is_implementation_agnostic() {
-        // Verify that the trait can be used as a trait object
-        fn verify_generic_interface(_registry: &dyn InstallRegistry) {}
-
-        let dir = TempDir::new().unwrap();
-        // We can't easily construct without async here, so just verify the
-        // function accepts &dyn InstallRegistry — this is a compile-time check.
-        let _ = dir;
+        // Verify that the trait can be used as a trait object — compile-time check only.
+        let _: fn(&dyn InstallRegistry) = |_registry| {};
     }
 }

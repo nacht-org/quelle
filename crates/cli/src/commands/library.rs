@@ -416,9 +416,7 @@ async fn sync_single_novel(
         .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_id.as_str()))?;
 
     let engine = create_extension_engine()?;
-    let fresh_novel = store_manager
-        .fetch_novel(&engine, &stored_novel.url)
-        .await?;
+    let fresh_novel = crate::engine::fetch_novel(&engine, store_manager, &stored_novel.url).await?;
 
     let stored_chapters = storage.list_chapters(novel_id).await?;
     let stored_chapter_urls: std::collections::HashSet<_> =
@@ -453,8 +451,7 @@ async fn update_single_novel(
     for chapter_info in chapters {
         if !chapter_info.has_content() {
             tracing::info!("Downloading chapter: {}", chapter_info.chapter_title);
-            match store_manager
-                .fetch_chapter(engine, &chapter_info.chapter_url)
+            match crate::engine::fetch_chapter(engine, store_manager, &chapter_info.chapter_url)
                 .await
             {
                 Ok(chapter_content) => {

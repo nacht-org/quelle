@@ -264,14 +264,3 @@ pub struct Asset {
     pub size: u64,
     pub filename: String,
 }
-
-/// Summary information about an asset (without binary data)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AssetSummary {
-    pub id: AssetId,
-    pub novel_id: NovelId,
-    pub original_url: String,
-    pub mime_type: String,
-    pub size: u64,
-    pub filename: String,
-}

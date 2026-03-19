@@ -5,7 +5,7 @@ use tokio::io::AsyncRead;
 
 use crate::error::Result;
 use crate::types::{
-    Asset, AssetId, AssetSummary, ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary,
+    Asset, AssetId, ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary,
 };
 
 use crate::{ChapterContent, Novel};
@@ -101,6 +101,12 @@ pub trait BookStorage: Send + Sync {
     /// This is the most common lookup pattern since users typically know the novel URL.
     async fn find_novel_by_url(&self, url: &str) -> Result<Option<Novel>>;
 
+    /// Find the NovelId for a novel by its URL.
+    ///
+    /// This is more efficient than `find_novel_by_url` when you only need the ID,
+    /// as it avoids reading the full novel file from disk.
+    async fn find_novel_id_by_url(&self, url: &str) -> Result<Option<NovelId>>;
+
     /// List chapters for a novel.
     ///
     /// Returns information about all chapters for the novel,
@@ -142,5 +148,5 @@ pub trait BookStorage: Send + Sync {
     async fn find_asset_by_url(&self, url: &str) -> Result<Option<AssetId>>;
 
     /// Get all assets for a novel.
-    async fn get_novel_assets(&self, novel_id: &NovelId) -> Result<Vec<AssetSummary>>;
+    async fn get_novel_assets(&self, novel_id: &NovelId) -> Result<Vec<Asset>>;
 }

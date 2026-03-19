@@ -92,7 +92,7 @@ async fn handle_fetch_novel(
     let engine = create_extension_engine()?;
 
     println!("Fetching novel...");
-    match store_manager.fetch_novel(&engine, url.as_ref()).await {
+    match crate::engine::fetch_novel(&engine, store_manager, url.as_ref()).await {
         Ok(novel) => {
             println!("title: {}", novel.title);
             println!("authors: {}", novel.authors.join(", "));
@@ -137,7 +137,7 @@ async fn handle_fetch_chapter(
     }
 
     let engine = create_extension_engine()?;
-    let chapter = match store_manager.fetch_chapter(&engine, url.as_ref()).await {
+    let chapter = match crate::engine::fetch_chapter(&engine, store_manager, url.as_ref()).await {
         Ok(ch) => ch,
         Err(e) => {
             eprintln!("Error: Failed to fetch chapter: {}", e);
@@ -147,10 +147,20 @@ async fn handle_fetch_chapter(
 
     println!("chapters: {} chars fetched", chapter.data.len());
 
-    let novel = match storage.find_novel_by_url(url.as_ref()).await {
-        Ok(Some(novel)) => novel,
+    // Look up the novel ID directly from the URL — no title-matching needed.
+    let novel_id = match storage.find_novel_id_by_url(url.as_ref()).await {
+        Ok(Some(id)) => id,
         _ => {
             println!("Chapter not saved: novel not in library.");
+            return Ok(());
+        }
+    };
+
+    // We still need the novel structure to find the right volume index.
+    let novel = match storage.get_novel(&novel_id).await {
+        Ok(Some(novel)) => novel,
+        _ => {
+            println!("Chapter not saved: could not load novel from library.");
             return Ok(());
         }
     };
@@ -158,29 +168,19 @@ async fn handle_fetch_chapter(
     let mut saved = false;
     for volume in &novel.volumes {
         if volume.chapters.iter().any(|ch| ch.url == url.to_string()) {
-            let filter = quelle_storage::types::NovelFilter { source_ids: vec![] };
-            let novels = match storage.list_novels(&filter).await {
-                Ok(novels) => novels,
-                Err(e) => {
-                    eprintln!("Error: Failed to list novels: {}", e);
-                    break;
-                }
+            let content = ChapterContent {
+                data: chapter.data.clone(),
             };
-            if let Some(novel_summary) = novels.iter().find(|n| n.title == novel.title) {
-                let content = ChapterContent {
-                    data: chapter.data.clone(),
-                };
-                match storage
-                    .store_chapter_content(&novel_summary.id, volume.index, url.as_ref(), &content)
-                    .await
-                {
-                    Ok(_) => {
-                        println!("Saved chapter content to library.");
-                        saved = true;
-                    }
-                    Err(e) => {
-                        eprintln!("Error: Failed to save chapter: {}", e);
-                    }
+            match storage
+                .store_chapter_content(&novel_id, volume.index, url.as_ref(), &content)
+                .await
+            {
+                Ok(_) => {
+                    println!("Saved chapter content to library.");
+                    saved = true;
+                }
+                Err(e) => {
+                    eprintln!("Error: Failed to save chapter: {}", e);
                 }
             }
             break;
@@ -213,20 +213,20 @@ pub async fn handle_fetch_chapters(
 
     // Resolve novel + its storage ID from either a URL or a direct novel ID.
     let (_novel, novel_storage_id) = if novel_id.starts_with("http") {
-        let novel = match storage.find_novel_by_url(&novel_id).await? {
+        let storage_id = match storage.find_novel_id_by_url(&novel_id).await? {
+            Some(id) => id,
+            None => {
+                eprintln!("Not found: {}", novel_id);
+                return Ok(());
+            }
+        };
+        let novel = match storage.get_novel(&storage_id).await? {
             Some(novel) => novel,
             None => {
                 eprintln!("Not found: {}", novel_id);
                 return Ok(());
             }
         };
-        let filter = quelle_storage::types::NovelFilter { source_ids: vec![] };
-        let novels = storage.list_novels(&filter).await?;
-        let storage_id = novels
-            .iter()
-            .find(|n| n.title == novel.title)
-            .map(|n| n.id.clone())
-            .unwrap_or_else(|| NovelId::new(novel_id.clone()));
         (novel, storage_id)
     } else {
         let id = NovelId::new(novel_id.clone());
@@ -264,17 +264,17 @@ pub async fn handle_fetch_chapters(
             continue;
         }
 
-        let chapter_content = match store_manager
-            .fetch_chapter(engine, &chapter_info.chapter_url)
-            .await
-        {
-            Ok(content) => content,
-            Err(e) => {
-                error!("Failed to fetch '{}': {}", chapter_info.chapter_title, e);
-                failed_count += 1;
-                continue;
-            }
-        };
+        let chapter_content =
+            match crate::engine::fetch_chapter(engine, store_manager, &chapter_info.chapter_url)
+                .await
+            {
+                Ok(content) => content,
+                Err(e) => {
+                    error!("Failed to fetch '{}': {}", chapter_info.chapter_title, e);
+                    failed_count += 1;
+                    continue;
+                }
+            };
 
         let content = ChapterContent {
             data: chapter_content.data,
