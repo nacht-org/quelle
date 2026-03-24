@@ -8,6 +8,7 @@
 //! wire together the store (extension management) and the engine (content execution)
 //! without coupling the two crates to each other.
 
+use quelle_engine::registry::ExtensionSession;
 pub use quelle_engine::{Executor, create_engine as create_extension_engine_with_executor};
 
 /// Create an [`quelle_engine::ExtensionEngine`] using the default executor.
@@ -15,15 +16,11 @@ pub fn create_extension_engine() -> eyre::Result<quelle_engine::ExtensionEngine>
     create_extension_engine_with_executor(Executor::default())
 }
 
-/// Find/install the right extension for `url`, then run it to fetch novel metadata.
-///
-/// This replaces the former `StoreManager::fetch_novel` method, keeping extension
-/// management (`StoreManager`) and content execution (`ExtensionEngine`) decoupled.
-pub async fn fetch_novel(
-    engine: &quelle_engine::ExtensionEngine,
+pub async fn create_extension_session<'a>(
+    engine: &'a quelle_engine::ExtensionEngine,
     store_manager: &mut quelle_store::StoreManager,
     url: &str,
-) -> eyre::Result<quelle_types::Novel> {
+) -> eyre::Result<ExtensionSession<'a>> {
     let installed = store_manager
         .find_and_install_for_url(url)
         .await
@@ -35,25 +32,29 @@ pub async fn fetch_novel(
         .await
         .map_err(|e| eyre::eyre!("{}", e))?;
 
-    let runner = engine
-        .new_runner_from_bytes(&wasm_bytes)
-        .await
-        .map_err(|e| eyre::eyre!("{}", e))?;
+    let session = ExtensionSession::new(engine, wasm_bytes);
 
-    let (_, result) = runner
-        .fetch_novel_info(url)
-        .await
-        .map_err(|e| eyre::eyre!("{}", e))?;
+    Ok(session)
+}
 
-    result.map_err(|wit_err| {
-        let chain = wit_err
-            .frames
-            .iter()
-            .map(|f| f.message.as_str())
-            .collect::<Vec<_>>()
-            .join(": ");
-        eyre::eyre!("Extension error: {}", chain)
-    })
+/// Find/install the right extension for `url`, then run it to fetch novel metadata.
+///
+/// This replaces the former `StoreManager::fetch_novel` method, keeping extension
+/// management (`StoreManager`) and content execution (`ExtensionEngine`) decoupled.
+pub async fn fetch_novel(
+    extension: &ExtensionSession<'_>,
+    url: &str,
+) -> eyre::Result<quelle_types::Novel> {
+    let result = extension
+        .call(async move |runner| {
+            runner
+                .fetch_novel_info(url)
+                .await
+                .map_err(|e| eyre::eyre!(e))
+        })
+        .await?;
+
+    result.map_err(|wit_err| wit_err.into_report())
 }
 
 /// Find/install the right extension for `url`, then run it to fetch chapter content.
@@ -61,40 +62,20 @@ pub async fn fetch_novel(
 /// This replaces the former `StoreManager::fetch_chapter` method, keeping extension
 /// management (`StoreManager`) and content execution (`ExtensionEngine`) decoupled.
 pub async fn fetch_chapter(
-    engine: &quelle_engine::ExtensionEngine,
-    store_manager: &mut quelle_store::StoreManager,
+    extension: &ExtensionSession<'_>,
     url: &str,
 ) -> eyre::Result<quelle_types::ChapterContent> {
-    let installed = store_manager
-        .find_and_install_for_url(url)
-        .await
-        .map_err(|e| eyre::eyre!("{}", e))?;
+    let result = extension
+        .call(async move |runner| {
+            let (runner, result) = runner
+                .fetch_chapter(url)
+                .await
+                .map_err(|e| eyre::eyre!("{}", e))?;
+            Ok((runner, result))
+        })
+        .await?;
 
-    let wasm_bytes = store_manager
-        .registry_store()
-        .get_extension_wasm_bytes(&installed.id)
-        .await
-        .map_err(|e| eyre::eyre!("{}", e))?;
-
-    let runner = engine
-        .new_runner_from_bytes(&wasm_bytes)
-        .await
-        .map_err(|e| eyre::eyre!("{}", e))?;
-
-    let (_, result) = runner
-        .fetch_chapter(url)
-        .await
-        .map_err(|e| eyre::eyre!("{}", e))?;
-
-    result.map_err(|wit_err| {
-        let chain = wit_err
-            .frames
-            .iter()
-            .map(|f| f.message.as_str())
-            .collect::<Vec<_>>()
-            .join(": ");
-        eyre::eyre!("Extension error: {}", chain)
-    })
+    result.map_err(|wit_err| wit_err.into_report())
 }
 
 #[cfg(test)]

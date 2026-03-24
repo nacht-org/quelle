@@ -7,6 +7,7 @@ pub mod bindings;
 pub mod error;
 pub mod executor;
 pub mod http;
+pub mod registry;
 pub mod scraper;
 mod state;
 

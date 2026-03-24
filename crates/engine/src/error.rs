@@ -22,6 +22,10 @@ impl ExtensionError {
             .collect::<Vec<_>>()
             .join(": ")
     }
+
+    pub fn into_report(self) -> eyre::Report {
+        eyre::eyre!(self.chain_display())
+    }
 }
 
 // ---------------------------------------------------------------------------

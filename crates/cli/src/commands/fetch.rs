@@ -2,7 +2,7 @@
 
 use eyre::Result;
 
-use quelle_engine::ExtensionEngine;
+use quelle_engine::registry::ExtensionSession;
 use quelle_storage::{
     ChapterContent,
     backends::filesystem::FilesystemStorage,
@@ -14,8 +14,8 @@ use std::io::Cursor;
 use tracing::{error, warn};
 use url::Url;
 
-use crate::cli::FetchCommands;
 use crate::engine::create_extension_engine;
+use crate::{cli::FetchCommands, engine::create_extension_session};
 
 pub async fn handle_fetch_command(
     cmd: FetchCommands,
@@ -32,7 +32,14 @@ pub async fn handle_fetch_command(
         }
         FetchCommands::Chapters { novel_id } => {
             let engine = create_extension_engine()?;
-            handle_fetch_chapters(novel_id, None, store_manager, storage, &engine, dry_run).await
+            let url = storage.get_novel(&NovelId::new(novel_id.clone())).await?;
+            let Some(novel) = url else {
+                eprintln!("Novel not found in library: {}", novel_id);
+                return Ok(());
+            };
+
+            let extension = create_extension_session(&engine, store_manager, &novel.url).await?;
+            handle_fetch_chapters(novel_id, None, storage, &extension, dry_run).await
         }
         FetchCommands::All { url } => handle_fetch_all(url, store_manager, storage, dry_run).await,
     }
@@ -63,15 +70,9 @@ pub async fn handle_add_command(
 
     if !no_chapters {
         let engine = create_extension_engine()?;
-        handle_fetch_chapters(
-            url.to_string(),
-            max_chapters,
-            store_manager,
-            storage,
-            &engine,
-            false,
-        )
-        .await?;
+        let extension = create_extension_session(&engine, store_manager, url.as_ref()).await?;
+
+        handle_fetch_chapters(url.to_string(), max_chapters, storage, &extension, false).await?;
     }
 
     println!("Added.");
@@ -90,9 +91,10 @@ async fn handle_fetch_novel(
     }
 
     let engine = create_extension_engine()?;
+    let extension = create_extension_session(&engine, store_manager, url.as_ref()).await?;
 
     println!("Fetching novel...");
-    match crate::engine::fetch_novel(&engine, store_manager, url.as_ref()).await {
+    match crate::engine::fetch_novel(&extension, url.as_ref()).await {
         Ok(novel) => {
             println!("title: {}", novel.title);
             println!("authors: {}", novel.authors.join(", "));
@@ -137,7 +139,9 @@ async fn handle_fetch_chapter(
     }
 
     let engine = create_extension_engine()?;
-    let chapter = match crate::engine::fetch_chapter(&engine, store_manager, url.as_ref()).await {
+    let extension = create_extension_session(&engine, store_manager, url.as_ref()).await?;
+
+    let chapter = match crate::engine::fetch_chapter(&extension, url.as_ref()).await {
         Ok(ch) => ch,
         Err(e) => {
             eprintln!("Error: Failed to fetch chapter: {}", e);
@@ -198,9 +202,8 @@ async fn handle_fetch_chapter(
 pub async fn handle_fetch_chapters(
     novel_id: String,
     max_chapters: Option<usize>,
-    store_manager: &mut StoreManager,
     storage: &FilesystemStorage,
-    engine: &ExtensionEngine,
+    extension: &ExtensionSession<'_>,
     dry_run: bool,
 ) -> Result<()> {
     if dry_run {
@@ -265,9 +268,7 @@ pub async fn handle_fetch_chapters(
         }
 
         let chapter_content =
-            match crate::engine::fetch_chapter(engine, store_manager, &chapter_info.chapter_url)
-                .await
-            {
+            match crate::engine::fetch_chapter(&extension, &chapter_info.chapter_url).await {
                 Ok(content) => content,
                 Err(e) => {
                     error!("Failed to fetch '{}': {}", chapter_info.chapter_title, e);
@@ -323,17 +324,12 @@ async fn handle_fetch_all(
     handle_fetch_novel(url.clone(), store_manager, storage, false).await?;
 
     let engine = create_extension_engine()?;
-    handle_fetch_chapters(
-        url.to_string(),
-        None,
-        store_manager,
-        storage,
-        &engine,
-        false,
-    )
-    .await?;
+    let extension = create_extension_session(&engine, store_manager, url.as_ref()).await?;
+
+    handle_fetch_chapters(url.to_string(), None, storage, &extension, false).await?;
 
     println!("Done.");
+
     Ok(())
 }
 

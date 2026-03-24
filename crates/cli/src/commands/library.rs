@@ -1,7 +1,7 @@
 //! Library management command handlers for browsing and maintaining novel collections.
 
 use eyre::Result;
-use quelle_engine::ExtensionEngine;
+use quelle_engine::{ExtensionEngine, registry::ExtensionSession};
 use quelle_storage::{
     ChapterContent,
     backends::filesystem::FilesystemStorage,
@@ -11,9 +11,9 @@ use quelle_storage::{
 use quelle_store::StoreManager;
 use tracing::{error, warn};
 
-use crate::cli::LibraryCommands;
 use crate::engine::create_extension_engine;
 use crate::resolve::{resolve_novel_id, show_novel_not_found_help};
+use crate::{cli::LibraryCommands, engine::create_extension_session};
 
 pub async fn handle_library_command(
     cmd: LibraryCommands,
@@ -358,7 +358,13 @@ pub async fn handle_update_novels(
         let mut failed_count = 0u32;
 
         for novel_summary in novels {
-            match update_single_novel(&novel_summary.id, storage, store_manager, engine).await {
+            let novel = storage
+                .get_novel(&novel_summary.id)
+                .await?
+                .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_summary.id.as_str()))?;
+
+            let extension = create_extension_session(engine, store_manager, &novel.url).await?;
+            match update_single_novel(&novel_summary.id, storage, &extension).await {
                 Ok(downloaded) => {
                     if downloaded > 0 {
                         println!(
@@ -383,7 +389,13 @@ pub async fn handle_update_novels(
         match resolve_novel_id(&novel_input, storage).await? {
             Some(novel_id) => {
                 println!("Updating '{}'...", novel_input);
-                match update_single_novel(&novel_id, storage, store_manager, engine).await {
+                let novel = storage
+                    .get_novel(&novel_id)
+                    .await?
+                    .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_id.as_str()))?;
+
+                let extension = create_extension_session(engine, store_manager, &novel.url).await?;
+                match update_single_novel(&novel_id, storage, &extension).await {
                     Ok(downloaded) => {
                         if downloaded > 0 {
                             println!("{} chapter(s) downloaded.", downloaded);
@@ -416,7 +428,8 @@ async fn sync_single_novel(
         .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_id.as_str()))?;
 
     let engine = create_extension_engine()?;
-    let fresh_novel = crate::engine::fetch_novel(&engine, store_manager, &stored_novel.url).await?;
+    let extension = create_extension_session(&engine, store_manager, &stored_novel.url).await?;
+    let fresh_novel = crate::engine::fetch_novel(&extension, &stored_novel.url).await?;
 
     let stored_chapters = storage.list_chapters(novel_id).await?;
     let stored_chapter_urls: std::collections::HashSet<_> =
@@ -441,8 +454,7 @@ async fn sync_single_novel(
 async fn update_single_novel(
     novel_id: &NovelId,
     storage: &FilesystemStorage,
-    store_manager: &mut StoreManager,
-    engine: &ExtensionEngine,
+    extension: &ExtensionSession<'_>,
 ) -> Result<u32> {
     let chapters = storage.list_chapters(novel_id).await?;
     let mut downloaded_count = 0u32;
@@ -451,9 +463,7 @@ async fn update_single_novel(
     for chapter_info in chapters {
         if !chapter_info.has_content() {
             tracing::info!("Downloading chapter: {}", chapter_info.chapter_title);
-            match crate::engine::fetch_chapter(engine, store_manager, &chapter_info.chapter_url)
-                .await
-            {
+            match crate::engine::fetch_chapter(&extension, &chapter_info.chapter_url).await {
                 Ok(chapter_content) => {
                     let content = ChapterContent {
                         data: chapter_content.data,
