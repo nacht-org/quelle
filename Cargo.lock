@@ -1344,6 +1344,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "extension_novelfire"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "eyre",
+ "once_cell",
+ "quelle_extension",
+ "tracing",
+]
+
+[[package]]
 name = "extension_novelfull"
 version = "0.1.0"
 dependencies = [
