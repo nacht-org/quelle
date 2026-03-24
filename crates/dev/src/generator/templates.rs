@@ -7,7 +7,7 @@ pub fn create_cargo_toml_template(replacements: &HashMap<String, String>) -> Str
     let template = r#"[package]
 name = "extension_{{EXTENSION_NAME}}"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 quelle_extension = { path = "../../crates/extension" }
