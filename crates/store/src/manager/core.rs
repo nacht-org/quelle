@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use futures::future::join_all;
+use quelle_engine::http::HttpExecutor;
 use semver::Version;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
@@ -244,11 +245,12 @@ impl StoreManager {
     pub async fn search_novels_with_installed_extensions(
         &self,
         query: &SearchQuery,
+        http_executor: Arc<dyn HttpExecutor>,
     ) -> Result<Vec<quelle_types::BasicNovel>> {
         use quelle_engine::bindings::quelle::extension::novel::{
             AppliedFilter, ComplexSearchQuery, FilterValue, SimpleSearchQuery,
         };
-        use quelle_engine::{http::ReqwestExecutor, ExtensionEngine};
+        use quelle_engine::ExtensionEngine;
         use std::collections::HashMap;
         use std::sync::Arc;
 
@@ -259,6 +261,12 @@ impl StoreManager {
         }
 
         let mut search_futures = Vec::new();
+
+        // Create engine and runner for this extension
+        let engine = Arc::new(
+            ExtensionEngine::new(http_executor)
+                .map_err(|e| StoreError::InternalError(Box::new(e)))?,
+        );
 
         for installed_ext in installed_extensions {
             // Get WASM bytes for this extension
@@ -279,23 +287,9 @@ impl StoreManager {
 
             let query_clone = query.clone();
             let ext_name = installed_ext.name.clone();
+            let engine = Arc::clone(&engine);
 
             let future = async move {
-                // Create HTTP executor
-                let executor = Arc::new(ReqwestExecutor::new());
-
-                // Create engine and runner for this extension
-                let engine = match ExtensionEngine::new(executor) {
-                    Ok(engine) => engine,
-                    Err(e) => {
-                        warn!(
-                            "Failed to create engine for extension '{}': {}",
-                            ext_name, e
-                        );
-                        return Vec::new();
-                    }
-                };
-
                 let runner = match engine.new_runner_from_bytes(&wasm_bytes).await {
                     Ok(runner) => runner,
                     Err(e) => {
@@ -986,6 +980,7 @@ impl StoreManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quelle_engine::http::ReqwestExecutor;
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -1082,7 +1077,7 @@ mod tests {
         // Test search with no installed extensions
         let query = SearchQuery::new().with_text("test query".to_string());
         let results = manager
-            .search_novels_with_installed_extensions(&query)
+            .search_novels_with_installed_extensions(&query, Arc::new(ReqwestExecutor::new()))
             .await
             .unwrap();
 

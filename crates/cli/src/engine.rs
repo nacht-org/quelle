@@ -8,8 +8,6 @@
 //! wire together the store (extension management) and the engine (content execution)
 //! without coupling the two crates to each other.
 
-use std::collections::HashMap;
-
 use dashmap::{DashMap, mapref::one::Ref};
 use quelle_engine::registry::ExtensionSession;
 pub use quelle_engine::{Executor, create_engine as create_extension_engine_with_executor};

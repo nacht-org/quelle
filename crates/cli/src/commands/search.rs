@@ -1,6 +1,7 @@
 //! Search command handlers for finding novels across installed extension sources.
 
 use eyre::Result;
+use quelle_engine::{Executor, executor::create_http_executor};
 use quelle_store::{SearchQuery, StoreManager};
 use quelle_types::BasicNovel;
 use tracing::warn;
@@ -55,8 +56,10 @@ pub async fn handle_search_command(
     let _ = advanced;
     let _ = simple;
 
+    let http_executor = create_http_executor(Executor::default())?;
+
     match store_manager
-        .search_novels_with_installed_extensions(&search_query)
+        .search_novels_with_installed_extensions(&search_query, http_executor)
         .await
     {
         Ok(results) => {

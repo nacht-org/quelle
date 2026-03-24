@@ -1,7 +1,7 @@
 //! HTTP executor selection.
 
 use crate::ExtensionEngine;
-use crate::http::{GhostwireExecutor, HeadlessChromeExecutor, ReqwestExecutor};
+use crate::http::{GhostwireExecutor, HeadlessChromeExecutor, HttpExecutor, ReqwestExecutor};
 use eyre::Result;
 use std::sync::Arc;
 
@@ -20,27 +20,32 @@ pub enum Executor {
 
 /// Create an `ExtensionEngine` using the given executor choice.
 pub fn create_engine(executor: Executor) -> Result<ExtensionEngine> {
+    let http_executor = create_http_executor(executor)?;
+    ExtensionEngine::new(http_executor).map_err(|e| eyre::eyre!(e))
+}
+
+pub fn create_http_executor(executor: Executor) -> Result<Arc<dyn HttpExecutor>> {
     match executor {
         Executor::Ghostwire => {
             tracing::info!("Using Ghostwire executor");
             let e = Arc::new(GhostwireExecutor::new().map_err(eyre::Report::from)?);
-            ExtensionEngine::new(e).map_err(eyre::Report::from)
+            Ok(e)
         }
         Executor::Chrome => create_chrome_engine().or_else(|err| {
             tracing::warn!("Chrome executor failed, falling back to Ghostwire: {err}");
             let e = Arc::new(GhostwireExecutor::new().map_err(eyre::Report::from)?);
-            ExtensionEngine::new(e).map_err(eyre::Report::from)
+            Ok(e)
         }),
         Executor::Reqwest => {
             tracing::info!("Using Reqwest executor");
             let e = Arc::new(ReqwestExecutor::new());
-            ExtensionEngine::new(e).map_err(eyre::Report::from)
+            Ok(e)
         }
     }
 }
 
-fn create_chrome_engine() -> Result<ExtensionEngine> {
+fn create_chrome_engine() -> Result<Arc<dyn HttpExecutor>> {
     tracing::info!("Using HeadlessChrome executor");
     let e = Arc::new(HeadlessChromeExecutor::new());
-    ExtensionEngine::new(e).map_err(eyre::Report::from)
+    Ok(e)
 }
