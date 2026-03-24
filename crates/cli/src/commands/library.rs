@@ -11,7 +11,7 @@ use quelle_storage::{
 use quelle_store::StoreManager;
 use tracing::{error, warn};
 
-use crate::engine::create_extension_engine;
+use crate::engine::{ExtensionRegistry, create_extension_engine};
 use crate::resolve::{resolve_novel_id, show_novel_not_found_help};
 use crate::{cli::LibraryCommands, engine::create_extension_session};
 
@@ -353,6 +353,8 @@ pub async fn handle_update_novels(
             return Ok(());
         }
 
+        let mut extension_registry = ExtensionRegistry::new(engine, store_manager);
+
         let mut total_downloaded = 0u32;
         let mut updated_count = 0u32;
         let mut failed_count = 0u32;
@@ -363,7 +365,7 @@ pub async fn handle_update_novels(
                 .await?
                 .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_summary.id.as_str()))?;
 
-            let extension = create_extension_session(engine, store_manager, &novel.url).await?;
+            let extension = extension_registry.get_extension(&novel.url).await?;
             match update_single_novel(&novel_summary.id, storage, &extension).await {
                 Ok(downloaded) => {
                     if downloaded > 0 {
