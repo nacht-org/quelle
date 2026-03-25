@@ -20,7 +20,6 @@ where
     Registry::default()
         .with(env_filter)
         .with(formatting_layer)
-        .with(sentry::integrations::tracing::layer())
         .with(tracing_error::ErrorLayer::default())
 }
 

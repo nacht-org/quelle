@@ -1,6 +1,7 @@
 pub mod routes;
 pub mod settings;
 pub mod state;
+pub mod utils;
 
 use std::sync::Arc;
 
@@ -12,10 +13,7 @@ use uuid::Uuid;
 
 pub type Server = axum::serve::Serve<TcpListener, axum::Router, axum::Router>;
 
-pub async fn run<Sessions>(
-    listener: TcpListener,
-    state: AppState,
-) -> Result<Server, std::io::Error> {
+pub async fn run(listener: TcpListener, state: AppState) -> Result<Server, std::io::Error> {
     let host = state.settings.server.host.clone();
     let port = state.settings.server.port;
 
