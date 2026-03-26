@@ -1,5 +1,6 @@
 pub mod docs;
 pub mod extensions;
+pub mod stores;
 
 use aide::{
     axum::{ApiRouter, routing::get_with},
