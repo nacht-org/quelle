@@ -1,6 +1,6 @@
 pub mod docs;
 pub mod extensions;
-pub mod novel;
+pub mod fetch;
 pub mod stores;
 
 use aide::{

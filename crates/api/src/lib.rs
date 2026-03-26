@@ -28,6 +28,7 @@ pub async fn run(listener: TcpListener, state: AppState) -> Result<Server, std::
         .merge(routes::docs::routes())
         .nest("/extensions", routes::extensions::routes())
         .nest("/stores", routes::stores::routes())
+        .nest("/fetch", routes::fetch::routes())
         .layer(TraceLayer::new_for_http().make_span_with(RequestSpan))
         .with_state(Arc::new(state));
 
