@@ -18,7 +18,7 @@ where
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-#[schemars(example = "HealthResponse::ok()")]
+#[schemars(example = HealthResponse::ok())]
 pub struct HealthResponse {
     status: HealthStatus,
 }
@@ -46,4 +46,5 @@ fn health_docs(op: TransformOperation) -> TransformOperation {
         .summary("Health check")
         .description("Returns 200 OK when the service is up and running.")
         .tag("System")
+        .response::<200, axum::Json<HealthResponse>>()
 }
