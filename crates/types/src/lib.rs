@@ -10,6 +10,7 @@ pub mod version;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Novel {
     pub url: String,
     pub authors: Vec<String>,
@@ -23,6 +24,7 @@ pub struct Novel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Volume {
     pub name: String,
     pub index: i32,
@@ -30,6 +32,7 @@ pub struct Volume {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Chapter {
     pub title: String,
     pub index: i32,
@@ -38,6 +41,7 @@ pub struct Chapter {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Metadata {
     pub name: String,
     pub value: String,
@@ -47,6 +51,7 @@ pub struct Metadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum Namespace {
     Dc,
     Opf,
@@ -54,6 +59,7 @@ pub enum Namespace {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum NovelStatus {
     Ongoing,
     Hiatus,
@@ -64,11 +70,13 @@ pub enum NovelStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ChapterContent {
     pub data: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BasicNovel {
     pub title: String,
     pub cover: Option<String>,
@@ -76,6 +84,7 @@ pub struct BasicNovel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SearchResult {
     pub novels: Vec<BasicNovel>,
     pub total_count: Option<u32>,

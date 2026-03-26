@@ -21,6 +21,10 @@ impl ExtensionRegistry {
         }
     }
 
+    #[tracing::instrument(
+        skip_all,
+        fields(url = url)
+    )]
     pub async fn get_extension(
         &self,
         url: &str,
@@ -34,6 +38,11 @@ impl ExtensionRegistry {
         };
 
         if !self.extensions.contains_key(&installed.id) {
+            tracing::info!(
+                extension_id = %installed.id,
+                "Extension not found in registry, creating new session"
+            );
+
             let wasm_bytes = {
                 let store_manager = self.store_manager.lock().await;
                 store_manager
