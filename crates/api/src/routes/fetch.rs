@@ -6,9 +6,9 @@ use aide::{
 };
 use axum::{
     Json,
-    extract::{Query, State},
+    extract::{Path, Query, State},
 };
-use quelle_types::{ChapterContent, Novel};
+use quelle_types::{ChapterContent, Novel, SearchResult};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -18,6 +18,10 @@ pub fn routes() -> ApiRouter<Arc<AppState>> {
     ApiRouter::new()
         .api_route("/novel", get_with(get_novel, get_novel_docs))
         .api_route("/chapter", get_with(get_chapter, get_chapter_docs))
+        .api_route(
+            "/search/:extension_id",
+            get_with(simple_search, simple_search_docs),
+        )
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -80,5 +84,45 @@ pub fn get_chapter_docs(op: TransformOperation<'_>) -> TransformOperation<'_> {
     op.id("get_chapter")
         .summary("Get chapter content")
         .description("Returns the content of a specific chapter.")
+        .tag("Fetch")
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SimpleSearchQuery {
+    query: String,
+    page: Option<u32>,
+    limit: Option<u32>,
+}
+
+pub async fn simple_search(
+    State(state): State<Arc<AppState>>,
+    Path(extension_id): Path<String>,
+    Query(query): Query<SimpleSearchQuery>,
+) -> ApiResult<Json<SearchResult>> {
+    let extension_session = state.registry.get_extension_by_id(&extension_id).await?;
+
+    let params = quelle_engine::bindings::SimpleSearchQuery {
+        query: query.query,
+        page: query.page,
+        limit: query.limit,
+    };
+
+    let results = extension_session
+        .call(async move |extension| {
+            extension
+                .simple_search(&params)
+                .await
+                .map_err(|e| eyre::eyre!(e))
+        })
+        .await?
+        .map_err(|wit_err| wit_err.into_report())?;
+
+    Ok(Json(results))
+}
+
+pub fn simple_search_docs(op: TransformOperation<'_>) -> TransformOperation<'_> {
+    op.id("simple_search")
+        .summary("Simple search for novels")
+        .description("Performs a simple search for novels based on a query string.")
         .tag("Fetch")
 }

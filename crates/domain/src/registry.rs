@@ -23,6 +23,40 @@ impl ExtensionRegistry {
 
     #[tracing::instrument(
         skip_all,
+        fields(id = id)
+    )]
+    pub async fn get_extension_by_id(
+        &self,
+        id: &str,
+    ) -> eyre::Result<Ref<'_, String, ExtensionSession>> {
+        if let Some(extension) = self.extensions.get(id) {
+            return Ok(extension);
+        }
+
+        let wasm_bytes = {
+            let store_manager = self.store_manager.lock().await;
+            store_manager
+                .registry_store()
+                .get_extension_wasm_bytes(id)
+                .await
+                .map_err(|e| eyre::eyre!(e))?
+        };
+
+        tracing::info!(
+            extension_id = %id,
+            "Extension not found in registry, creating new session"
+        );
+
+        let session = ExtensionSession::new(Arc::clone(&self.engine), wasm_bytes);
+        self.extensions.insert(id.to_string(), session);
+
+        self.extensions
+            .get(id)
+            .ok_or_else(|| eyre::eyre!("Failed to retrieve extension session for ID: {}", id))
+    }
+
+    #[tracing::instrument(
+        skip_all,
         fields(url = url)
     )]
     pub async fn get_extension(
