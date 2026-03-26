@@ -8,7 +8,7 @@ pub type ApiResult<T> = Result<T, ApiError>;
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("Internal error: {0}")]
-    InternalError(eyre::Report),
+    InternalError(#[from] eyre::Report),
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
