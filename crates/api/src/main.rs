@@ -11,7 +11,7 @@ use quelle_api::{
 };
 use quelle_domain::registry::ExtensionRegistry;
 use quelle_engine::{Executor, create_engine};
-use quelle_store::{LocalInstallRegistry, StoreManager};
+use quelle_store::{LocalInstallRegistry, SourceConfig, StoreManager};
 use tokio::net::TcpListener;
 
 fn main() -> eyre::Result<()> {
@@ -38,7 +38,11 @@ async fn async_main(settings: Settings) -> eyre::Result<()> {
 
     let registry_dir = settings.data.get_registry_dir();
     let registry = Box::new(LocalInstallRegistry::new(&registry_dir).await?);
-    let store_manager = Arc::new(tokio::sync::Mutex::new(StoreManager::new(registry).await?));
+
+    let mut store_manager = StoreManager::new(registry).await?;
+    add_official_source(&settings, &mut store_manager).await?;
+
+    let store_manager = Arc::new(tokio::sync::Mutex::new(store_manager));
 
     let state = AppState {
         settings: settings.clone(),
@@ -54,6 +58,31 @@ async fn async_main(settings: Settings) -> eyre::Result<()> {
     let server_future = server.with_graceful_shutdown(shutdown_signal());
 
     server_future.await?;
+
+    Ok(())
+}
+
+pub async fn add_official_source(
+    settings: &Settings,
+    store_manager: &mut StoreManager,
+) -> eyre::Result<()> {
+    let official_store =
+        quelle_store::ExtensionSource::official_github(&settings.data.get_stores_dir());
+
+    match official_store.build() {
+        Ok(store) => {
+            let source_config =
+                SourceConfig::new(official_store.name, official_store.store_type.to_string());
+
+            store_manager
+                .add_boxed_extension_store(store.into_readable(), source_config)
+                .await?;
+        }
+        Err(e) => {
+            tracing::error!("Failed to add official extension source: {e}");
+            return Err(eyre::eyre!(e));
+        }
+    }
 
     Ok(())
 }

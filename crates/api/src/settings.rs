@@ -105,4 +105,8 @@ impl DataSettings {
     pub fn get_registry_dir(&self) -> PathBuf {
         self.base_dir.join("registry")
     }
+
+    pub fn get_stores_dir(&self) -> PathBuf {
+        self.base_dir.join("stores")
+    }
 }
