@@ -3,6 +3,8 @@ use eyre::Result;
 use quelle_storage::backends::filesystem::FilesystemStorage;
 use quelle_store::{StoreManager, registry::LocalInstallRegistry};
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 mod cli;
 mod commands;
@@ -21,7 +23,7 @@ use config::Config;
 
 struct AppContext {
     storage: FilesystemStorage,
-    store_manager: StoreManager,
+    store_manager: Arc<Mutex<StoreManager>>,
     config: Config,
     dry_run: bool,
 }
@@ -56,12 +58,16 @@ async fn main() -> Result<()> {
 
     let registry_dir = config.get_registry_dir();
     let registry = Box::new(LocalInstallRegistry::new(&registry_dir).await?);
-    let mut store_manager = StoreManager::new(registry).await?;
+    let store_manager_raw = StoreManager::new(registry).await?;
+    let store_manager = Arc::new(Mutex::new(store_manager_raw));
 
-    if let Err(e) = config.apply(&mut store_manager).await
-        && !cli.quiet
     {
-        eprintln!("Warning: Some extension stores could not be loaded: {}", e);
+        let mut sm = store_manager.lock().await;
+        if let Err(e) = config.apply(&mut *sm).await
+            && !cli.quiet
+        {
+            eprintln!("Warning: Some extension stores could not be loaded: {}", e);
+        }
     }
 
     let mut ctx = AppContext {
@@ -77,11 +83,12 @@ async fn main() -> Result<()> {
             no_chapters,
             max_chapters,
         } => {
+            let mut sm = ctx.store_manager.lock().await;
             handle_add_command(
                 url,
                 no_chapters,
                 max_chapters,
-                &mut ctx.store_manager,
+                &mut *sm,
                 &ctx.storage,
                 ctx.dry_run,
             )
@@ -92,7 +99,7 @@ async fn main() -> Result<()> {
                 novel,
                 check_only,
                 &ctx.storage,
-                &mut ctx.store_manager,
+                Arc::clone(&ctx.store_manager),
                 ctx.dry_run,
             )
             .await
@@ -102,25 +109,12 @@ async fn main() -> Result<()> {
             chapter,
             list,
         } => {
-            handle_read_command(
-                novel,
-                chapter,
-                list,
-                &ctx.storage,
-                &mut ctx.store_manager,
-                ctx.dry_run,
-            )
-            .await
+            let mut sm = ctx.store_manager.lock().await;
+            handle_read_command(novel, chapter, list, &ctx.storage, &mut *sm, ctx.dry_run).await
         }
         Commands::Remove { novel, force } => {
-            handle_remove_command(
-                novel,
-                force,
-                &ctx.storage,
-                &mut ctx.store_manager,
-                ctx.dry_run,
-            )
-            .await
+            let mut sm = ctx.store_manager.lock().await;
+            handle_remove_command(novel, force, &ctx.storage, &mut *sm, ctx.dry_run).await
         }
         Commands::Search {
             query,
@@ -132,8 +126,9 @@ async fn main() -> Result<()> {
             advanced,
             simple,
         } => {
+            let sm = ctx.store_manager.lock().await;
             handle_search_command(
-                &ctx.store_manager,
+                &*sm,
                 query,
                 author,
                 tags,
@@ -147,10 +142,17 @@ async fn main() -> Result<()> {
             .await
         }
         Commands::Library { command } => {
-            handle_library_command(command, &ctx.storage, &mut ctx.store_manager, ctx.dry_run).await
+            handle_library_command(
+                command,
+                &ctx.storage,
+                Arc::clone(&ctx.store_manager),
+                ctx.dry_run,
+            )
+            .await
         }
         Commands::Extensions { command } => {
-            handle_extension_command(command, &mut ctx.store_manager, ctx.dry_run).await
+            let mut sm = ctx.store_manager.lock().await;
+            handle_extension_command(command, &mut *sm, ctx.dry_run).await
         }
         Commands::Export {
             novel,
@@ -170,14 +172,24 @@ async fn main() -> Result<()> {
         }
         Commands::Config { command } => handle_config_command(command, ctx.dry_run).await,
         Commands::Store { command } => {
-            handle_store_command(command, &mut ctx.config, &mut ctx.store_manager).await
+            handle_store_command(command, &mut ctx.config, Arc::clone(&ctx.store_manager)).await
         }
         Commands::Publish { command } => {
-            handle_publish_command(command, &ctx.config.registry, &mut ctx.store_manager).await
+            let mut sm = ctx.store_manager.lock().await;
+            handle_publish_command(command, &ctx.config.registry, &mut *sm).await
         }
-        Commands::Status => handle_status_command(&ctx.store_manager).await,
+        Commands::Status => {
+            let sm = ctx.store_manager.lock().await;
+            handle_status_command(&*sm).await
+        }
         Commands::Fetch { command } => {
-            handle_fetch_command(command, &mut ctx.store_manager, &ctx.storage, ctx.dry_run).await
+            handle_fetch_command(
+                command,
+                Arc::clone(&ctx.store_manager),
+                &ctx.storage,
+                ctx.dry_run,
+            )
+            .await
         }
     }
 }

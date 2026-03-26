@@ -1,6 +1,7 @@
 //! Fetch command handlers for retrieving novel and chapter data.
 
 use eyre::Result;
+use std::sync::Arc;
 
 use quelle_engine::registry::ExtensionSession;
 use quelle_storage::{
@@ -11,29 +12,36 @@ use quelle_storage::{
 };
 use quelle_store::StoreManager;
 use std::io::Cursor;
+use tokio::sync::Mutex;
 use tracing::{error, warn};
 use url::Url;
 
 use crate::engine::create_extension_engine;
 use crate::{cli::FetchCommands, engine::create_extension_session};
 
+type StoreArc = Arc<Mutex<StoreManager>>;
+
 pub async fn handle_fetch_command(
     cmd: FetchCommands,
-    store_manager: &mut StoreManager,
+    store_manager: StoreArc,
     storage: &FilesystemStorage,
     dry_run: bool,
 ) -> Result<()> {
     match cmd {
         FetchCommands::Novel { url } => {
             let engine = create_extension_engine()?;
-            let extension = create_extension_session(&engine, store_manager, url.as_ref()).await?;
-
+            let extension = {
+                let mut sm = store_manager.lock().await;
+                create_extension_session(&engine, &mut *sm, url.as_ref()).await?
+            };
             handle_fetch_novel(&extension, url, storage, dry_run).await
         }
         FetchCommands::Chapter { url } => {
             let engine = create_extension_engine()?;
-            let extension = create_extension_session(&engine, store_manager, url.as_ref()).await?;
-
+            let extension = {
+                let mut sm = store_manager.lock().await;
+                create_extension_session(&engine, &mut *sm, url.as_ref()).await?
+            };
             handle_fetch_chapter(&extension, url, storage, dry_run).await
         }
         FetchCommands::Chapters { novel_id } => {
@@ -43,8 +51,10 @@ pub async fn handle_fetch_command(
                 eprintln!("Novel not found in library: {}", novel_id);
                 return Ok(());
             };
-
-            let extension = create_extension_session(&engine, store_manager, &novel.url).await?;
+            let extension = {
+                let mut sm = store_manager.lock().await;
+                create_extension_session(&engine, &mut *sm, &novel.url).await?
+            };
             handle_fetch_chapters(novel_id, None, storage, &extension, dry_run).await
         }
         FetchCommands::All { url } => handle_fetch_all(url, store_manager, storage, dry_run).await,
@@ -86,7 +96,7 @@ pub async fn handle_add_command(
 }
 
 async fn handle_fetch_novel(
-    extension: &ExtensionSession<'_>,
+    extension: &ExtensionSession,
     url: Url,
     storage: &FilesystemStorage,
     dry_run: bool,
@@ -131,7 +141,7 @@ async fn handle_fetch_novel(
 }
 
 async fn handle_fetch_chapter(
-    extension: &ExtensionSession<'_>,
+    extension: &ExtensionSession,
     url: Url,
     storage: &FilesystemStorage,
     dry_run: bool,
@@ -203,7 +213,7 @@ pub async fn handle_fetch_chapters(
     novel_id: String,
     max_chapters: Option<usize>,
     storage: &FilesystemStorage,
-    extension: &ExtensionSession<'_>,
+    extension: &ExtensionSession,
     dry_run: bool,
 ) -> Result<()> {
     if dry_run {
@@ -310,7 +320,7 @@ pub async fn handle_fetch_chapters(
 
 async fn handle_fetch_all(
     url: Url,
-    store_manager: &mut StoreManager,
+    store_manager: StoreArc,
     storage: &FilesystemStorage,
     dry_run: bool,
 ) -> Result<()> {
@@ -320,7 +330,10 @@ async fn handle_fetch_all(
     }
 
     let engine = create_extension_engine()?;
-    let extension = create_extension_session(&engine, store_manager, url.as_ref()).await?;
+    let extension = {
+        let mut sm = store_manager.lock().await;
+        create_extension_session(&engine, &mut *sm, url.as_ref()).await?
+    };
 
     println!("Fetching novel and all chapters...");
 

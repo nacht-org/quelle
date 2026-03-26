@@ -8,19 +8,23 @@
 //! wire together the store (extension management) and the engine (content execution)
 //! without coupling the two crates to each other.
 
+use std::sync::Arc;
+
 use quelle_engine::registry::ExtensionSession;
 pub use quelle_engine::{Executor, create_engine as create_extension_engine_with_executor};
 
-/// Create an [`quelle_engine::ExtensionEngine`] using the default executor.
-pub fn create_extension_engine() -> eyre::Result<quelle_engine::ExtensionEngine> {
-    create_extension_engine_with_executor(Executor::default())
+/// Create an [`quelle_engine::ExtensionEngine`] wrapped in an [`Arc`] using the default executor.
+pub fn create_extension_engine() -> eyre::Result<Arc<quelle_engine::ExtensionEngine>> {
+    Ok(Arc::new(create_extension_engine_with_executor(
+        Executor::default(),
+    )?))
 }
 
-pub async fn create_extension_session<'a>(
-    engine: &'a quelle_engine::ExtensionEngine,
+pub async fn create_extension_session(
+    engine: &Arc<quelle_engine::ExtensionEngine>,
     store_manager: &mut quelle_store::StoreManager,
     url: &str,
-) -> eyre::Result<ExtensionSession<'a>> {
+) -> eyre::Result<ExtensionSession> {
     let installed = store_manager
         .find_and_install_for_url(url)
         .await
@@ -32,7 +36,7 @@ pub async fn create_extension_session<'a>(
         .await
         .map_err(|e| eyre::eyre!("{}", e))?;
 
-    let session = ExtensionSession::new(engine, wasm_bytes);
+    let session = ExtensionSession::new(Arc::clone(engine), wasm_bytes);
 
     Ok(session)
 }
@@ -42,7 +46,7 @@ pub async fn create_extension_session<'a>(
 /// This replaces the former `StoreManager::fetch_novel` method, keeping extension
 /// management (`StoreManager`) and content execution (`ExtensionEngine`) decoupled.
 pub async fn fetch_novel(
-    extension: &ExtensionSession<'_>,
+    extension: &ExtensionSession,
     url: &str,
 ) -> eyre::Result<quelle_types::Novel> {
     let result = extension
@@ -62,7 +66,7 @@ pub async fn fetch_novel(
 /// This replaces the former `StoreManager::fetch_chapter` method, keeping extension
 /// management (`StoreManager`) and content execution (`ExtensionEngine`) decoupled.
 pub async fn fetch_chapter(
-    extension: &ExtensionSession<'_>,
+    extension: &ExtensionSession,
     url: &str,
 ) -> eyre::Result<quelle_types::ChapterContent> {
     let result = extension

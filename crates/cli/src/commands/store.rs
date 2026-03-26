@@ -7,8 +7,12 @@ use quelle_store::{BaseStore, ExtensionSource, GitStore, RegistryConfig, StoreMa
 use quelle_store::{LocalStore, StoreError};
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use quelle_store::{GitAuth, GitReference};
+
+type StoreArc = Arc<Mutex<StoreManager>>;
 
 use crate::{
     cli::{AddStoreCommands, StoreCommands},
@@ -18,20 +22,23 @@ use crate::{
 pub async fn handle_store_command(
     cmd: StoreCommands,
     config: &mut Config,
-    store_manager: &mut StoreManager,
+    store_manager: StoreArc,
 ) -> Result<()> {
     match cmd {
         StoreCommands::Add { store_type } => {
-            handle_add_store(*store_type, config, store_manager).await
+            let mut sm = store_manager.lock().await;
+            handle_add_store(*store_type, config, &mut *sm).await
         }
         StoreCommands::Init { name } => handle_init_store(name, config).await,
         StoreCommands::Remove { name, force } => {
-            handle_remove_store(name, force, config, store_manager).await
+            let mut sm = store_manager.lock().await;
+            handle_remove_store(name, force, config, &mut *sm).await
         }
         StoreCommands::List => handle_list_stores(&config.registry).await,
         StoreCommands::Update { name } => handle_update_store(name, &config.registry).await,
         StoreCommands::Info { name } => {
-            handle_store_info(name, &config.registry, store_manager).await
+            let mut sm = store_manager.lock().await;
+            handle_store_info(name, &config.registry, &mut *sm).await
         }
     }
 }

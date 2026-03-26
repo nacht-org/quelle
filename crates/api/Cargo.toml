@@ -5,17 +5,17 @@ edition = "2024"
 
 [dependencies]
 quelle_engine = { path = "../engine", features = ["cli"] }
-quelle_store = { path = "../store", features = ["git", "github"] }
+quelle_store = { path = "../store", features = ["git", "github", "schemars"] }
 quelle_storage = { path = "../storage" }
 quelle_export = { path = "../export" }
-quelle_types = { path = "../types" }
+quelle_types = { path = "../types", features = ["schemars"] }
 quelle_domain = { path = "../domain" }
 
 axum = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-aide = { workspace = true, features = ["axum"] }
+aide = { workspace = true, features = ["axum", "axum-json"] }
 tokio = { workspace = true }
 config = "0.15.22"
 once_cell = { workspace = true }

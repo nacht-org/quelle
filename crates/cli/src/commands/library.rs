@@ -1,8 +1,10 @@
 //! Library management command handlers for browsing and maintaining novel collections.
 
+use std::sync::Arc;
+
 use eyre::Result;
 use quelle_domain::registry::ExtensionRegistry;
-use quelle_engine::{ExtensionEngine, registry::ExtensionSession};
+use quelle_engine::registry::ExtensionSession;
 use quelle_storage::{
     ChapterContent,
     backends::filesystem::FilesystemStorage,
@@ -10,16 +12,19 @@ use quelle_storage::{
     types::{NovelFilter, NovelId},
 };
 use quelle_store::StoreManager;
+use tokio::sync::Mutex;
 use tracing::{error, warn};
 
 use crate::engine::create_extension_engine;
 use crate::resolve::{resolve_novel_id, show_novel_not_found_help};
 use crate::{cli::LibraryCommands, engine::create_extension_session};
 
+type StoreArc = Arc<Mutex<StoreManager>>;
+
 pub async fn handle_library_command(
     cmd: LibraryCommands,
     storage: &FilesystemStorage,
-    _store_manager: &mut StoreManager,
+    _store_manager: StoreArc,
     dry_run: bool,
 ) -> Result<()> {
     match cmd {
@@ -39,7 +44,7 @@ pub async fn handle_update_command(
     novel: String,
     check_only: bool,
     storage: &FilesystemStorage,
-    store_manager: &mut StoreManager,
+    store_manager: StoreArc,
     dry_run: bool,
 ) -> Result<()> {
     if dry_run {
@@ -50,12 +55,24 @@ pub async fn handle_update_command(
     if novel == "all" {
         if check_only {
             println!("Checking for updates...");
-            return handle_sync_novels("all".to_string(), storage, store_manager, false).await;
+            return handle_sync_novels(
+                "all".to_string(),
+                storage,
+                Arc::clone(&store_manager),
+                false,
+            )
+            .await;
         } else {
             println!("Updating all novels...");
             let engine = create_extension_engine()?;
-            return handle_update_novels("all".to_string(), storage, store_manager, &engine, false)
-                .await;
+            return handle_update_novels(
+                "all".to_string(),
+                storage,
+                Arc::clone(&store_manager),
+                &engine,
+                false,
+            )
+            .await;
         }
     }
 
@@ -63,10 +80,17 @@ pub async fn handle_update_command(
         Some(novel_id) => {
             let novel_id_str = novel_id.as_str().to_string();
             if check_only {
-                handle_sync_novels(novel_id_str, storage, store_manager, false).await
+                handle_sync_novels(novel_id_str, storage, Arc::clone(&store_manager), false).await
             } else {
                 let engine = create_extension_engine()?;
-                handle_update_novels(novel_id_str, storage, store_manager, &engine, false).await
+                handle_update_novels(
+                    novel_id_str,
+                    storage,
+                    Arc::clone(&store_manager),
+                    &engine,
+                    false,
+                )
+                .await
             }
         }
         None => {
@@ -264,7 +288,7 @@ pub async fn handle_read_chapter(
 pub async fn handle_sync_novels(
     novel_input: String,
     storage: &dyn BookStorage,
-    store_manager: &mut StoreManager,
+    store_manager: StoreArc,
     dry_run: bool,
 ) -> Result<()> {
     if dry_run {
@@ -288,7 +312,7 @@ pub async fn handle_sync_novels(
         let mut failed_count = 0u32;
 
         for novel_summary in novels {
-            match sync_single_novel(&novel_summary.id, storage, store_manager).await {
+            match sync_single_novel(&novel_summary.id, storage, Arc::clone(&store_manager)).await {
                 Ok(new_chapters) => {
                     if new_chapters > 0 {
                         println!("  {}: {} new chapter(s)", novel_summary.title, new_chapters);
@@ -308,19 +332,21 @@ pub async fn handle_sync_novels(
         );
     } else {
         match resolve_novel_id(&novel_input, storage).await? {
-            Some(novel_id) => match sync_single_novel(&novel_id, storage, store_manager).await {
-                Ok(new_chapters) => {
-                    if new_chapters > 0 {
-                        println!("{} new chapter(s) found.", new_chapters);
-                    } else {
-                        println!("Up to date.");
+            Some(novel_id) => {
+                match sync_single_novel(&novel_id, storage, Arc::clone(&store_manager)).await {
+                    Ok(new_chapters) => {
+                        if new_chapters > 0 {
+                            println!("{} new chapter(s) found.", new_chapters);
+                        } else {
+                            println!("Up to date.");
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error: Failed to sync: {}", e);
+                        return Err(e);
                     }
                 }
-                Err(e) => {
-                    eprintln!("Error: Failed to sync: {}", e);
-                    return Err(e);
-                }
-            },
+            }
             None => {
                 show_novel_not_found_help(&novel_input, storage).await;
             }
@@ -332,8 +358,8 @@ pub async fn handle_sync_novels(
 pub async fn handle_update_novels(
     novel_input: String,
     storage: &FilesystemStorage,
-    store_manager: &mut StoreManager,
-    engine: &ExtensionEngine,
+    store_manager: StoreArc,
+    engine: &Arc<quelle_engine::ExtensionEngine>,
     dry_run: bool,
 ) -> Result<()> {
     if dry_run {
@@ -354,7 +380,8 @@ pub async fn handle_update_novels(
             return Ok(());
         }
 
-        let mut extension_registry = ExtensionRegistry::new(engine, store_manager);
+        let extension_registry =
+            ExtensionRegistry::new(Arc::clone(engine), Arc::clone(&store_manager));
 
         let mut total_downloaded = 0u32;
         let mut updated_count = 0u32;
@@ -397,7 +424,10 @@ pub async fn handle_update_novels(
                     .await?
                     .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_id.as_str()))?;
 
-                let extension = create_extension_session(engine, store_manager, &novel.url).await?;
+                let extension = {
+                    let mut sm = store_manager.lock().await;
+                    create_extension_session(engine, &mut *sm, &novel.url).await?
+                };
                 match update_single_novel(&novel_id, storage, &extension).await {
                     Ok(downloaded) => {
                         if downloaded > 0 {
@@ -423,7 +453,7 @@ pub async fn handle_update_novels(
 async fn sync_single_novel(
     novel_id: &NovelId,
     storage: &dyn BookStorage,
-    store_manager: &mut StoreManager,
+    store_manager: StoreArc,
 ) -> Result<u32> {
     let stored_novel = storage
         .get_novel(novel_id)
@@ -431,7 +461,10 @@ async fn sync_single_novel(
         .ok_or_else(|| eyre::eyre!("Novel not found: {}", novel_id.as_str()))?;
 
     let engine = create_extension_engine()?;
-    let extension = create_extension_session(&engine, store_manager, &stored_novel.url).await?;
+    let extension = {
+        let mut sm = store_manager.lock().await;
+        create_extension_session(&engine, &mut *sm, &stored_novel.url).await?
+    };
     let fresh_novel = crate::engine::fetch_novel(&extension, &stored_novel.url).await?;
 
     let stored_chapters = storage.list_chapters(novel_id).await?;
@@ -457,8 +490,9 @@ async fn sync_single_novel(
 async fn update_single_novel(
     novel_id: &NovelId,
     storage: &FilesystemStorage,
-    extension: &ExtensionSession<'_>,
+    extension: &ExtensionSession,
 ) -> Result<u32> {
+    // extension is already Arc-owned, no lifetime concerns
     let chapters = storage.list_chapters(novel_id).await?;
     let mut downloaded_count = 0u32;
     let mut failed_count = 0u32;

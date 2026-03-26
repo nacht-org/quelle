@@ -13,6 +13,8 @@ mod state;
 
 use std::sync::Arc;
 
+use registry::ExtensionSession;
+
 use wasmtime::component::*;
 use wasmtime::{Config, Engine, Store};
 
@@ -76,20 +78,26 @@ impl ExtensionEngine {
         &self.engine
     }
 
-    pub async fn new_runner_from_file(&'_ self, path: &str) -> error::Result<ExtensionRunner<'_>> {
+    pub async fn new_runner_from_file(
+        self: &Arc<Self>,
+        path: &str,
+    ) -> error::Result<ExtensionRunner> {
         let component = Component::from_file(&self.engine, path)?;
         self.new_runner(component).await
     }
 
     pub async fn new_runner_from_bytes(
-        &'_ self,
+        self: &Arc<Self>,
         bytes: &[u8],
-    ) -> error::Result<ExtensionRunner<'_>> {
+    ) -> error::Result<ExtensionRunner> {
         let component = Component::from_binary(&self.engine, bytes)?;
         self.new_runner(component).await
     }
 
-    pub async fn new_runner(&'_ self, component: Component) -> error::Result<ExtensionRunner<'_>> {
+    pub async fn new_runner(
+        self: &Arc<Self>,
+        component: Component,
+    ) -> error::Result<ExtensionRunner> {
         let mut store = Store::new(&self.engine, State::new(self.executor.clone()));
         let extension =
             crate::bindings::Extension::instantiate_async(&mut store, &component, &self.linker)
@@ -111,13 +119,17 @@ impl ExtensionEngine {
                 panic_error: store.data_mut().panic_error.take(),
             })??;
 
-        Ok(ExtensionRunner::new(self, extension, store))
+        Ok(ExtensionRunner::new(Arc::clone(self), extension, store))
+    }
+
+    pub fn new_session(self: &Arc<Self>, bytes: Vec<u8>) -> ExtensionSession {
+        ExtensionSession::new(Arc::clone(self), bytes)
     }
 }
 
-pub struct ExtensionRunner<'a> {
-    /// Reference to the extension engine. We don't want runner to outlive the engine.
-    _engine: &'a ExtensionEngine,
+pub struct ExtensionRunner {
+    /// Arc to the extension engine, keeping it alive as long as the runner exists.
+    _engine: Arc<ExtensionEngine>,
     extension: Extension,
     store: Store<State>,
 }
@@ -136,8 +148,8 @@ macro_rules! wrap_extension_method {
     }};
 }
 
-impl<'a> ExtensionRunner<'a> {
-    pub fn new(engine: &'a ExtensionEngine, extension: Extension, store: Store<State>) -> Self {
+impl ExtensionRunner {
+    pub fn new(engine: Arc<ExtensionEngine>, extension: Extension, store: Store<State>) -> Self {
         Self {
             _engine: engine,
             extension,

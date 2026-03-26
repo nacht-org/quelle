@@ -1,5 +1,6 @@
 use aide::OperationOutput;
 use axum::{http::StatusCode, response::IntoResponse};
+use schemars::JsonSchema;
 use serde::Serialize;
 
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -10,7 +11,7 @@ pub enum ApiError {
     InternalError(eyre::Report),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct ErrorBody {
     message: String,
 }

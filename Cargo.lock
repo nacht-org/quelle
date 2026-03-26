@@ -28,16 +28,15 @@ dependencies = [
 
 [[package]]
 name = "aide"
-version = "0.15.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6966317188cdfe54c58c0900a195d021294afb3ece9b7073d09e4018dbb1e3a2"
+version = "0.16.0-alpha.3"
+source = "git+https://github.com/tamasfe/aide.git#23c4d3dce106925d756d809e28c21bc16430ff4d"
 dependencies = [
  "axum",
  "bytes",
  "cfg-if",
  "http",
  "indexmap",
- "schemars 0.9.0",
+ "schemars",
  "serde",
  "serde_json",
  "serde_qs",
@@ -3814,7 +3813,7 @@ dependencies = [
  "quelle_storage",
  "quelle_store",
  "quelle_types",
- "schemars 1.2.1",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3881,6 +3880,7 @@ dependencies = [
  "eyre",
  "quelle_engine",
  "quelle_store",
+ "tokio",
 ]
 
 [[package]]
@@ -3979,7 +3979,7 @@ dependencies = [
  "quelle_engine",
  "quelle_types",
  "reqwest",
- "schemars 1.2.1",
+ "schemars",
  "semver",
  "serde",
  "serde_json",
@@ -3998,7 +3998,7 @@ name = "quelle_types"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "schemars 1.2.1",
+ "schemars",
  "semver",
  "serde",
 ]
@@ -4647,41 +4647,16 @@ dependencies = [
 
 [[package]]
 name = "schemars"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cd191f9397d57d581cddd31014772520aa448f65ef991055d7f61582c65165f"
-dependencies = [
- "dyn-clone",
- "indexmap",
- "ref-cast",
- "schemars_derive 0.9.0",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "schemars"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2b42f36aa1cd011945615b92222f6bf73c599a102a300334cd7f8dbeec726cc"
 dependencies = [
  "dyn-clone",
+ "indexmap",
  "ref-cast",
- "schemars_derive 1.2.1",
+ "schemars_derive",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "schemars_derive"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5016d94c77c6d32f0b8e08b781f7dc8a90c2007d4e77472cc2807bc10a8438fe"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde_derive_internals",
- "syn",
 ]
 
 [[package]]

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use once_cell::sync::Lazy;
 use serde::{Deserialize, de::DeserializeOwned};
 
@@ -85,10 +87,22 @@ impl TryFrom<String> for Environment {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Settings {
     pub server: ServerSettings,
+    pub data: DataSettings,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerSettings {
     pub host: String,
     pub port: u16,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DataSettings {
+    pub base_dir: PathBuf,
+}
+
+impl DataSettings {
+    pub fn get_registry_dir(&self) -> PathBuf {
+        self.base_dir.join("registry")
+    }
 }

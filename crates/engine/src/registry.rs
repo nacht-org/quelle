@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tokio::sync::Mutex;
 
 use crate::{ExtensionEngine, ExtensionRunner};
@@ -5,14 +7,14 @@ use crate::{ExtensionEngine, ExtensionRunner};
 /// A session for running extension calls, which may reuse the same runner across multiple calls
 /// to avoid reinitialization overhead. The session holds the extension bytes and creates a runner
 /// on demand, caching it for subsequent calls until an error occurs.
-pub struct ExtensionSession<'a> {
-    engine: &'a ExtensionEngine,
+pub struct ExtensionSession {
+    engine: Arc<ExtensionEngine>,
     bytes: Vec<u8>,
-    runners: Mutex<Option<ExtensionRunner<'a>>>,
+    runners: Mutex<Option<ExtensionRunner>>,
 }
 
-impl<'a> ExtensionSession<'a> {
-    pub fn new(engine: &'a ExtensionEngine, bytes: Vec<u8>) -> Self {
+impl ExtensionSession {
+    pub fn new(engine: Arc<ExtensionEngine>, bytes: Vec<u8>) -> Self {
         Self {
             engine,
             bytes,
@@ -24,13 +26,17 @@ impl<'a> ExtensionSession<'a> {
     /// encounters an error, it will be dropped and a new runner will be created on the next call.
     pub async fn call<F, T>(&self, func: F) -> eyre::Result<T>
     where
-        F: AsyncFnOnce(ExtensionRunner<'a>) -> eyre::Result<(ExtensionRunner<'a>, T)> + Send,
+        F: AsyncFnOnce(ExtensionRunner) -> eyre::Result<(ExtensionRunner, T)> + Send,
     {
         let mut guard = self.runners.lock().await;
 
         let runner = match guard.take() {
             Some(r) => r,
-            None => self.engine.new_runner_from_bytes(&self.bytes).await?,
+            None => self
+                .engine
+                .new_runner_from_bytes(&self.bytes)
+                .await
+                .map_err(|e| eyre::eyre!("{}", e))?,
         };
 
         match func(runner).await {

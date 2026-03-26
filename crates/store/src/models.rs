@@ -112,9 +112,9 @@ impl ExtensionPackage {
         })?;
 
         let executor = Arc::new(quelle_engine::http::HeadlessChromeExecutor::new());
-        let engine = ExtensionEngine::new(executor).map_err(|e| InvalidPackage {
+        let engine = Arc::new(ExtensionEngine::new(executor).map_err(|e| InvalidPackage {
             reason: format!("Failed to create engine: {}", e),
-        })?;
+        })?);
 
         let runner = engine
             .new_runner_from_bytes(&wasm_content)

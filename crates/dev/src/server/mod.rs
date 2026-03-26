@@ -26,7 +26,7 @@ pub use commands::{DevServerCli, DevServerCommand};
 pub struct DevServer {
     extension_name: String,
     extension_path: PathBuf,
-    engine: ExtensionEngine,
+    engine: Arc<ExtensionEngine>,
     build_cache: HashMap<String, Instant>,
     caching_executor: Option<Arc<CachingHttpExecutor>>,
     should_quit: bool,
@@ -163,7 +163,7 @@ impl DevServer {
     }
 
     /// Get the extension engine
-    pub fn engine(&self) -> &ExtensionEngine {
+    pub fn engine(&self) -> &Arc<ExtensionEngine> {
         &self.engine
     }
 
@@ -310,7 +310,7 @@ async fn start_interactive_shell_with_server(dev_server: Arc<Mutex<DevServer>>) 
 fn create_extension_engine_with_cache_ref(
     cache_dir: Option<PathBuf>,
     executor: Executor,
-) -> Result<(ExtensionEngine, Option<Arc<CachingHttpExecutor>>)> {
+) -> Result<(Arc<ExtensionEngine>, Option<Arc<CachingHttpExecutor>>)> {
     let base_executor: Arc<dyn quelle_engine::http::HttpExecutor> = match executor {
         Executor::Ghostwire => Arc::new(GhostwireExecutor::new()?),
         Executor::Chrome => Arc::new(HeadlessChromeExecutor::new()),
@@ -319,12 +319,12 @@ fn create_extension_engine_with_cache_ref(
 
     let caching_executor = if let Some(_cache_dir) = cache_dir {
         let caching_exec = Arc::new(CachingHttpExecutor::new(base_executor));
-        let engine = ExtensionEngine::new(
+        let engine = Arc::new(ExtensionEngine::new(
             caching_exec.clone() as Arc<dyn quelle_engine::http::HttpExecutor>
-        )?;
+        )?);
         (engine, Some(caching_exec))
     } else {
-        let engine = ExtensionEngine::new(base_executor)?;
+        let engine = Arc::new(ExtensionEngine::new(base_executor)?);
         (engine, None)
     };
 

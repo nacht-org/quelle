@@ -29,7 +29,7 @@ prost-build = "0.14.1"
 
 # API related dependencies
 axum = { version = "0.8.8", features = ["macros"] }
-aide = "0.15.1"
+aide = { git = "https://github.com/tamasfe/aide.git" }
 schemars = "1.2.1"
 
 [workspace.dependencies.chrono]
