@@ -15,7 +15,7 @@ axum = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-aide = { workspace = true, features = ["axum", "axum-json"] }
+aide = { workspace = true, features = ["axum", "axum-json", "axum-query"] }
 tokio = { workspace = true }
 config = "0.15.22"
 once_cell = { workspace = true }

@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use aide::axum::{ApiRouter, routing::get_with};
+use aide::{
+    axum::{ApiRouter, routing::get_with},
+    transform::TransformOperation,
+};
 use axum::{
     Json,
     extract::{Query, State},
@@ -20,6 +23,7 @@ pub struct GetNovelQuery {
     url: String,
 }
 
+#[axum::debug_handler]
 pub async fn get_novel(
     State(state): State<Arc<AppState>>,
     Query(query): Query<GetNovelQuery>,
@@ -39,9 +43,7 @@ pub async fn get_novel(
     Ok(Json(novel))
 }
 
-pub fn get_novel_docs(
-    op: aide::transform::TransformOperation,
-) -> aide::transform::TransformOperation {
+pub fn get_novel_docs(op: TransformOperation<'_>) -> TransformOperation<'_> {
     op.id("get_novel")
         .summary("Get novel details")
         .description("Returns detailed information about a specific novel.")
