@@ -19,7 +19,7 @@ pub fn routes() -> ApiRouter<Arc<AppState>> {
         .api_route("/novel", get_with(get_novel, get_novel_docs))
         .api_route("/chapter", get_with(get_chapter, get_chapter_docs))
         .api_route(
-            "/search/:extension_id",
+            "/search/{extension_id}",
             get_with(simple_search, simple_search_docs),
         )
 }
