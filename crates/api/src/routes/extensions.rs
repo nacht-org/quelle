@@ -8,8 +8,8 @@ use serde::Serialize;
 
 use crate::{error::ApiResult, state::AppState};
 
-pub async fn router() -> ApiRouter<Arc<AppState>> {
-    ApiRouter::new().api_route("/extensions", get(get_extensions))
+pub fn router() -> ApiRouter<Arc<AppState>> {
+    ApiRouter::new().api_route("/", get(get_extensions))
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
