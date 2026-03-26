@@ -1,6 +1,7 @@
 //! Library management command handlers for browsing and maintaining novel collections.
 
 use eyre::Result;
+use quelle_domain::registry::ExtensionRegistry;
 use quelle_engine::{ExtensionEngine, registry::ExtensionSession};
 use quelle_storage::{
     ChapterContent,
@@ -11,7 +12,7 @@ use quelle_storage::{
 use quelle_store::StoreManager;
 use tracing::{error, warn};
 
-use crate::engine::{ExtensionRegistry, create_extension_engine};
+use crate::engine::create_extension_engine;
 use crate::resolve::{resolve_novel_id, show_novel_not_found_help};
 use crate::{cli::LibraryCommands, engine::create_extension_session};
 

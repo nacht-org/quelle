@@ -1,4 +1,4 @@
-use semver::Version;
+use quelle_types::{Timestamp, version::Version};
 use serde::{Deserialize, Serialize};
 
 /// Store Manifest - Internal metadata about the store's contents and capabilities
@@ -19,7 +19,7 @@ pub struct StoreManifest {
     pub description: Option<String>,
 
     /// Metadata
-    pub last_updated: chrono::DateTime<chrono::Utc>,
+    pub last_updated: Timestamp,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -29,7 +29,7 @@ pub struct ExtensionRecord {
     pub version: Version,
     pub base_urls: Vec<String>,
     pub langs: Vec<String>,
-    pub last_updated: chrono::DateTime<chrono::Utc>,
+    pub last_updated: Timestamp,
     // Manifest storage info
     pub manifest_path: String,
     pub manifest_checksum: String,
@@ -44,7 +44,7 @@ impl StoreManifest {
             version: store_version,
             url: None,
             description: None,
-            last_updated: chrono::Utc::now(),
+            last_updated: Timestamp::now(),
         }
     }
 
@@ -62,7 +62,7 @@ impl StoreManifest {
 
     /// Update the last_updated timestamp
     pub fn touch(&mut self) {
-        self.last_updated = chrono::Utc::now();
+        self.last_updated = Timestamp::now();
     }
 }
 

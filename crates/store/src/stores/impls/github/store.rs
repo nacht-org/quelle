@@ -1,7 +1,7 @@
 //! GitHub store implementation using FileBasedProcessor
 
 use async_trait::async_trait;
-use semver::Version;
+use quelle_types::{Timestamp, version::Version};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use tracing::info;
@@ -14,6 +14,7 @@ use crate::manager::publish::{
     ValidationReport,
 };
 
+use crate::GitStore;
 use crate::manager::store_manifest::StoreManifest;
 use crate::models::{
     ExtensionInfo, ExtensionListing, ExtensionMetadata, ExtensionPackage, InstalledExtension,
@@ -24,7 +25,6 @@ use crate::stores::file_operations::FileBasedProcessor;
 use crate::stores::providers::git::GitReference;
 use crate::stores::providers::git::{GitAuth, GitWriteConfig};
 use crate::stores::traits::{BaseStore, ReadableStore, SyncableStore, WritableStore};
-use crate::GitStore;
 
 /// GitHub store that uses FileBasedProcessor with GitHub-specific file operations
 pub struct GitHubStore {
@@ -383,7 +383,7 @@ impl BaseStore for GitHubStore {
 
         Ok(StoreHealth {
             healthy: is_healthy,
-            last_check: chrono::Utc::now(),
+            last_check: Timestamp::now(),
             response_time: Some(start_time.elapsed().unwrap_or_default()),
             error: error_message,
             extension_count,

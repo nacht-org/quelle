@@ -37,7 +37,7 @@ dependencies = [
  "cfg-if",
  "http",
  "indexmap",
- "schemars",
+ "schemars 0.9.0",
  "serde",
  "serde_json",
  "serde_qs",
@@ -3808,11 +3808,13 @@ dependencies = [
  "config",
  "eyre",
  "once_cell",
+ "quelle_domain",
  "quelle_engine",
  "quelle_export",
  "quelle_storage",
  "quelle_store",
  "quelle_types",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3830,16 +3832,15 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
- "dashmap",
  "directories",
  "eyre",
+ "quelle_domain",
  "quelle_engine",
  "quelle_export",
  "quelle_storage",
  "quelle_store",
  "quelle_types",
  "reqwest",
- "semver",
  "serde",
  "serde_json",
  "tempfile",
@@ -3870,6 +3871,16 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+]
+
+[[package]]
+name = "quelle_domain"
+version = "0.1.0"
+dependencies = [
+ "dashmap",
+ "eyre",
+ "quelle_engine",
+ "quelle_store",
 ]
 
 [[package]]
@@ -3968,6 +3979,7 @@ dependencies = [
  "quelle_engine",
  "quelle_types",
  "reqwest",
+ "schemars 1.2.1",
  "semver",
  "serde",
  "serde_json",
@@ -3985,6 +3997,9 @@ dependencies = [
 name = "quelle_types"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "schemars 1.2.1",
+ "semver",
  "serde",
 ]
 
@@ -4639,7 +4654,20 @@ dependencies = [
  "dyn-clone",
  "indexmap",
  "ref-cast",
- "schemars_derive",
+ "schemars_derive 0.9.0",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2b42f36aa1cd011945615b92222f6bf73c599a102a300334cd7f8dbeec726cc"
+dependencies = [
+ "dyn-clone",
+ "ref-cast",
+ "schemars_derive 1.2.1",
  "serde",
  "serde_json",
 ]
@@ -4649,6 +4677,18 @@ name = "schemars_derive"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5016d94c77c6d32f0b8e08b781f7dc8a90c2007d4e77472cc2807bc10a8438fe"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d115b50f4aaeea07e79c1912f645c7513d81715d0420f8bc77a18c6260b307f"
 dependencies = [
  "proc-macro2",
  "quote",

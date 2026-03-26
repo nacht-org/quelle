@@ -3,6 +3,9 @@
 //! This crate provides plain Rust structs and enums representing the core
 //! domain types used across the workspace. It has no dependency on Wasmtime
 //! or any other heavyweight crate — only `serde` for serialization support.
+pub mod datetime;
+pub use datetime::Timestamp;
+pub mod version;
 
 use serde::{Deserialize, Serialize};
 

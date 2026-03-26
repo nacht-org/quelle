@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use quelle_types::Timestamp;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tokio::sync::Mutex;
@@ -107,7 +107,7 @@ pub trait InstallRegistry: Send + Sync {
 struct JsonRegistry {
     /// Keyed by extension **ID** (the unique slug, not the display name).
     extensions: HashMap<String, InstalledExtension>,
-    last_updated: DateTime<Utc>,
+    last_updated: Timestamp,
     version: String,
 }
 
@@ -115,7 +115,7 @@ impl Default for JsonRegistry {
     fn default() -> Self {
         Self {
             extensions: HashMap::new(),
-            last_updated: Utc::now(),
+            last_updated: Timestamp::now(),
             version: "1.0".to_string(),
         }
     }
@@ -249,7 +249,7 @@ impl LocalInstallRegistry {
         }
 
         let mut updated = registry.clone();
-        updated.last_updated = Utc::now();
+        updated.last_updated = Timestamp::now();
 
         let content = serde_json::to_string_pretty(&updated)?;
         fs::write(&self.registry_path, content).await?;
@@ -521,7 +521,7 @@ impl InstallRegistry for LocalInstallRegistry {
 
 #[cfg(test)]
 mod tests {
-    use semver::Version;
+    use quelle_types::version::Version;
     use tempfile::TempDir;
 
     use super::*;
@@ -606,11 +606,13 @@ mod tests {
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, "ext-a");
 
-        assert!(registry
-            .get_installed("ext-missing")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            registry
+                .get_installed("ext-missing")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -626,9 +628,11 @@ mod tests {
 
         let issues = registry.validate_installations().await.unwrap();
         // Valid install should produce no Error/Critical issues
-        assert!(!issues
-            .iter()
-            .any(|i| matches!(i.severity, IssueSeverity::Error | IssueSeverity::Critical)));
+        assert!(
+            !issues
+                .iter()
+                .any(|i| matches!(i.severity, IssueSeverity::Error | IssueSeverity::Critical))
+        );
     }
 
     #[test]

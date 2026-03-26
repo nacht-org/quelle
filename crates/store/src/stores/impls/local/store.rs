@@ -1,7 +1,7 @@
 //! Local filesystem store implementation using FileBasedProcessor
 
 use async_trait::async_trait;
-use semver::Version;
+use quelle_types::{Timestamp, version::Version};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -68,7 +68,7 @@ impl LocalStoreManifest {
             version: manifest.version.clone(),
             base_urls: manifest.base_urls.clone(),
             langs: manifest.langs.clone(),
-            last_updated: chrono::Utc::now(),
+            last_updated: Timestamp::now(),
             manifest_path,
             manifest_checksum: format!(
                 "blake3:{}",
@@ -368,7 +368,7 @@ impl BaseStore for LocalStore {
         if !self.root_path.exists() {
             return Ok(StoreHealth {
                 healthy: false,
-                last_check: chrono::Utc::now(),
+                last_check: Timestamp::now(),
                 response_time: Some(start_time.elapsed().unwrap_or_default()),
                 error: Some(format!(
                     "Store directory does not exist: {}",
@@ -400,7 +400,7 @@ impl BaseStore for LocalStore {
 
         Ok(StoreHealth {
             healthy: is_healthy,
-            last_check: chrono::Utc::now(),
+            last_check: Timestamp::now(),
             response_time: Some(start_time.elapsed().unwrap_or_default()),
             error: error_message,
             extension_count,

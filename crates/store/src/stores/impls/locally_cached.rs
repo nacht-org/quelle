@@ -14,7 +14,7 @@
 //! sync timing.
 
 use async_trait::async_trait;
-use semver::Version;
+use quelle_types::{Timestamp, version::Version};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -29,14 +29,14 @@ use crate::models::ExtensionListing;
 use crate::stores::{
     impls::local::LocalStore,
     providers::{
-        traits::{LifecycleEvent, StoreProvider},
         GitProvider,
+        traits::{LifecycleEvent, StoreProvider},
     },
     traits::{BaseStore, ReadableStore, SyncableStore, WritableStore},
 };
 use crate::{
-    registry::manifest::ExtensionManifest, ExtensionInfo, ExtensionMetadata, ExtensionPackage,
-    InstalledExtension, SearchQuery, StoreHealth, StoreManifest, UpdateInfo,
+    ExtensionInfo, ExtensionMetadata, ExtensionPackage, InstalledExtension, SearchQuery,
+    StoreHealth, StoreManifest, UpdateInfo, registry::manifest::ExtensionManifest,
 };
 
 // ---------------------------------------------------------------------------
@@ -372,7 +372,7 @@ impl<T: StoreProvider> BaseStore for LocallyCachedStore<T> {
             Ok(_) => self.local_store.health_check().await,
             Err(e) => Ok(StoreHealth {
                 healthy: false,
-                last_check: chrono::Utc::now(),
+                last_check: Timestamp::now(),
                 response_time: None,
                 error: Some(format!("Sync failed: {}", e)),
                 extension_count: None,
@@ -739,10 +739,11 @@ mod tests {
         assert!(!diag.can_commit_and_push());
         // Should flag that auto-push is off
         assert!(diag.issues().iter().any(|i| i.contains("Auto-push")));
-        assert!(diag
-            .recommendations()
-            .iter()
-            .any(|r| r.contains("auto_push")));
+        assert!(
+            diag.recommendations()
+                .iter()
+                .any(|r| r.contains("auto_push"))
+        );
     }
 
     // -----------------------------------------------------------------------

@@ -6,13 +6,13 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use quelle_types::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     error::{Result, StoreError},
     stores::{
-        impls::AnyStore, impls::LocalStore, traits::SyncableStore, ReadableStore, WritableStore,
+        ReadableStore, WritableStore, impls::AnyStore, impls::LocalStore, traits::SyncableStore,
     },
 };
 
@@ -189,7 +189,7 @@ pub struct ExtensionSource {
     pub enabled: bool,
     pub priority: u32,
     pub trusted: bool,
-    pub added_at: DateTime<Utc>,
+    pub added_at: Timestamp,
 }
 
 impl ExtensionSource {
@@ -200,7 +200,7 @@ impl ExtensionSource {
             enabled: true,
             priority: 100,
             trusted: false,
-            added_at: Utc::now(),
+            added_at: Timestamp::now(),
         }
     }
 
@@ -211,7 +211,7 @@ impl ExtensionSource {
             enabled: true,
             priority: 100,
             trusted: false,
-            added_at: Utc::now(),
+            added_at: Timestamp::now(),
         }
     }
 
@@ -228,7 +228,7 @@ impl ExtensionSource {
             enabled: true,
             priority: 100,
             trusted: false,
-            added_at: Utc::now(),
+            added_at: Timestamp::now(),
         }
     }
 
@@ -251,7 +251,7 @@ impl ExtensionSource {
             enabled: true,
             priority: 100,
             trusted: false,
-            added_at: Utc::now(),
+            added_at: Timestamp::now(),
         }
     }
 
@@ -269,7 +269,7 @@ impl ExtensionSource {
             enabled: true,
             priority: 100,
             trusted: false,
-            added_at: Utc::now(),
+            added_at: Timestamp::now(),
         }
     }
 
@@ -294,7 +294,7 @@ impl ExtensionSource {
             enabled: true,
             priority: 100,
             trusted: false,
-            added_at: Utc::now(),
+            added_at: Timestamp::now(),
         }
     }
 

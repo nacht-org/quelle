@@ -7,7 +7,8 @@
 //! - [`SourceConfig`]: How the manager configures one source (priority, trusted, enabled)
 //! - [`SourceConfigs`]: A persisted collection of [`SourceConfig`] entries
 
-use chrono::{DateTime, Utc};
+use chrono;
+use quelle_types::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -40,10 +41,10 @@ pub struct SourceConfig {
     pub enabled: bool,
 
     /// When this source configuration was created in the registry
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 
     /// Last time this source was successfully accessed
-    pub last_accessed: Option<DateTime<Utc>>,
+    pub last_accessed: Option<Timestamp>,
 
     /// Additional configuration specific to the store type
     pub config: HashMap<String, serde_json::Value>,
@@ -60,7 +61,7 @@ impl SourceConfig {
             priority: 100, // default middle priority
             trusted: false,
             enabled: true,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             last_accessed: None,
             config: HashMap::new(),
         }
@@ -121,13 +122,13 @@ impl SourceConfig {
 
     /// Record the current time as the last-accessed timestamp.
     pub fn mark_accessed(&mut self) {
-        self.last_accessed = Some(Utc::now());
+        self.last_accessed = Some(Timestamp::now());
     }
 
     /// Return `true` if the source was accessed within `within` of now.
     pub fn accessed_recently(&self, within: chrono::Duration) -> bool {
         if let Some(last_accessed) = self.last_accessed {
-            Utc::now().signed_duration_since(last_accessed) <= within
+            Timestamp::now().signed_duration_since(*last_accessed) <= within
         } else {
             false
         }
@@ -138,7 +139,7 @@ impl SourceConfig {
     /// elapsed since its creation time.
     pub fn is_stale(&self, threshold: chrono::Duration) -> bool {
         let reference = self.last_accessed.unwrap_or(self.created_at);
-        Utc::now().signed_duration_since(reference) > threshold
+        Timestamp::now().signed_duration_since(*reference) > threshold
     }
 }
 
@@ -153,16 +154,22 @@ impl Default for SourceConfig {
 // ---------------------------------------------------------------------------
 
 /// A persisted collection of [`SourceConfig`] entries.
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SourceConfigs {
     /// Map of store name → configuration.
     pub stores: HashMap<String, SourceConfig>,
 
     /// Last time this collection was modified.
-    pub last_updated: DateTime<Utc>,
+    pub last_updated: Timestamp,
 
     /// Configuration format version.
     pub version: String,
+}
+
+impl Default for SourceConfigs {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SourceConfigs {
@@ -170,7 +177,7 @@ impl SourceConfigs {
     pub fn new() -> Self {
         Self {
             stores: HashMap::new(),
-            last_updated: Utc::now(),
+            last_updated: Timestamp::now(),
             version: "1.0".to_string(),
         }
     }
@@ -178,14 +185,14 @@ impl SourceConfigs {
     /// Insert or replace a source configuration.
     pub fn add_store(&mut self, config: SourceConfig) {
         self.stores.insert(config.store_name.clone(), config);
-        self.last_updated = Utc::now();
+        self.last_updated = Timestamp::now();
     }
 
     /// Remove a source configuration, returning it if it existed.
     pub fn remove_store(&mut self, store_name: &str) -> Option<SourceConfig> {
         let result = self.stores.remove(store_name);
         if result.is_some() {
-            self.last_updated = Utc::now();
+            self.last_updated = Timestamp::now();
         }
         result
     }
@@ -244,7 +251,7 @@ impl SourceConfigs {
 
     /// Touch the `last_updated` timestamp without making any other change.
     pub fn touch(&mut self) {
-        self.last_updated = Utc::now();
+        self.last_updated = Timestamp::now();
     }
 }
 

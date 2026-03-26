@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use futures::future::join_all;
 use quelle_engine::http::HttpExecutor;
-use semver::Version;
+use quelle_types::version::Version;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
@@ -13,8 +13,8 @@ use crate::models::{
     ExtensionInfo, ExtensionListing, InstallOptions, InstalledExtension, SearchQuery, SearchSortBy,
     StoreConfig, UpdateInfo, UpdateOptions,
 };
-use crate::registry::{manifest::ExtensionManifest, InstallRegistry};
-use crate::stores::{config::SourceConfig, ReadableStore};
+use crate::registry::{InstallRegistry, manifest::ExtensionManifest};
+use crate::stores::{ReadableStore, config::SourceConfig};
 
 /// A discovered-extension source paired with the manager's configuration for it.
 pub struct ManagedSource {
@@ -247,10 +247,10 @@ impl StoreManager {
         query: &SearchQuery,
         http_executor: Arc<dyn HttpExecutor>,
     ) -> Result<Vec<quelle_types::BasicNovel>> {
+        use quelle_engine::ExtensionEngine;
         use quelle_engine::bindings::quelle::extension::novel::{
             AppliedFilter, ComplexSearchQuery, FilterValue, SimpleSearchQuery,
         };
-        use quelle_engine::ExtensionEngine;
         use std::collections::HashMap;
         use std::sync::Arc;
 

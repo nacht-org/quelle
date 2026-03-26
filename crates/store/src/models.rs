@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
-use semver::Version;
+use quelle_types::{Timestamp, version::Version};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
@@ -18,20 +17,21 @@ pub struct ExtensionInfo {
     pub version: Version,
     pub author: String,
     pub tags: Vec<String>,
-    pub last_updated: Option<DateTime<Utc>>,
+    pub last_updated: Option<Timestamp>,
     pub store_source: String,
 }
 
 /// Minimal extension information for listing and search operations
 /// This is a clean interface type without implementation-specific details
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ExtensionListing {
     pub id: String,
     pub name: String,
     pub version: Version,
     pub author: String,
     pub tags: Vec<String>,
-    pub last_updated: Option<DateTime<Utc>>,
+    pub last_updated: Option<Timestamp>,
     pub store_source: String,
 }
 
@@ -249,6 +249,7 @@ impl ExtensionPackage {
 
 /// Rich metadata about an extension
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ExtensionMetadata {
     pub description: String,
     pub keywords: Vec<String>,
@@ -260,6 +261,7 @@ pub struct ExtensionMetadata {
 
 /// Information about an installed extension
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct InstalledExtension {
     pub id: String,
     pub name: String,
@@ -267,8 +269,8 @@ pub struct InstalledExtension {
     pub manifest: ExtensionManifest,
     pub metadata: Option<ExtensionMetadata>,
     pub size: u64,
-    pub installed_at: DateTime<Utc>,
-    pub last_updated: Option<DateTime<Utc>>,
+    pub installed_at: Timestamp,
+    pub last_updated: Option<Timestamp>,
     pub source_store: String,
     pub auto_update: bool,
     pub checksum: Option<crate::registry::manifest::Checksum>,
@@ -289,8 +291,8 @@ impl InstalledExtension {
             manifest,
             metadata: None,
             size: 0,
-            installed_at: Utc::now(),
-            last_updated: Some(Utc::now()),
+            installed_at: Timestamp::now(),
+            last_updated: Some(Timestamp::now()),
             source_store,
             auto_update: false,
             checksum: None,
@@ -307,8 +309,8 @@ impl InstalledExtension {
             manifest: package.manifest,
             metadata: package.metadata,
             size,
-            installed_at: Utc::now(),
-            last_updated: Some(Utc::now()),
+            installed_at: Timestamp::now(),
+            last_updated: Some(Timestamp::now()),
             source_store: package.source_store,
             auto_update: false,
             checksum: None,
@@ -346,7 +348,7 @@ impl InstalledExtension {
 
     /// Update the installation timestamp
     pub fn mark_updated(&mut self) {
-        self.last_updated = Some(Utc::now());
+        self.last_updated = Some(Timestamp::now());
     }
 
     /// Verify the integrity by checking checksum
@@ -368,7 +370,7 @@ impl InstalledExtension {
         registry: &dyn crate::registry::InstallRegistry,
     ) -> crate::error::Result<()> {
         self.size = self.calculate_actual_size(registry).await?;
-        self.last_updated = Some(Utc::now());
+        self.last_updated = Some(Timestamp::now());
         Ok(())
     }
 
@@ -511,7 +513,7 @@ pub enum SearchSortBy {
 #[derive(Debug, Clone)]
 pub struct StoreHealth {
     pub healthy: bool,
-    pub last_check: DateTime<Utc>,
+    pub last_check: Timestamp,
     pub response_time: Option<Duration>,
     pub error: Option<String>,
     pub extension_count: Option<usize>,
@@ -522,7 +524,7 @@ impl StoreHealth {
     pub fn healthy() -> Self {
         Self {
             healthy: true,
-            last_check: Utc::now(),
+            last_check: Timestamp::now(),
             response_time: None,
             error: None,
             extension_count: None,
@@ -533,7 +535,7 @@ impl StoreHealth {
     pub fn unhealthy(error: String) -> Self {
         Self {
             healthy: false,
-            last_check: Utc::now(),
+            last_check: Timestamp::now(),
             response_time: None,
             error: Some(error),
             extension_count: None,

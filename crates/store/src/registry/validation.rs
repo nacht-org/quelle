@@ -7,9 +7,9 @@ use std::time::Instant;
 use async_trait::async_trait;
 
 use super::core::{IssueSeverity, ValidationIssue, ValidationIssueType};
+use crate::Result;
 use crate::manager::publish::ValidationReport;
 use crate::models::ExtensionPackage;
-use crate::Result;
 
 /// Core trait for validation rules
 #[async_trait]
@@ -229,7 +229,7 @@ pub fn create_default_validator() -> ValidationEngine {
 
 #[cfg(test)]
 mod tests {
-    use semver::Version;
+    use quelle_types::version::Version;
 
     use super::*;
     use crate::models::ExtensionPackage;
@@ -298,9 +298,11 @@ mod tests {
 
         let report = engine.validate(&package).await.unwrap();
         assert!(!report.passed, "Empty name should fail validation");
-        assert!(report
-            .issues
-            .iter()
-            .any(|i| matches!(i.severity, IssueSeverity::Critical)));
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|i| matches!(i.severity, IssueSeverity::Critical))
+        );
     }
 }

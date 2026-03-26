@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use semver::Version;
+use quelle_types::version::Version;
 use serde::{Deserialize, Serialize};
 
 use crate::registry::ValidationIssue;

@@ -1,6 +1,6 @@
 //! Supporting types for the book storage system.
 
-use chrono::{DateTime, Utc};
+use quelle_types::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// Unique identifier for a novel within the storage system.
@@ -64,9 +64,9 @@ pub enum ChapterContentStatus {
     NotStored,
     /// Chapter content is stored with metadata
     Stored {
-        stored_at: DateTime<Utc>,
+        stored_at: Timestamp,
         content_size: u64,
-        updated_at: DateTime<Utc>,
+        updated_at: Timestamp,
     },
 }
 
@@ -85,7 +85,7 @@ impl ChapterContentStatus {
     }
 
     /// Get stored timestamp if stored
-    pub fn stored_at(&self) -> Option<DateTime<Utc>> {
+    pub fn stored_at(&self) -> Option<Timestamp> {
         match self {
             ChapterContentStatus::NotStored => None,
             ChapterContentStatus::Stored { stored_at, .. } => Some(*stored_at),
@@ -93,7 +93,7 @@ impl ChapterContentStatus {
     }
 
     /// Get last updated timestamp if stored
-    pub fn updated_at(&self) -> Option<DateTime<Utc>> {
+    pub fn updated_at(&self) -> Option<Timestamp> {
         match self {
             ChapterContentStatus::NotStored => None,
             ChapterContentStatus::Stored { updated_at, .. } => Some(*updated_at),
@@ -134,7 +134,7 @@ impl ChapterInfo {
         chapter_url: String,
         chapter_title: String,
         chapter_index: i32,
-        stored_at: DateTime<Utc>,
+        stored_at: Timestamp,
         content_size: u64,
     ) -> Self {
         Self {
@@ -152,7 +152,7 @@ impl ChapterInfo {
 
     /// Update storage metadata when content is stored
     pub fn mark_stored(&mut self, content_size: u64) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         match &self.content_status {
             ChapterContentStatus::NotStored => {
                 self.content_status = ChapterContentStatus::Stored {
@@ -187,12 +187,12 @@ impl ChapterInfo {
     }
 
     /// Get stored timestamp if available
-    pub fn stored_at(&self) -> Option<DateTime<Utc>> {
+    pub fn stored_at(&self) -> Option<Timestamp> {
         self.content_status.stored_at()
     }
 
     /// Get updated timestamp if available
-    pub fn updated_at(&self) -> Option<DateTime<Utc>> {
+    pub fn updated_at(&self) -> Option<Timestamp> {
         self.content_status.updated_at()
     }
 }

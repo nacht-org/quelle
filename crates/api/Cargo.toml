@@ -9,6 +9,7 @@ quelle_store = { path = "../store", features = ["git", "github"] }
 quelle_storage = { path = "../storage" }
 quelle_export = { path = "../export" }
 quelle_types = { path = "../types" }
+quelle_domain = { path = "../domain" }
 
 axum = { workspace = true }
 tracing = { workspace = true }
@@ -24,3 +25,4 @@ tracing-error = "0.2.1"
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 eyre = { workspace = true }
 thiserror = { workspace = true }
+schemars = { workspace = true }

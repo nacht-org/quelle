@@ -2,7 +2,7 @@
 
 use eyre::Result;
 use quelle_store::{StoreManager, UpdateOptions, UpdateStatus};
-use semver::Version;
+use quelle_types::version::Version;
 use std::io::{self, Write};
 
 use crate::cli::ExtensionCommands;

@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
-use semver::Version;
+use quelle_types::version::Version;
 use serde::{Deserialize, Serialize};
 
 /// Reference to a file with integrity information
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct FileReference {
     /// Relative path to the file
     pub path: String,
@@ -16,6 +17,7 @@ pub struct FileReference {
 
 /// Reference to an asset file with additional metadata
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AssetReference {
     /// Asset name/identifier
     pub name: String,
@@ -71,6 +73,7 @@ impl AssetReference {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ExtensionManifest {
     // Common Fields
     pub id: String,
@@ -109,12 +112,14 @@ impl From<LocalExtensionManifest> for ExtensionManifest {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ReadingDirection {
     Ltr,
     Rtl,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum Attribute {
     Fanfiction,
 }
@@ -127,15 +132,18 @@ use crate::models::ExtensionMetadata;
 pub mod checksum {
     use std::{fmt::Display, str::FromStr};
 
+    use quelle_types::Timestamp;
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
     pub struct Checksum {
         pub algorithm: ChecksumAlgorithm,
         pub value: String,
     }
 
     #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
     pub enum ChecksumAlgorithm {
         Sha256,
         Sha384,
@@ -145,11 +153,12 @@ pub mod checksum {
 
     /// Signature information for package authenticity verification
     #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
     pub struct SignatureInfo {
         pub algorithm: String,
         pub signature: String,
         pub public_key_id: String,
-        pub timestamp: Option<chrono::DateTime<chrono::Utc>>,
+        pub timestamp: Option<Timestamp>,
     }
 
     impl Checksum {

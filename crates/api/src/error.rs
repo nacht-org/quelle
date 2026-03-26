@@ -1,3 +1,4 @@
+use aide::OperationOutput;
 use axum::{http::StatusCode, response::IntoResponse};
 use serde::Serialize;
 
@@ -30,4 +31,8 @@ fn error_to_response(error: &ApiError) -> (StatusCode, ErrorBody) {
             },
         ),
     }
+}
+
+impl OperationOutput for ApiError {
+    type Inner = ErrorBody;
 }

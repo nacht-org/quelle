@@ -21,7 +21,7 @@
 //! ```
 
 use async_trait::async_trait;
-use semver::Version;
+use quelle_types::version::Version;
 
 use crate::error::Result;
 use crate::manager::publish::{

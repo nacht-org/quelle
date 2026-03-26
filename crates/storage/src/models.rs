@@ -4,7 +4,7 @@
 //! storage-specific models and serialization helpers. The `quelle_types`
 //! structs are serialized directly — no intermediate `Storage*` wrappers needed.
 
-use chrono::{DateTime, Utc};
+use quelle_types::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -15,7 +15,7 @@ use crate::{ChapterContent, Novel};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChapterContentMetadata {
     pub content_size: u64,
-    pub stored_at: DateTime<Utc>,
+    pub stored_at: Timestamp,
 }
 
 /// Content index that tracks which chapters have content
@@ -31,7 +31,7 @@ impl ContentIndex {
             chapter_url,
             ChapterContentMetadata {
                 content_size,
-                stored_at: Utc::now(),
+                stored_at: Timestamp::now(),
             },
         );
     }

@@ -5,7 +5,7 @@
 //! into local storage that can be read by LocalStore.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use quelle_types::Timestamp;
 use std::path::Path;
 
 use crate::error::Result;
@@ -20,7 +20,7 @@ pub struct SyncResult {
     /// Any non-fatal warnings that occurred
     pub warnings: Vec<String>,
     /// Time when sync completed
-    pub completed_at: DateTime<Utc>,
+    pub completed_at: Timestamp,
     /// Bytes transferred during sync (if applicable)
     pub bytes_transferred: Option<u64>,
 }
@@ -32,7 +32,7 @@ impl SyncResult {
             updated: false,
             changes: Vec::new(),
             warnings: Vec::new(),
-            completed_at: Utc::now(),
+            completed_at: Timestamp::now(),
             bytes_transferred: None,
         }
     }
@@ -43,7 +43,7 @@ impl SyncResult {
             updated: true,
             changes,
             warnings: Vec::new(),
-            completed_at: Utc::now(),
+            completed_at: Timestamp::now(),
             bytes_transferred: None,
         }
     }

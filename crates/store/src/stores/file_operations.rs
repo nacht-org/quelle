@@ -4,7 +4,7 @@
 //! (filesystem, HTTP, etc.) and a shared processor that implements common store
 //! operations using these file operations.
 
-use semver::Version;
+use quelle_types::version::Version;
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -455,8 +455,8 @@ impl<F: FileOperations> FileBasedProcessor<F> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
-    use semver::Version;
+    use quelle_types::Timestamp;
+    use quelle_types::version::Version;
 
     use crate::registry::manifest::{
         Attribute, ExtensionManifest, FileReference, ReadingDirection,
@@ -595,7 +595,7 @@ mod tests {
                 version: version.clone(),
                 base_urls: vec![],
                 langs: langs.clone(),
-                last_updated: Utc::now(),
+                last_updated: Timestamp::now(),
                 manifest_path: manifest_path.clone(),
                 manifest_checksum: {
                     use sha2::{Digest, Sha256};
@@ -675,7 +675,7 @@ mod tests {
                     version: version.clone(),
                     base_urls: vec![],
                     langs: langs.clone(),
-                    last_updated: Utc::now(),
+                    last_updated: Timestamp::now(),
                     manifest_path: manifest_path.clone(),
                     manifest_checksum: {
                         use sha2::{Digest, Sha256};
@@ -747,7 +747,7 @@ mod tests {
                 version: version.clone(),
                 base_urls: vec![],
                 langs,
-                last_updated: Utc::now(),
+                last_updated: Timestamp::now(),
                 manifest_path: manifest_path.clone(),
                 manifest_checksum: {
                     use sha2::{Digest, Sha256};
@@ -861,7 +861,7 @@ mod tests {
                 version: version_parsed.clone(),
                 base_urls: vec![],
                 langs,
-                last_updated: Utc::now(),
+                last_updated: Timestamp::now(),
                 manifest_path: manifest_path.clone(),
                 manifest_checksum: {
                     use sha2::{Digest, Sha256};
@@ -1332,7 +1332,7 @@ mod tests {
                 },
                 metadata: None,
                 size: 1024,
-                installed_at: chrono::Utc::now(),
+                installed_at: Timestamp::now(),
                 last_updated: None,
                 source_store: "test-store".to_string(),
                 auto_update: false,
@@ -1361,7 +1361,7 @@ mod tests {
                 },
                 metadata: None,
                 size: 2048,
-                installed_at: chrono::Utc::now(),
+                installed_at: Timestamp::now(),
                 last_updated: None,
                 source_store: "test-store".to_string(),
                 auto_update: false,
@@ -1423,7 +1423,7 @@ mod tests {
             },
             metadata: None,
             size: 512,
-            installed_at: chrono::Utc::now(),
+            installed_at: Timestamp::now(),
             last_updated: None,
             source_store: "test-store".to_string(),
             auto_update: false,

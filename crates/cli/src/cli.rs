@@ -1,4 +1,4 @@
-use semver::Version;
+use quelle_types::version::Version;
 use std::path::PathBuf;
 use url::Url;
 

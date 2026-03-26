@@ -1,0 +1,11 @@
+[package]
+name = "quelle_domain"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+quelle_engine = { path = "../engine", features = ["cli"] }
+quelle_store = { path = "../store", features = ["git", "github"] }
+
+eyre = { workspace = true }
+dashmap = { workspace = true }

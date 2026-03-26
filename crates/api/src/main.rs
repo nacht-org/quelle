@@ -7,6 +7,8 @@ use quelle_api::{
         telemetry::{get_subscriber, init_subscriber},
     },
 };
+use quelle_domain::registry::ExtensionRegistry;
+use quelle_engine::{Executor, create_engine};
 use tokio::net::TcpListener;
 
 fn main() -> eyre::Result<()> {
@@ -29,8 +31,17 @@ async fn async_main(settings: Settings) -> eyre::Result<()> {
         .await
         .expect("Failed to bind to the tcp stream");
 
+    let engine = create_engine(Executor::default())?;
+
+    let registry_dir = config.get_registry_dir();
+    let registry = Box::new(LocalInstallRegistry::new(&registry_dir).await?);
+    let mut store_manager = StoreManager::new(registry).await?;
+
     let state = AppState {
         settings: settings.clone(),
+        registry: ExtensionRegistry::new(&engine, &mut store_manager),
+        engine,
+        store_manager,
     };
 
     let server = run(listener, state)

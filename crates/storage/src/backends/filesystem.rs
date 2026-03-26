@@ -1,7 +1,7 @@
 //! Filesystem-based storage backend implementation.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use quelle_types::Timestamp;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -9,9 +9,7 @@ use std::sync::Arc;
 use tokio::fs;
 
 use crate::error::{BookStorageError, Result};
-use crate::models::{
-    chapter_content_from_json, chapter_content_to_json, ContentIndex,
-};
+use crate::models::{ContentIndex, chapter_content_from_json, chapter_content_to_json};
 use crate::traits::BookStorage;
 use crate::types::{
     Asset, AssetId, ChapterInfo, CleanupReport, NovelFilter, NovelId, NovelSummary,
@@ -46,7 +44,7 @@ pub struct FilesystemStorage {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NovelStorageMetadata {
     pub source_id: String,
-    pub stored_at: DateTime<Utc>,
+    pub stored_at: Timestamp,
     pub content_index: ContentIndex,
 }
 
@@ -54,15 +52,25 @@ pub struct NovelStorageMetadata {
 struct ChapterStorageMetadata {
     volume_index: i32,
     chapter_url: String,
-    stored_at: DateTime<Utc>,
+    stored_at: Timestamp,
     content_size: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
 struct StorageIndex {
     novels: Vec<IndexedNovel>,
     assets: Vec<IndexedAsset>,
-    last_updated: DateTime<Utc>,
+    last_updated: Timestamp,
+}
+
+impl Default for StorageIndex {
+    fn default() -> Self {
+        Self {
+            novels: Vec::new(),
+            assets: Vec::new(),
+            last_updated: Timestamp::now(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,8 +81,8 @@ struct IndexedNovel {
     status: quelle_types::NovelStatus,
     total_chapters: u32,
     stored_chapters: u32,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+    created_at: Timestamp,
+    updated_at: Timestamp,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,7 +93,7 @@ struct IndexedAsset {
     mime_type: String,
     size: u64,
     filename: String,
-    stored_at: DateTime<Utc>,
+    stored_at: Timestamp,
 }
 
 impl FilesystemStorage {
@@ -351,7 +359,7 @@ impl FilesystemStorage {
             return Ok(StorageIndex {
                 novels: Vec::new(),
                 assets: Vec::new(),
-                last_updated: Utc::now(),
+                last_updated: Timestamp::now(),
             });
         }
 
@@ -390,7 +398,7 @@ impl FilesystemStorage {
     async fn update_index_for_novel(&self, novel_id: &NovelId, novel: &Novel) -> Result<()> {
         let _guard = self.index_lock.lock().await;
         let mut index = self.load_index().await?;
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         // Remove existing entry if it exists
         index.novels.retain(|n| n.id != *novel_id);
@@ -420,7 +428,7 @@ impl FilesystemStorage {
         let _guard = self.index_lock.lock().await;
         let mut index = self.load_index().await?;
         index.novels.retain(|n| n.id != *novel_id);
-        index.last_updated = Utc::now();
+        index.last_updated = Timestamp::now();
         self.save_index(&index).await
     }
 
@@ -497,7 +505,7 @@ impl FilesystemStorage {
             mime_type: asset.mime_type.clone(),
             size: data_size,
             filename: asset.filename.clone(),
-            stored_at: Utc::now(),
+            stored_at: Timestamp::now(),
         };
 
         // Remove existing entry if it exists
@@ -606,7 +614,7 @@ impl BookStorage for FilesystemStorage {
             match self.read_novel_file_combined(&novel_id).await {
                 Ok((_, mut existing_metadata)) => {
                     // Update timestamp but preserve everything else
-                    existing_metadata.stored_at = Utc::now();
+                    existing_metadata.stored_at = Timestamp::now();
                     existing_metadata
                 }
                 Err(_) => {
@@ -615,7 +623,7 @@ impl BookStorage for FilesystemStorage {
                     let source_id = self.extract_source_id(&normalized_url);
                     NovelStorageMetadata {
                         source_id,
-                        stored_at: Utc::now(),
+                        stored_at: Timestamp::now(),
                         content_index: crate::models::ContentIndex::default(),
                     }
                 }
@@ -625,7 +633,7 @@ impl BookStorage for FilesystemStorage {
             let source_id = self.extract_source_id(&normalized_url);
             NovelStorageMetadata {
                 source_id,
-                stored_at: Utc::now(),
+                stored_at: Timestamp::now(),
                 content_index: crate::models::ContentIndex::default(),
             }
         };
@@ -664,7 +672,7 @@ impl BookStorage for FilesystemStorage {
 
         // Read existing metadata to preserve content index
         let (_, mut metadata) = self.read_novel_file_combined(id).await?;
-        metadata.stored_at = Utc::now();
+        metadata.stored_at = Timestamp::now();
 
         // Use helper method to write combined structure
         self.write_novel_file_combined(id, novel, &metadata).await?;
@@ -748,7 +756,7 @@ impl BookStorage for FilesystemStorage {
         let metadata = ChapterStorageMetadata {
             volume_index,
             chapter_url: normalized_chapter_url.clone(),
-            stored_at: Utc::now(),
+            stored_at: Timestamp::now(),
             content_size,
         };
 
@@ -1411,7 +1419,7 @@ impl FilesystemStorage {
     /// Update the stored timestamp for a novel without changing its content
     pub async fn touch_novel(&self, novel_id: &NovelId) -> Result<()> {
         let (novel, mut metadata) = self.read_novel_file_combined(novel_id).await?;
-        metadata.stored_at = Utc::now();
+        metadata.stored_at = Timestamp::now();
         self.write_novel_file_combined(novel_id, &novel, &metadata)
             .await?;
         Ok(())
@@ -1777,9 +1785,9 @@ mod tests {
         assert!(chapters[0].updated_at().is_some());
 
         // Verify timestamps are recent (within last minute)
-        let now = Utc::now();
+        let now = Timestamp::now();
         let stored_at = chapters[0].stored_at().unwrap();
-        let diff = now.signed_duration_since(stored_at);
+        let diff = now.signed_duration_since(*stored_at);
         assert!(diff.num_seconds() < 60);
 
         // Delete chapter content
@@ -2121,11 +2129,13 @@ mod tests {
 
             // Verify asset ID is filesystem-safe and short
             assert_eq!(asset.id.as_str().len(), 8);
-            assert!(asset
-                .id
-                .as_str()
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-'));
+            assert!(
+                asset
+                    .id
+                    .as_str()
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-')
+            );
 
             // Verify filename contains the asset ID and proper extension
             assert!(asset.filename.starts_with(asset.id.as_str()));
@@ -2142,10 +2152,12 @@ mod tests {
             }
 
             // Verify the filename is filesystem-safe
-            assert!(asset
-                .filename
-                .chars()
-                .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_'));
+            assert!(
+                asset
+                    .filename
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+            );
         }
     }
 
@@ -2204,11 +2216,13 @@ mod tests {
             );
 
             // Verify metadata file is named with asset ID
-            assert!(metadata_file
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with(&asset.id.as_str()));
+            assert!(
+                metadata_file
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with(&asset.id.as_str())
+            );
 
             // Verify data file has the proper filename with extension
             assert_eq!(
