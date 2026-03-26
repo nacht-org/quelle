@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use aide::axum::{ApiRouter, routing::get};
+use aide::{
+    axum::{ApiRouter, routing::get_with},
+    transform::TransformOperation,
+};
 use axum::{Json, extract::State};
 use quelle_store::{InstalledExtension, models::ExtensionListing};
 use schemars::JsonSchema;
@@ -8,13 +11,15 @@ use serde::Serialize;
 
 use crate::{error::ApiResult, state::AppState};
 
-pub fn router() -> ApiRouter<Arc<AppState>> {
-    ApiRouter::new().api_route("/", get(get_extensions))
+pub fn routes() -> ApiRouter<Arc<AppState>> {
+    ApiRouter::new().api_route("/", get_with(get_extensions, get_extensions_tranform))
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Extensions {
+    /// The extensions that are currently installed on this system.
     installed: Vec<InstalledExtension>,
+    /// All extensions available across configured stores.
     listing: Vec<ExtensionListing>,
 }
 
@@ -40,4 +45,13 @@ pub async fn get_extensions(
     };
 
     Ok(Json(vec![Extensions { installed, listing }]))
+}
+
+fn get_extensions_tranform(op: TransformOperation<'_>) -> TransformOperation<'_> {
+    op.id("list_extensions")
+        .summary("List extensions")
+        .description(
+            "Returns all installed extensions and their availability in configured stores.",
+        )
+        .tag("Extensions")
 }

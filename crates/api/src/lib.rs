@@ -8,8 +8,9 @@ use std::sync::Arc;
 
 use crate::state::AppState;
 use aide::{
-    axum::{ApiRouter, IntoApiResponse, routing::get},
-    openapi::{Info, OpenApi},
+    axum::{ApiRouter, IntoApiResponse},
+    openapi::{Info, OpenApi, Tag},
+    transform::TransformOpenApi,
 };
 use axum::{Extension, Json, Router, http, routing::IntoMakeService};
 use tokio::net::TcpListener;
@@ -23,9 +24,9 @@ pub async fn run(listener: TcpListener, state: AppState) -> Result<Server, std::
     let port = state.settings.server.port;
 
     let app = ApiRouter::new()
-        .api_route("/health", get(routes::health))
-        .route("/openapi.json", get(serve_api))
-        .nest("/extensions", routes::extensions::router())
+        .merge(routes::routes())
+        .merge(routes::docs::routes())
+        .nest("/extensions", routes::extensions::routes())
         .layer(TraceLayer::new_for_http().make_span_with(RequestSpan))
         .with_state(Arc::new(state));
 
@@ -37,6 +38,7 @@ pub async fn run(listener: TcpListener, state: AppState) -> Result<Server, std::
             description: Some(
                 "API for managing and executing extensions in the Quelle system".to_string(),
             ),
+            version: "0.1.0".to_string(),
             ..Info::default()
         },
         ..OpenApi::default()
@@ -44,16 +46,23 @@ pub async fn run(listener: TcpListener, state: AppState) -> Result<Server, std::
 
     let server = axum::serve(
         listener,
-        app.finish_api(&mut api)
-            .layer(Extension(api))
-            .into_make_service(),
+        app.finish_api_with(&mut api, |api: TransformOpenApi| {
+            api.tag(Tag {
+                name: "System".to_string(),
+                description: Some("System-level operations such as health checks.".to_string()),
+                ..Tag::default()
+            })
+            .tag(Tag {
+                name: "Extensions".to_string(),
+                description: Some("Operations for managing and querying extensions.".to_string()),
+                ..Tag::default()
+            })
+        })
+        .layer(Extension(api))
+        .into_make_service(),
     );
 
     Ok(server)
-}
-
-async fn serve_api(Extension(api): Extension<OpenApi>) -> impl IntoApiResponse {
-    Json(api)
 }
 
 #[derive(Clone)]
