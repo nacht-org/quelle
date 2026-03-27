@@ -4,6 +4,7 @@
 //! such as filesystem, database, and cloud storage backends.
 
 pub mod filesystem;
+pub mod postgres;
 
 // Re-export the main filesystem backend for convenience
 pub use filesystem::FilesystemStorage;

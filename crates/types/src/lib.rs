@@ -69,6 +69,19 @@ pub enum NovelStatus {
     Unknown,
 }
 
+impl NovelStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NovelStatus::Ongoing => "Ongoing",
+            NovelStatus::Hiatus => "Hiatus",
+            NovelStatus::Completed => "Completed",
+            NovelStatus::Stub => "Stub",
+            NovelStatus::Dropped => "Dropped",
+            NovelStatus::Unknown => "Unknown",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ChapterContent {

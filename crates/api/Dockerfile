@@ -9,6 +9,7 @@ WORKDIR /app
 FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY extensions ./extensions
 RUN cargo chef prepare --recipe-path recipe.json
 
 # Builder stage - cache dependencies
@@ -26,13 +27,13 @@ COPY crates ./crates
 
 ENV CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc
 ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
-RUN cargo build --release --target x86_64-unknown-linux-gnu --bin readceipt_api
+RUN cargo build --release --target x86_64-unknown-linux-gnu --bin quelle_api
 
 # Runtime stage
 FROM cgr.dev/chainguard/glibc-dynamic
 
 WORKDIR /app
-COPY --from=builder /app/target/x86_64-unknown-linux-gnu/release/readceipt_api ./api
+COPY --from=builder /app/target/x86_64-unknown-linux-gnu/release/quelle_api ./api
 COPY config ./config
 
 EXPOSE 8080

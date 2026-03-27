@@ -48,3 +48,6 @@ list:
 # Show CLI help
 help:
     cargo run -p quelle_cli -- --help
+
+build-api:
+    docker build -f crates/api/Dockerfile -t quelle-api .

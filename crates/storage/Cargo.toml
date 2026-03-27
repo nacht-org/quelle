@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+quelle_types = { path = "../types" }
+
+stowage = { version = "0.1", features = ['local'] }
 async-trait = "0.1"
 eyre = "0.6"
 serde = { workspace = true, features = ["derive"] }
@@ -14,8 +17,13 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3.0"
 serde_json = "1.0"
 url = "2.5"
-uuid = { version = "1.0", features = ["v4"] }
 tracing.workspace = true
+tokio-postgres = { workspace = true, optional = true }
+bb8 = { workspace = true, optional = true }
+bb8-postgres = { workspace = true, optional = true }
+tokio-postgres-rustls = { workspace = true, optional = true }
+uuid = { workspace = true, features = ["serde"] }
 
-# Import domain types from types crate (no Wasmtime dependency)
-quelle_types = { path = "../types" }
+[features]
+default = ["postgres"]
+postgres = ["dep:tokio-postgres", "dep:bb8", "dep:bb8-postgres", "dep:tokio-postgres-rustls"]
