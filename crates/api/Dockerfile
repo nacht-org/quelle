@@ -24,6 +24,7 @@ RUN cargo chef cook --release --recipe-path recipe.json --target x86_64-unknown-
 # Copy source and build application
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY wit ./wit
 
 ENV CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc
 ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
