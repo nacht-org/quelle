@@ -24,7 +24,7 @@ walkdir = "2.0"
 futures = "0.3"
 directories = "6.0.0"
 reqwest = { workspace = true, optional = true }
-git2 = { version = "0.20", optional = true }
+git2 = { version = "0.20", optional = true, default-features = false, features = ["ssh", "vendored-openssl"] }
 
 [features]
 default = ["local", "git"]
