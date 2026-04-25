@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, de::DeserializeOwned};
+use url::Url;
 
 /// Loads configuration settings by merging base, environment-specific, and environment variable sources.
 ///
@@ -84,21 +85,74 @@ impl TryFrom<String> for Environment {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct Settings {
+    #[serde(default)]
     pub server: ServerSettings,
+    #[serde(default)]
     pub data: DataSettings,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerSettings {
+    #[serde(default = "default_server_url")]
+    pub url: Url,
+    #[serde(default = "default_server_host")]
     pub host: String,
+    #[serde(default = "default_server_port")]
     pub port: u16,
+}
+
+impl Default for ServerSettings {
+    fn default() -> Self {
+        Self {
+            url: default_server_url(),
+            host: default_server_host(),
+            port: default_server_port(),
+        }
+    }
+}
+
+fn default_server_url() -> Url {
+    Url::parse("http://localhost:8080").expect("Failed to parse default server URL")
+}
+
+fn default_server_host() -> String {
+    "localhost".to_string()
+}
+
+fn default_server_port() -> u16 {
+    8080
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct DataSettings {
+    #[serde(default = "default_data_base_dir")]
     pub base_dir: PathBuf,
+}
+
+impl Default for DataSettings {
+    fn default() -> Self {
+        Self {
+            base_dir: default_data_base_dir(),
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+fn default_data_base_dir() -> PathBuf {
+    std::env::current_dir()
+        .expect("Failed to determine current directory")
+        .join("data")
+}
+
+#[cfg(not(debug_assertions))]
+fn default_data_base_dir() -> PathBuf {
+    std::env::current_exe()
+        .expect("Failed to determine current executable path")
+        .parent()
+        .expect("Executable must have a parent directory")
+        .join("data")
 }
 
 impl DataSettings {

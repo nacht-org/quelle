@@ -26,3 +26,4 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 eyre = { workspace = true }
 thiserror = { workspace = true }
 schemars = { workspace = true }
+url = { workspace = true }
