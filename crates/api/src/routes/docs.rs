@@ -4,7 +4,7 @@ use aide::{
     axum::{ApiRouter, IntoApiResponse},
     openapi::OpenApi,
 };
-use axum::{Extension, Json};
+use axum::{Extension, Json, extract::State};
 
 use crate::state::AppState;
 
@@ -18,8 +18,10 @@ async fn serve_api(Extension(api): Extension<OpenApi>) -> impl IntoApiResponse {
     Json(api)
 }
 
-async fn serve_scalar() -> impl IntoApiResponse {
-    axum::response::Html(
+async fn serve_scalar(State(state): State<Arc<AppState>>) -> impl IntoApiResponse {
+    let server_url = state.settings.server.url.to_string();
+
+    axum::response::Html(format!(
         r#"
 <!doctype html>
 <html>
@@ -31,12 +33,12 @@ async fn serve_scalar() -> impl IntoApiResponse {
   <body>
     <script
       id="api-reference"
-      data-url="/openapi.json"
-      data-configuration='{"theme":"purple"}'
+      data-url="{server_url}/openapi.json"
+      data-configuration='{{"theme":"purple"}}'
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
   </body>
 </html>
-    "#,
-    )
+    "#
+    ))
 }
