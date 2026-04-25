@@ -12,7 +12,7 @@ use serde::Serialize;
 use crate::{error::ApiResult, state::AppState};
 
 pub fn routes() -> ApiRouter<Arc<AppState>> {
-    ApiRouter::new().api_route("/", get_with(get_extensions, get_extensions_tranform))
+    ApiRouter::new().api_route("/", get_with(get_extensions, get_extensions_docs))
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -47,7 +47,7 @@ pub async fn get_extensions(
     Ok(Json(vec![Extensions { installed, listing }]))
 }
 
-fn get_extensions_tranform(op: TransformOperation<'_>) -> TransformOperation<'_> {
+fn get_extensions_docs(op: TransformOperation<'_>) -> TransformOperation<'_> {
     op.id("list_extensions")
         .summary("List extensions")
         .description(
