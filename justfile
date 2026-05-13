@@ -2,12 +2,12 @@
 
 # Build extension
 build NAME:
-    cargo component build -r -p extension_{{NAME}} --target wasm32-unknown-unknown
+    cargo component build -r -p extension_{{ NAME }} --target wasm32-unknown-unknown
 
 # Publish extension to local store
 publish NAME STORE="official" *ARGS:
-    just build {{NAME}}
-    cargo run -p quelle_cli -- publish extension ./target/wasm32-unknown-unknown/release/extension_{{NAME}}.wasm --store {{STORE}} --overwrite {{ARGS}}
+    just build {{ NAME }}
+    cargo run -p quelle_cli -- publish extension ./target/wasm32-unknown-unknown/release/extension_{{ NAME }}.wasm --store {{ STORE }} --overwrite {{ ARGS }}
 
 # Set up local store and publish scribblehub
 setup:
@@ -19,25 +19,24 @@ setup:
 
 # Run CLI with arguments
 cli *ARGS:
-    cargo run -p quelle_cli -- {{ARGS}}
+    cargo run -p quelle_cli -- {{ ARGS }}
 
 # === Development Commands ===
+# Generate a new extension from template
 
-# Generate new extension interactively
-generate:
-    cargo run -p quelle_dev -- generate
+# Usage: just generate <name> <display-name> <base-url> [language] [reading-direction]
+generate NAME DISPLAY_NAME BASE_URL LANGUAGE="en" RD="ltr":
+    cargo run -p quelle_dev -- generate {{ NAME }} --display-name "{{ DISPLAY_NAME }}" --base-url {{ BASE_URL }} --language {{ LANGUAGE }} --reading-direction {{ RD }}
 
-# Start development server
-dev NAME:
-    cargo run -p quelle_dev -- server {{NAME}} --watch
+# Test extension (provide --url and/or --query)
 
-# Test extension
+# Usage: just test <name> [extra args]
 test NAME *ARGS:
-    cargo run -p quelle_dev -- test {{NAME}} {{ARGS}}
+    cargo run -p quelle_dev -- test {{ NAME }} {{ ARGS }}
 
 # Validate extension
 validate NAME:
-    cargo run -p quelle_dev -- validate {{NAME}} --extended
+    cargo run -p quelle_dev -- validate {{ NAME }}
 
 # === Utility Commands ===
 

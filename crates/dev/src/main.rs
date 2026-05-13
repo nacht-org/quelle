@@ -6,8 +6,6 @@ use crate::{cli::Cli, commands::handle_command};
 pub mod cli;
 pub mod commands;
 pub mod generator;
-pub mod http_caching;
-pub mod server;
 pub mod utils;
 
 #[tokio::main]

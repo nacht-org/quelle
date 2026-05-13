@@ -4,25 +4,13 @@ use clap::Subcommand;
 use eyre::Result;
 use url::Url;
 
-use crate::server::Executor;
-
+pub mod generate;
 pub mod test;
 pub mod validate;
 
 /// Development commands available in the CLI
 #[derive(Subcommand, Debug, Clone)]
 pub enum DevCommands {
-    /// Start development server with hot reload
-    Server {
-        /// Extension name to develop
-        extension: String,
-        /// Auto-rebuild on file changes
-        #[arg(long, default_value = "true")]
-        watch: bool,
-        /// HTTP executor backend to use
-        #[arg(long, value_enum, default_value_t = Executor::Ghostwire)]
-        executor: Executor,
-    },
     /// Interactive testing shell for extensions
     Test {
         /// Extension name to test
@@ -33,29 +21,23 @@ pub enum DevCommands {
         /// Test search query
         #[arg(long)]
         query: Option<String>,
-        /// Enable verbose logging
-        #[arg(long, short)]
-        verbose: bool,
-        /// HTTP executor backend to use
-        #[arg(long, value_enum, default_value_t = Executor::Ghostwire)]
-        executor: Executor,
     },
     /// Generate a new extension from template
     Generate {
         /// Extension name (lowercase, no spaces)
-        name: Option<String>,
+        name: String,
         /// Display name for the extension
         #[arg(long)]
-        display_name: Option<String>,
+        display_name: String,
         /// Base URL of the target website
         #[arg(long)]
-        base_url: Option<String>,
+        base_url: String,
         /// Primary language code (default: en)
-        #[arg(long)]
-        language: Option<String>,
+        #[arg(long, default_value = "en")]
+        language: String,
         /// Reading direction (ltr or rtl)
-        #[arg(long)]
-        reading_direction: Option<String>,
+        #[arg(long, default_value = "ltr")]
+        reading_direction: String,
         /// Force overwrite if extension already exists
         #[arg(long)]
         force: bool,
@@ -64,27 +46,17 @@ pub enum DevCommands {
     Validate {
         /// Extension name to validate
         extension: String,
-        /// Run extended validation tests
-        #[arg(long)]
-        extended: bool,
     },
 }
 
 /// Handle development commands
 pub async fn handle_command(cmd: DevCommands) -> Result<()> {
     match cmd {
-        DevCommands::Server {
-            extension,
-            watch,
-            executor,
-        } => crate::server::start(extension, watch, executor).await,
         DevCommands::Test {
             extension,
             url,
             query,
-            verbose: _,
-            executor,
-        } => test::start_interactive(extension, url, query, executor).await,
+        } => test::run(extension, url, query).await,
         DevCommands::Generate {
             name,
             display_name,
@@ -93,7 +65,7 @@ pub async fn handle_command(cmd: DevCommands) -> Result<()> {
             reading_direction,
             force,
         } => {
-            crate::generator::handle(
+            generate::handle(
                 name,
                 display_name,
                 base_url,
@@ -103,9 +75,6 @@ pub async fn handle_command(cmd: DevCommands) -> Result<()> {
             )
             .await
         }
-        DevCommands::Validate {
-            extension,
-            extended,
-        } => validate::handle(extension, extended).await,
+        DevCommands::Validate { extension } => validate::handle(extension).await,
     }
 }
