@@ -48,7 +48,7 @@ pub async fn run(extension_name: String, url: Option<Url>, query: Option<String>
     }
 
     let executor = Arc::new(GhostwireExecutor::new()?);
-    let engine = ExtensionEngine::new(executor)?;
+    let engine = Arc::new(ExtensionEngine::new(executor)?);
     let wasm_str = wasm_path.to_str().unwrap().to_string();
 
     if let Some(url) = url {

@@ -14,7 +14,7 @@ quelle_storage = { path = "../storage" }
 quelle_types = { path = "../types" }
 async-trait = "0.1"
 tokio = { version = "1.0", features = ["fs", "io-util", "process"] }
-thiserror = "2.0"
+thiserror = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 eyre = "0.6"
 tracing = { workspace = true }
