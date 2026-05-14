@@ -1,141 +1,127 @@
-//! Interactive testing commands for extensions
+//! Test command for extensions
 
-use eyre::Result;
+use eyre::{Result, eyre};
+use quelle_engine::ExtensionEngine;
+use quelle_engine::bindings::quelle::extension::novel::SimpleSearchQuery;
+use quelle_engine::http::GhostwireExecutor;
+use std::sync::Arc;
 use url::Url;
 
-use crate::server::{DevServer, Executor};
-use crate::utils::find_extension_path;
+use crate::utils::{find_extension_path, find_project_root};
 
-/// Start interactive testing session for an extension
-pub async fn start_interactive(
-    extension_name: String,
-    url: Option<Url>,
-    query: Option<String>,
-    executor: Executor,
-) -> Result<()> {
-    println!("Starting interactive test session for '{}'", extension_name);
+pub async fn run(extension_name: String, url: Option<Url>, query: Option<String>) -> Result<()> {
+    if url.is_none() && query.is_none() {
+        eprintln!("Provide at least one of --url or --query");
+        eprintln!("  --url <URL>      Fetch novel info from URL");
+        eprintln!("  --query <TEXT>   Search for novels");
+        return Ok(());
+    }
 
     let extension_path = find_extension_path(&extension_name)?;
-    let mut dev_server = DevServer::new(extension_name.clone(), extension_path, executor).await?;
 
-    println!("Building extension...");
-    dev_server.build_extension().await?;
-    dev_server.load_extension().await?;
+    println!("Building extension '{}'...", extension_name);
+    let output = tokio::process::Command::new("cargo")
+        .args([
+            "component",
+            "build",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "-p",
+            &format!("extension_{}", extension_name),
+        ])
+        .output()
+        .await?;
 
-    // If URL is provided, test novel info immediately
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(eyre!("Build failed:\n{}", stderr));
+    }
+
+    let project_root = find_project_root(&extension_path)?;
+    let wasm_path = project_root
+        .join("target/wasm32-unknown-unknown/release")
+        .join(format!("extension_{}.wasm", extension_name));
+
+    if !wasm_path.exists() {
+        return Err(eyre!("WASM file not found: {}", wasm_path.display()));
+    }
+
+    let executor = Arc::new(GhostwireExecutor::new()?);
+    let engine = ExtensionEngine::new(executor)?;
+    let wasm_str = wasm_path.to_str().unwrap().to_string();
+
     if let Some(url) = url {
-        println!("Testing novel info for: {}", url);
-        crate::server::commands::test_novel_info(&dev_server, url.as_ref()).await?;
+        println!("Fetching novel info for: {}", url);
+        let runner = engine.new_runner_from_file(&wasm_str).await?;
+        let (_, result) = runner.fetch_novel_info(url.as_ref()).await?;
+        match result {
+            Ok(novel) => {
+                println!("Title: {}", novel.title);
+                println!(
+                    "Authors: {}",
+                    if novel.authors.is_empty() {
+                        "Unknown".to_string()
+                    } else {
+                        novel.authors.join(", ")
+                    }
+                );
+                let desc = novel.description.join(" ");
+                println!(
+                    "Description: {}",
+                    if desc.len() > 100 {
+                        format!("{}...", &desc[..100])
+                    } else {
+                        desc
+                    }
+                );
+                println!("Status: {:?}", novel.status);
+                let total_chapters: usize = novel.volumes.iter().map(|v| v.chapters.len()).sum();
+                println!(
+                    "Volumes: {}, Chapters: {}",
+                    novel.volumes.len(),
+                    total_chapters
+                );
+            }
+            Err(e) => {
+                let chain = e
+                    .frames
+                    .iter()
+                    .map(|f| f.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join(": ");
+                eprintln!("Error: {}", chain);
+            }
+        }
     }
 
-    // If query is provided, test search immediately
     if let Some(query) = query {
-        println!("Testing search for: '{}'", query);
-        crate::server::commands::test_search(&dev_server, &[query]).await?;
-    }
-
-    // Start interactive shell for additional testing
-    start_test_shell(dev_server).await
-}
-
-/// Start an interactive testing shell
-async fn start_test_shell(mut dev_server: DevServer) -> Result<()> {
-    use rustyline::{DefaultEditor, error::ReadlineError};
-
-    println!();
-    println!("Interactive testing session ready!");
-    println!("Type 'help' for available commands, 'quit' to exit.");
-    println!();
-
-    let mut rl = DefaultEditor::new()?;
-
-    loop {
-        match rl.readline("test> ") {
-            Ok(line) => {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-
-                rl.add_history_entry(line)?;
-
-                match line {
-                    "quit" | "exit" | "q" => {
-                        println!("👋 Goodbye!");
-                        break;
-                    }
-                    "help" | "h" => {
-                        print_test_help();
-                    }
-                    "clear" | "cls" => {
-                        print!("\x1B[2J\x1B[1;1H"); // Clear screen
-                    }
-                    "meta" | "info" => {
-                        crate::server::commands::show_extension_meta(&dev_server).await?;
-                    }
-                    cmd if cmd.starts_with("novel ") => {
-                        let url = cmd.strip_prefix("novel ").unwrap();
-                        crate::server::commands::test_novel_info(&dev_server, url).await?;
-                    }
-                    cmd if cmd.starts_with("chapter ") => {
-                        let url = cmd.strip_prefix("chapter ").unwrap();
-                        crate::server::commands::test_chapter_content(&dev_server, url).await?;
-                    }
-                    cmd if cmd.starts_with("search ") => {
-                        let query = cmd.strip_prefix("search ").unwrap();
-                        crate::server::commands::test_search(&dev_server, &[query.to_string()])
-                            .await?;
-                    }
-                    "rebuild" => {
-                        println!("Rebuilding...");
-                        if let Err(e) = dev_server.build_extension().await {
-                            println!("Error: Build failed: {}", e);
-                        } else if let Err(e) = dev_server.load_extension().await {
-                            println!("Error: Load failed: {}", e);
-                        } else {
-                            println!("Success: Rebuild successful");
-                        }
-                    }
-                    _ => {
-                        println!(
-                            "❓ Unknown command: '{}'. Type 'help' for available commands.",
-                            line
-                        );
-                    }
+        println!("Searching for: '{}'", query);
+        let runner = engine.new_runner_from_file(&wasm_str).await?;
+        let search_query = SimpleSearchQuery {
+            query: query.clone(),
+            page: Some(1),
+            limit: Some(10),
+        };
+        let (_, result) = runner.simple_search(&search_query).await?;
+        match result {
+            Ok(results) => {
+                println!("Found {} novels", results.novels.len());
+                for (i, novel) in results.novels.iter().enumerate() {
+                    println!("  {}. {} — {}", i + 1, novel.title, novel.url);
                 }
             }
-            Err(ReadlineError::Interrupted) => {
-                println!("^C");
-                continue;
-            }
-            Err(ReadlineError::Eof) => {
-                println!("👋 Goodbye!");
-                break;
-            }
-            Err(err) => {
-                println!("Error: {:?}", err);
-                break;
+            Err(e) => {
+                let chain = e
+                    .frames
+                    .iter()
+                    .map(|f| f.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join(": ");
+                eprintln!("Error: {}", chain);
             }
         }
     }
 
     Ok(())
-}
-
-/// Print help text for testing commands
-fn print_test_help() {
-    println!("Available testing commands:");
-    println!("  help, h                    - Show this help");
-    println!("  novel <url>                - Test novel info fetching from URL");
-    println!("  chapter <url>              - Test chapter content fetching from URL");
-    println!("  search <query>             - Test search functionality with query");
-    println!("  meta, info                 - Show extension metadata");
-    println!("  rebuild                    - Rebuild and reload the extension");
-    println!("  clear, cls                 - Clear screen");
-    println!("  quit, exit, q              - Exit the test session");
-    println!();
-    println!("Examples:");
-    println!("  novel https://example.com/novel/123");
-    println!("  chapter https://example.com/chapter/456");
-    println!("  search mystery adventure");
 }

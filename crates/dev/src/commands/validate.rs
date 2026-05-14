@@ -1,140 +1,91 @@
-//! Extension validation commands for ensuring code quality and correctness
+//! Extension validation command
 
 use eyre::{Result, eyre};
 use std::path::Path;
 
-use crate::server::{DevServer, Executor};
 use crate::utils::{find_extension_path, fs};
 
-/// Handle extension validation command
-pub async fn handle(extension_name: String, extended: bool) -> Result<()> {
+pub async fn handle(extension_name: String) -> Result<()> {
     println!("Validating extension '{}'", extension_name);
 
     let extension_path = find_extension_path(&extension_name)?;
 
-    // Basic validation checks
     validate_directory_structure(&extension_path)?;
     validate_cargo_toml(&extension_path)?;
     validate_source_files(&extension_path)?;
-
-    // Build validation
     validate_build(&extension_name, &extension_path).await?;
 
-    if extended {
-        println!("Running extended validation...");
-        validate_extension_runtime(&extension_name, &extension_path).await?;
-        validate_naming_conventions(&extension_path)?;
-    }
-
     println!(
-        "Success: Extension '{}' passed all validation checks",
+        "Extension '{}' passed all validation checks",
         extension_name
     );
     Ok(())
 }
 
-/// Validate that the extension directory has the correct structure
 fn validate_directory_structure(extension_path: &Path) -> Result<()> {
     println!("Checking directory structure...");
 
-    // Check required files exist
-    let cargo_toml = extension_path.join("Cargo.toml");
-    if !fs::exists(&cargo_toml) {
-        return Err(eyre!("Missing Cargo.toml file"));
+    if !fs::exists(extension_path.join("Cargo.toml")) {
+        return Err(eyre!("Missing Cargo.toml"));
     }
-
-    let src_dir = extension_path.join("src");
-    if !fs::exists(&src_dir) {
+    if !fs::exists(extension_path.join("src")) {
         return Err(eyre!("Missing src directory"));
     }
-
-    let lib_rs = src_dir.join("lib.rs");
-    if !fs::exists(&lib_rs) {
-        return Err(eyre!("Missing src/lib.rs file"));
+    if !fs::exists(extension_path.join("src/lib.rs")) {
+        return Err(eyre!("Missing src/lib.rs"));
     }
 
-    println!("   ✓ Required files present");
+    println!("  Required files present");
     Ok(())
 }
 
-/// Validate Cargo.toml configuration
 fn validate_cargo_toml(extension_path: &Path) -> Result<()> {
-    println!("Checking Cargo.toml configuration...");
+    println!("Checking Cargo.toml...");
 
-    let cargo_toml_path = extension_path.join("Cargo.toml");
-    let content = fs::read_to_string(&cargo_toml_path)?;
+    let content = fs::read_to_string(extension_path.join("Cargo.toml"))?;
 
-    // Check for required sections
     if !content.contains("[lib]") {
         return Err(eyre!("Cargo.toml is missing [lib] section"));
     }
-
     if !content.contains("crate-type = [\"cdylib\"]") {
         return Err(eyre!("Cargo.toml must specify crate-type = [\"cdylib\"]"));
     }
-
     if !content.contains("quelle_extension") {
         return Err(eyre!("Cargo.toml is missing quelle_extension dependency"));
     }
 
-    // Check package metadata
-    if !content.contains("[package.metadata.component]") {
-        return Err(eyre!("Cargo.toml is missing component metadata"));
-    }
-
-    println!("   ✓ Cargo.toml configuration valid");
+    println!("  Cargo.toml valid");
     Ok(())
 }
 
-/// Validate source files for basic correctness
 fn validate_source_files(extension_path: &Path) -> Result<()> {
-    println!("🦀 Checking source files...");
+    println!("Checking source files...");
 
-    let lib_rs_path = extension_path.join("src/lib.rs");
-    let content = fs::read_to_string(&lib_rs_path)?;
+    let content = fs::read_to_string(extension_path.join("src/lib.rs"))?;
 
-    // Check for required imports and macros
     if !content.contains("register_extension!") {
         return Err(eyre!("lib.rs is missing register_extension! macro"));
     }
-
     if !content.contains("impl QuelleExtension") {
         return Err(eyre!("lib.rs is missing QuelleExtension implementation"));
     }
 
-    // Check for required methods
-    let required_methods = [
-        "fn new()",
-        "fn meta()",
-        "fn fetch_novel_info(",
-        "fn fetch_chapter(",
-        "fn simple_search(",
-    ];
-
-    for method in &required_methods {
-        if !content.contains(method) {
-            return Err(eyre!("lib.rs is missing required method: {}", method));
-        }
-    }
-
-    // Check for todo!() macros (should exist in template-generated extensions)
     let todo_count = content.matches("todo!(").count();
     if todo_count > 0 {
         println!(
-            "   Warning: Found {} todo!() macros - remember to implement these",
+            "  Warning: {} todo!() macro(s) not yet implemented",
             todo_count
         );
+    } else {
+        println!("  Source files valid");
     }
 
-    println!("   ✓ Source files structure valid");
     Ok(())
 }
 
-/// Validate that the extension builds successfully
 async fn validate_build(_extension_name: &str, extension_path: &Path) -> Result<()> {
-    println!("Checking build process...");
+    println!("Checking build...");
 
-    // Try to build the extension
     let output = tokio::process::Command::new("cargo")
         .args([
             "check",
@@ -149,7 +100,6 @@ async fn validate_build(_extension_name: &str, extension_path: &Path) -> Result<
         return Err(eyre!("Extension fails to compile:\n{}", stderr));
     }
 
-    // Try WASM build
     let output = tokio::process::Command::new("cargo")
         .args([
             "component",
@@ -167,59 +117,6 @@ async fn validate_build(_extension_name: &str, extension_path: &Path) -> Result<
         return Err(eyre!("Extension fails to build for WASM:\n{}", stderr));
     }
 
-    println!("   ✓ Extension builds successfully");
-    Ok(())
-}
-
-/// Validate extension runtime behavior (extended validation)
-async fn validate_extension_runtime(extension_name: &str, extension_path: &Path) -> Result<()> {
-    println!("Checking runtime behavior...");
-
-    // Create a dev server to test the extension
-    let mut dev_server = DevServer::new(
-        extension_name.to_string(),
-        extension_path.to_path_buf(),
-        Executor::Reqwest,
-    )
-    .await?;
-
-    // Build and load the extension
-    dev_server.build_extension().await?;
-    dev_server.load_extension().await?;
-
-    println!("   Warning: Runtime validation not fully implemented yet");
-    println!("   Success: Extension loads without crashes");
-    Ok(())
-}
-
-/// Validate extension metadata against naming conventions
-fn validate_naming_conventions(extension_path: &Path) -> Result<()> {
-    let cargo_toml_path = extension_path.join("Cargo.toml");
-    let content = fs::read_to_string(&cargo_toml_path)?;
-
-    // Extract package name
-    let package_name = content
-        .lines()
-        .find(|line| line.starts_with("name = "))
-        .and_then(|line| line.split('"').nth(1))
-        .ok_or_else(|| eyre!("Could not find package name in Cargo.toml"))?;
-
-    // Validate naming convention
-    if !package_name.starts_with("extension_") {
-        return Err(eyre!("Package name should start with 'extension_'"));
-    }
-
-    let extension_name = package_name.strip_prefix("extension_").unwrap();
-
-    // Check extension name format
-    if !extension_name
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '_')
-    {
-        return Err(eyre!(
-            "Extension name should only contain alphanumeric characters and underscores"
-        ));
-    }
-
+    println!("  Extension builds successfully");
     Ok(())
 }
