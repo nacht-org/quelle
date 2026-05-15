@@ -20,6 +20,7 @@ async fn serve_api(Extension(api): Extension<OpenApi>) -> impl IntoApiResponse {
 
 async fn serve_scalar(State(state): State<Arc<AppState>>) -> impl IntoApiResponse {
     let server_url = state.settings.server.url.to_string();
+    let server_url = server_url.trim_end_matches('/');
 
     axum::response::Html(format!(
         r#"
