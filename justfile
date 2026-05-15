@@ -50,3 +50,7 @@ help:
 
 build-api:
     docker build -f crates/api/Dockerfile -t quelle-api .
+
+push-container:
+    docker tag quelle-api ghcr.io/nacht-org/quelle:dev
+    docker push ghcr.io/nacht-org/quelle:dev
