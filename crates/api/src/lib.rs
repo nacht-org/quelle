@@ -59,6 +59,19 @@ pub async fn run(listener: TcpListener, state: AppState) -> Result<Server, std::
                 description: Some("Operations for managing and querying extensions.".to_string()),
                 ..Tag::default()
             })
+            .tag(Tag {
+                name: "Fetch".to_string(),
+                description: Some(
+                    "Operations for fetching novel and chapter content from extensions."
+                        .to_string(),
+                ),
+                ..Tag::default()
+            })
+            .tag(Tag {
+                name: "Stores".to_string(),
+                description: Some("Operations for managing novel library stores.".to_string()),
+                ..Tag::default()
+            })
         })
         .layer(Extension(api))
         .into_make_service(),
