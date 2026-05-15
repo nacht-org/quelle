@@ -49,8 +49,11 @@ help:
     cargo run -p quelle_cli -- --help
 
 build-api:
-    docker build -f crates/api/Dockerfile -t quelle-api .
+    docker build -f crates/api/Dockerfile -t quelle-api . --platform linux/amd64
 
 push-container:
     docker tag quelle-api ghcr.io/nacht-org/quelle:dev
     docker push ghcr.io/nacht-org/quelle:dev
+
+run-container:
+    docker run -p 3000:3000 quelle-api
