@@ -48,5 +48,7 @@ fn health_docs(op: TransformOperation) -> TransformOperation {
         .summary("Health check")
         .description("Returns 200 OK when the service is up and running.")
         .tag("System")
-        .response::<200, axum::Json<HealthResponse>>()
+        .response_with::<200, axum::Json<HealthResponse>, _>(|res| {
+            res.description("The service is healthy.")
+        })
 }
