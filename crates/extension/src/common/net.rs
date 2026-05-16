@@ -1,5 +1,7 @@
 /// Constructs an absolute URL from a relative URL and a base URL.
 ///
+/// If it start with data: or blob: it will be returned as is to avoid breaking data URLs and blob URLs.
+///
 /// # Examples
 ///
 /// ```
@@ -8,6 +10,10 @@
 /// assert_eq!(abs, "https://example.com/foo/bar");
 /// ```
 pub fn make_absolute_url(relative_url: &str, base_url: &str) -> String {
+    if relative_url.starts_with("data:") || relative_url.starts_with("blob:") {
+        return relative_url.to_string();
+    }
+
     if relative_url.starts_with("http://") || relative_url.starts_with("https://") {
         relative_url.to_string()
     } else if relative_url.starts_with("//") {
