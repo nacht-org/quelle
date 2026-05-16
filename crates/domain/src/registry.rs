@@ -39,7 +39,7 @@ impl ExtensionRegistry {
                 .registry_store()
                 .get_extension_wasm_bytes(id)
                 .await
-                .map_err(|e| eyre::eyre!(e))?
+                .map_err(eyre::Report::new)?
         };
 
         tracing::info!(
@@ -68,7 +68,7 @@ impl ExtensionRegistry {
             store_manager
                 .find_and_install_for_url(url)
                 .await
-                .map_err(|e| eyre::eyre!("{}", e))?
+                .map_err(eyre::Report::new)?
         };
 
         if !self.extensions.contains_key(&installed.id) {
@@ -83,7 +83,7 @@ impl ExtensionRegistry {
                     .registry_store()
                     .get_extension_wasm_bytes(&installed.id)
                     .await
-                    .map_err(|e| eyre::eyre!(e))?
+                    .map_err(eyre::Report::new)?
             };
 
             let session = ExtensionSession::new(Arc::clone(&self.engine), wasm_bytes);

@@ -4,6 +4,7 @@ use aide::{
     openapi::{Operation, Response, StatusCode},
 };
 use axum::{http::StatusCode as HttpStatusCode, response::IntoResponse};
+
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -13,6 +14,9 @@ pub type ApiResult<T> = Result<T, ApiError>;
 pub enum ApiError {
     #[error("Internal error: {0}")]
     InternalError(#[from] eyre::Report),
+
+    #[error("{0}")]
+    NotFound(String),
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -23,6 +27,13 @@ pub struct ErrorBody {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
+        match &self {
+            ApiError::InternalError(report) => {
+                tracing::error!("Internal error: {:?}", report);
+            }
+            ApiError::NotFound(_) => {}
+        }
+
         let (status, body) = error_to_response(&self);
         (status, axum::Json(body)).into_response()
     }
@@ -34,6 +45,12 @@ fn error_to_response(error: &ApiError) -> (HttpStatusCode, ErrorBody) {
             HttpStatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
                 message: "An internal error occurred".to_string(),
+            },
+        ),
+        ApiError::NotFound(msg) => (
+            HttpStatusCode::NOT_FOUND,
+            ErrorBody {
+                message: msg.clone(),
             },
         ),
     }
@@ -63,7 +80,16 @@ impl OperationOutput for ApiError {
         operation: &mut Operation,
     ) -> Vec<(Option<StatusCode>, Response)> {
         match Self::operation_response(ctx, operation) {
-            Some(res) => vec![(Some(StatusCode::Code(500)), res)],
+            Some(res) => vec![
+                (Some(StatusCode::Code(500)), res.clone()),
+                (
+                    Some(StatusCode::Code(404)),
+                    Response {
+                        description: "Not found.".to_string(),
+                        ..res
+                    },
+                ),
+            ],
             None => vec![],
         }
     }

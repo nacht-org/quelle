@@ -12,7 +12,26 @@ use quelle_types::{ChapterContent, Novel, SearchResult};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::{error::ApiResult, state::AppState};
+use crate::{
+    error::{ApiError, ApiResult},
+    state::AppState,
+};
+
+fn registry_error(report: eyre::Report) -> ApiError {
+    use quelle_store::StoreError;
+    if let Some(store_err) = report.downcast_ref::<StoreError>() {
+        match store_err {
+            StoreError::ExtensionNotFound(id) => {
+                return ApiError::NotFound(format!("Extension '{}' not found", id));
+            }
+            StoreError::RuntimeError(msg) if msg.starts_with("No extension found for URL") => {
+                return ApiError::NotFound(msg.clone());
+            }
+            _ => {}
+        }
+    }
+    ApiError::InternalError(report)
+}
 
 pub fn routes() -> ApiRouter<Arc<AppState>> {
     ApiRouter::new()
@@ -34,7 +53,11 @@ pub async fn get_novel(
     State(state): State<Arc<AppState>>,
     Query(query): Query<GetNovelQuery>,
 ) -> ApiResult<Json<Novel>> {
-    let extension_session = state.registry.get_extension(&query.url).await?;
+    let extension_session = state
+        .registry
+        .get_extension(&query.url)
+        .await
+        .map_err(registry_error)?;
 
     let novel = extension_session
         .call(async move |extension| {
@@ -65,7 +88,11 @@ pub async fn get_chapter(
     State(state): State<Arc<AppState>>,
     Query(query): Query<GetChapterQuery>,
 ) -> ApiResult<Json<ChapterContent>> {
-    let extension_session = state.registry.get_extension(&query.url).await?;
+    let extension_session = state
+        .registry
+        .get_extension(&query.url)
+        .await
+        .map_err(registry_error)?;
 
     let chapter_content = extension_session
         .call(async move |extension| {
@@ -99,7 +126,11 @@ pub async fn simple_search(
     Path(extension_id): Path<String>,
     Query(query): Query<SimpleSearchQuery>,
 ) -> ApiResult<Json<SearchResult>> {
-    let extension_session = state.registry.get_extension_by_id(&extension_id).await?;
+    let extension_session = state
+        .registry
+        .get_extension_by_id(&extension_id)
+        .await
+        .map_err(registry_error)?;
 
     let params = quelle_engine::bindings::SimpleSearchQuery {
         query: query.query,
